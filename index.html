@@ -115,7 +115,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v28</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v31</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -219,7 +219,7 @@
         <button class="btn" id="btnCam" onclick="toggleCamCadencia()">📷 Cámara</button>
       </div>
       <div id="camContainer" style="position:relative; margin-top:8px; touch-action:none;">
-        <video id="videoCam" autoplay muted playsinline style="width:100%; border-radius:10px; display:none; background:#000;"></video>
+        <video id="videoCam" autoplay muted playsinline style="width:100%; border-radius:10px; display:none; background:#000; touch-action:none;"></video>
         <div id="camROIOverlay" style="position:absolute; border:2px solid var(--ritmo); background:rgba(79,216,196,0.18); display:none; pointer-events:none;"></div>
       </div>
       <p class="nota" id="notaROICamara">Arrastrá sobre el video para marcar la zona donde pasa la
@@ -913,6 +913,40 @@
         reales de este caso puntual (no mandó video de la cámara esta
         vez) — pendiente confirmar con la próxima prueba si esto lo
         corrige del todo o si hace falta seguir ajustando.
+   v29: Hugo mandó otro video ("empecé lento y después aceleré pero no se
+        nota el cambio en los números") — CAUSA DE RAÍZ real, no del
+        algoritmo esta vez: hice zoom a la captura y la zona marcada (ROI)
+        quedó minúscula (~7% del ancho × ~4% del alto del video) y mal
+        ubicada, en el cielo de fondo, donde la pértiga apenas cruza un
+        instante. Con tan pocos píxeles reales de la pértiga en la zona,
+        la señal de ángulo es básicamente ruido de fondo — explica tanto
+        el "doble" de v28 como el "no cambia" de ahora, los dos son
+        síntoma de la misma causa (zona mal marcada), no un problema del
+        detector en sí.
+        El umbral que rechaza arrastres "insignificantes" en
+        onROIPointerUp() era demasiado permisivo (3% en cada dimensión) —
+        la zona real de Hugo (7%×4%) pasaba ese filtro igual. Subido a
+        12% en cada dimensión, con un aviso claro si el arrastre queda
+        muy chico ("arrastrá cubriendo bien todo el recorrido de la
+        pértiga") en vez de aceptarlo en silencio.
+        Por las dudas el arrastre se estuviera cortando antes de tiempo
+        (el <video> intercepta gestos táctiles propios en algunos
+        navegadores/dispositivos), agregado touch-action:none también
+        directo en el <video> además del contenedor — antes solo estaba
+        en el contenedor.
+        Este cambio es sobre todo de UI/interacción táctil, no lógica
+        pura testeable con node — validado con node --check y los
+        chequeos de rutina (IDs duplicados, funciones sin definir), no
+        con un test unitario dedicado.
+   v30: eje de la pértiga cambiado de negro (fibra de carbono) a color
+        aluminio ('#b0b4b8'), a pedido de Hugo — coincide con lo que se ve
+        en sus fotos/videos reales. Las hojas de la pala quedan en su tono
+        oscuro (eso sí corresponde, se ve así en el video de referencia).
+   v31: Hugo mandó una foto real de la pértiga en mano para precisar el
+        tono. Muestreé varios puntos a lo largo del caño (con variación
+        de luz/sombra típica de un metal cilíndrico) — el gris promedio
+        real es más frío y algo más oscuro que el '#b0b4b8' de v30.
+        Ajustado a '#9aa7b5'.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1477,11 +1511,18 @@ function onROIPointerUp(evt) {
   const fin = coordsRelativasVideo(evt);
   const x0 = Math.min(roiInicio.x, fin.x), x1 = Math.max(roiInicio.x, fin.x);
   const y0 = Math.min(roiInicio.y, fin.y), y1 = Math.max(roiInicio.y, fin.y);
-  if (x1 - x0 > 0.03 && y1 - y0 > 0.03) { // un toque sin arrastre no cuenta como selección
+  // Hugo marcó sin querer una zona minúscula (7% x 4% del video, en el cielo de fondo, apenas
+  // pasaba la pértiga) que el umbral viejo de 3% aceptaba igual — con tan pocos píxeles la señal
+  // de ángulo es casi puro ruido, y eso explicaba tanto el "doble" de antes como el "no cambia"
+  // de ahora. Subido a 12% en cada dimensión: sigue permitiendo una zona angosta a propósito,
+  // pero ya no una tan chica como para ser un arrastre corto sin querer.
+  const MIN_FRACCION = 0.12;
+  if (x1 - x0 > MIN_FRACCION && y1 - y0 > MIN_FRACCION) {
     camROI = { x0, y0, x1, y1 };
     toast('Zona marcada — el análisis ahora mira solo ahí');
   } else {
-    mostrarOverlayDesdeROI(); // arrastre insignificante: vuelvo a mostrar lo que ya había (o nada)
+    toast('Esa zona quedó muy chica — arrastrá cubriendo bien todo el recorrido de la pértiga');
+    mostrarOverlayDesdeROI(); // vuelvo a mostrar lo que ya había marcado antes (o nada)
   }
 }
 function actualizarOverlayROI(a, b) {
@@ -2560,7 +2601,9 @@ function dibujarKayakistaDesdeD(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey
   const overhang = prop.largoPertiga * s;
   const palaDerX = manoDer.x + ux * overhang, palaDerY = manoDer.y + uy * overhang;
   const palaIzqX = manoIzq.x - ux * overhang, palaIzqY = manoIzq.y - uy * overhang;
-  segmentoGrueso(ctx, palaIzqX, palaIzqY, palaDerX, palaDerY, 0.075 * s, 0.075 * s, '#20242b');
+  // eje de la pértiga: color aluminio (a pedido de Hugo, viendo sus fotos/videos reales — antes
+  // era el mismo negro oscuro que las hojas, que correspondía más a fibra de carbono)
+  segmentoGrueso(ctx, palaIzqX, palaIzqY, palaDerX, palaDerY, 0.075 * s, 0.075 * s, '#9aa7b5');
   const angulo = Math.atan2(uy, ux);
   [[palaDerX, palaDerY, dDer.escalaPala], [palaIzqX, palaIzqY, dIzq.escalaPala]].forEach(([x, y, escala]) => {
     escala = escala == null ? 1 : escala;
