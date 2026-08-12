@@ -218,12 +218,19 @@
         <button class="btn" id="btnMic" onclick="toggleMicCadencia()">🎤 Micrófono</button>
         <button class="btn" id="btnCam" onclick="toggleCamCadencia()">📷 Cámara</button>
       </div>
-      <video id="videoCam" autoplay muted playsinline style="width:100%; border-radius:10px; margin-top:8px; display:none; background:#000;"></video>
+      <div id="camContainer" style="position:relative; margin-top:8px; touch-action:none;">
+        <video id="videoCam" autoplay muted playsinline style="width:100%; border-radius:10px; display:none; background:#000;"></video>
+        <div id="camROIOverlay" style="position:absolute; border:2px solid var(--ritmo); background:rgba(79,216,196,0.18); display:none; pointer-events:none;"></div>
+      </div>
+      <p class="nota" id="notaROICamara">Arrastrá sobre el video para marcar la zona donde pasa la
+        pértiga — el análisis de movimiento se limita a esa zona (en vez de mirar todo el cuadro,
+        cara y fondo incluidos).</p>
+      <button class="btn chico" onclick="reiniciarROICamara()">↺ Reiniciar selección (usar el cuadro completo)</button>
       <div class="hud-grid" style="margin-top:10px;">
         <div class="hud-tile"><div class="val" id="cadMic">--<span id="flashMic" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por audio</div></div>
         <div class="hud-tile"><div class="val" id="cadCam">--<span id="flashCam" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por cámara</div></div>
       </div>
-      <label style="margin-top:10px; display:block;">Sensibilidad (más alto = detecta picos más marcados solamente) <span id="lblSensibilidad" class="editor-val">1.6</span></label>
+      <label style="margin-top:10px; display:block;">Sensibilidad del audio (más alto = detecta picos más marcados solamente; la cámara se autoajusta sola, no usa este slider) <span id="lblSensibilidad" class="editor-val">1.6</span></label>
       <input type="range" id="sliderSensibilidad" min="120" max="300" value="160" oninput="cambiarSensibilidadPico(this.value)">
     </div>
   </section>
@@ -793,6 +800,44 @@
         Calibración a Sesión (sí se cortan yendo a cualquier otra
         pestaña) — se pueden arrancar en Calibración y seguir corriendo
         durante toda la sesión.
+   v24: Hugo, mirando la captura de la cámara: "quiero que detecte el
+        movimiento de la pértiga" — antes el análisis de movimiento
+        miraba el CUADRO COMPLETO del video (cara, torso, fondo incluidos),
+        así que la pértiga era una fracción chica de la señal total, y por
+        eso la cámara enganchaba mucho peor que el audio en la comparación
+        (11 vs 28 en su captura). Agregada selección de zona: arrastrás
+        sobre el <video> (pointerdown/pointermove/pointerup) y eso define
+        un rectángulo (camROI, en fracciones 0..1 del video, no en
+        píxeles — así no depende de la resolución real de la cámara) que
+        se dibuja como overlay semitransparente encima del video para
+        confirmar visualmente qué quedó marcado. loopCamCadencia() recorta
+        a ese rectángulo ANTES de bajar la resolución a 48×36 (drawImage
+        ya soporta un rectángulo de origen distinto al de destino, no hizo
+        falta tocar nada más del algoritmo de detección de picos). Botón
+        "Reiniciar selección" para volver al cuadro completo.
+   v25: Hugo mandó un video real (screen recording de la prueba de
+        cámara). Repliqué el pipeline completo en Python sobre los 144
+        frames reales (recorte del <video> dentro de la captura + reducido
+        a 48×36 + diferencia de canal rojo, igual que hace la app) para
+        analizar el problema con datos de verdad en vez de a ciegas.
+        Hallazgo: la señal de "cuánto cambió el cuadro" entre frames de
+        movimiento de remo es una oscilación CONTINUA (sube y baja todo el
+        tiempo entre un piso y un techo que van cambiando), no picos
+        aislados contra un fondo silencioso como el audio — con el mismo
+        detector de piso-adaptativo×factor que usa el audio, esa señal
+        real daba resultados erráticos (reproduje en Python los mismos
+        saltos 78/92/119 p/m que se vieron en pantalla). Con un detector
+        de histéresis (dos umbrales sobre el rango mín/máx de una ventana
+        móvil de ~1.2s — sube por el de arriba, tiene que volver a bajar
+        del de abajo antes de contar la próxima palada, mismo principio
+        que un Schmitt trigger) la MISMA señal real dio paladas cada
+        0.7-0.8s de forma consistente. Agregada procesarEnergiaHisteresis()
+        como detector separado, específico para cámara — el audio sigue
+        con procesarEnergiaPico() sin tocar, porque un golpe de sonido sí
+        es un transitorio aislado contra silencio, ahí el detector viejo
+        tiene sentido. El slider de sensibilidad ahora solo afecta al
+        audio (la cámara se autoajusta con su propia ventana móvil, no
+        necesita ese parámetro).
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1125,6 +1170,56 @@ function procesarEnergiaPico(estado, energia, tsMs, factorPico) {
   return { baseline, ultimoPico, intervalos, cadencia, huboPico };
 }
 
+/* ============================================================
+   DETECTOR DE HISTÉRESIS — específico para CÁMARA, no para audio.
+   Con el video real que mandó Hugo confirmé algo importante: "cuánto
+   cambió el cuadro" entre frames sucesivos es una señal CONTINUA que
+   oscila entre un piso y un techo que van cambiando — no son picos
+   aislados contra un fondo bajo y silencioso como el audio. El detector
+   de arriba (piso adaptativo × factor) está pensado para eso último, y
+   con la señal de cámara real daba números erráticos (probado: 78, 92,
+   119 p/m saltando todo el tiempo, calcado de lo que se vio en pantalla).
+   Un detector de histéresis con dos umbrales sobre el rango (mín/máx) de
+   una ventana móvil reciente sí sigue bien una señal que oscila así:
+   cuenta una palada cuando sube por encima del umbral alto, y no vuelve
+   a contar otra hasta que primero baje del umbral bajo — mismo principio
+   que un Schmitt trigger. Con la señal real del video, este detector dio
+   paladas cada 0.7-0.8s de forma consistente, contra el desorden del
+   detector anterior.
+   ============================================================ */
+function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
+  opts = opts || {};
+  const VENTANA_MS = opts.ventanaMs || 1200;
+  const FACTOR_ALTO = opts.factorAlto || 0.55;
+  const FACTOR_BAJO = opts.factorBajo || 0.35;
+  const historial = (estado.historial || []).concat([{ energia, ts: tsMs }])
+    .filter(p => tsMs - p.ts <= VENTANA_MS);
+  const valores = historial.map(p => p.energia);
+  const mn = Math.min(...valores), mx = Math.max(...valores);
+  const rango = mx - mn;
+  let estadoAlto = !!estado.estadoAlto;
+  let huboPico = false;
+  let ultimoPico = estado.ultimoPico;
+  const intervalos = estado.intervalos ? estado.intervalos.slice() : [];
+  if (rango > 1e-6) {
+    const uAlto = mn + rango * FACTOR_ALTO, uBajo = mn + rango * FACTOR_BAJO;
+    if (!estadoAlto && energia > uAlto) {
+      huboPico = true;
+      estadoAlto = true;
+      if (ultimoPico != null) {
+        intervalos.push(tsMs - ultimoPico);
+        if (intervalos.length > 5) intervalos.shift();
+      }
+      ultimoPico = tsMs;
+    } else if (estadoAlto && energia < uBajo) {
+      estadoAlto = false;
+    }
+  }
+  const promedioMs = intervalos.length ? intervalos.reduce((a, b) => a + b, 0) / intervalos.length : null;
+  const cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  return { historial, estadoAlto, ultimoPico, intervalos, cadencia, huboPico };
+}
+
 let sensibilidadPico = 1.6;
 function cambiarSensibilidadPico(valorSlider) {
   sensibilidadPico = parseInt(valorSlider, 10) / 100;
@@ -1182,6 +1277,8 @@ function detenerMicCadencia() {
 
 // --- CÁMARA ---
 let camStream = null, camRAF = null, camEstado = {}, camFramePrev = null;
+let camROI = null; // {x0,y0,x1,y1} normalizado 0..1 respecto del video — null = cuadro completo
+let roiArrastrando = false, roiInicio = null;
 const CAM_ANCHO = 48, CAM_ALTO = 36; // resolución bajita a propósito: no hace falta más para medir movimiento
 async function toggleCamCadencia() {
   if (camStream) { detenerCamCadencia(); return; }
@@ -1196,10 +1293,75 @@ async function toggleCamCadencia() {
     camFramePrev = null;
     camEstado = {};
     document.getElementById('btnCam').textContent = '📷 Detener';
+    inicializarROIListeners();
+    mostrarOverlayDesdeROI();
     loopCamCadencia();
   } catch (e) {
     toast('No se pudo usar la cámara: ' + e.message);
   }
+}
+// selección de zona (a pedido de Hugo: "quiero que detecte el movimiento de la pértiga", no de
+// todo el cuadro — con la cara/torso/fondo también moviéndose, la pértiga era una fracción chica
+// de la señal). Arrastrás sobre el <video> y eso se recorta directo al analizar cada frame — no
+// hace falta tocar la resolución de análisis (CAM_ANCHO×CAM_ALTO) ni el resto del algoritmo,
+// drawImage() ya soporta un rectángulo de origen distinto al de destino.
+function inicializarROIListeners() {
+  const video = document.getElementById('videoCam');
+  if (video._roiListo) return; // no duplicar listeners si se reconecta la cámara varias veces
+  video._roiListo = true;
+  video.addEventListener('pointerdown', onROIPointerDown);
+  video.addEventListener('pointermove', onROIPointerMove);
+  window.addEventListener('pointerup', onROIPointerUp);
+}
+function coordsRelativasVideo(evt) {
+  const video = document.getElementById('videoCam');
+  const rect = video.getBoundingClientRect();
+  return {
+    x: Math.min(Math.max((evt.clientX - rect.left) / rect.width, 0), 1),
+    y: Math.min(Math.max((evt.clientY - rect.top) / rect.height, 0), 1),
+  };
+}
+function onROIPointerDown(evt) {
+  if (!camStream) return;
+  roiArrastrando = true;
+  roiInicio = coordsRelativasVideo(evt);
+  evt.preventDefault();
+}
+function onROIPointerMove(evt) {
+  if (!roiArrastrando) return;
+  actualizarOverlayROI(roiInicio, coordsRelativasVideo(evt));
+  evt.preventDefault();
+}
+function onROIPointerUp(evt) {
+  if (!roiArrastrando) return;
+  roiArrastrando = false;
+  const fin = coordsRelativasVideo(evt);
+  const x0 = Math.min(roiInicio.x, fin.x), x1 = Math.max(roiInicio.x, fin.x);
+  const y0 = Math.min(roiInicio.y, fin.y), y1 = Math.max(roiInicio.y, fin.y);
+  if (x1 - x0 > 0.03 && y1 - y0 > 0.03) { // un toque sin arrastre no cuenta como selección
+    camROI = { x0, y0, x1, y1 };
+    toast('Zona marcada — el análisis ahora mira solo ahí');
+  } else {
+    mostrarOverlayDesdeROI(); // arrastre insignificante: vuelvo a mostrar lo que ya había (o nada)
+  }
+}
+function actualizarOverlayROI(a, b) {
+  const overlay = document.getElementById('camROIOverlay');
+  const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+  overlay.style.display = 'block';
+  overlay.style.left = (x0 * 100) + '%';
+  overlay.style.top = (y0 * 100) + '%';
+  overlay.style.width = ((x1 - x0) * 100) + '%';
+  overlay.style.height = ((y1 - y0) * 100) + '%';
+}
+function mostrarOverlayDesdeROI() {
+  if (camROI) actualizarOverlayROI({ x: camROI.x0, y: camROI.y0 }, { x: camROI.x1, y: camROI.y1 });
+  else document.getElementById('camROIOverlay').style.display = 'none';
+}
+function reiniciarROICamara() {
+  camROI = null;
+  document.getElementById('camROIOverlay').style.display = 'none';
+  toast('Vuelve a analizar el cuadro completo');
 }
 function loopCamCadencia() {
   if (!camStream) return;
@@ -1210,13 +1372,22 @@ function loopCamCadencia() {
       loopCamCadencia._canvas.width = CAM_ANCHO; loopCamCadencia._canvas.height = CAM_ALTO;
     }
     const cv = loopCamCadencia._canvas, ctx = cv.getContext('2d');
-    ctx.drawImage(video, 0, 0, CAM_ANCHO, CAM_ALTO);
+    // recorto al rectángulo de origen ANTES de bajar la resolución, si hay una zona marcada —
+    // así lo que se analiza es solo la pértiga, no el cuadro completo
+    let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
+    if (camROI) {
+      sx = camROI.x0 * video.videoWidth;
+      sy = camROI.y0 * video.videoHeight;
+      sw = (camROI.x1 - camROI.x0) * video.videoWidth;
+      sh = (camROI.y1 - camROI.y0) * video.videoHeight;
+    }
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAM_ANCHO, CAM_ALTO);
     const frame = ctx.getImageData(0, 0, CAM_ANCHO, CAM_ALTO).data;
     if (camFramePrev) {
       let diff = 0;
       for (let i = 0; i < frame.length; i += 4) diff += Math.abs(frame[i] - camFramePrev[i]); // canal rojo como proxy de luminancia
       const energia = diff / (CAM_ANCHO * CAM_ALTO);
-      camEstado = procesarEnergiaPico(camEstado, energia, performance.now(), sensibilidadPico);
+      camEstado = procesarEnergiaHisteresis(camEstado, energia, performance.now());
       if (camEstado.cadencia != null) {
         const cad = Math.round(camEstado.cadencia);
         document.getElementById('cadCam').firstChild.textContent = cad;
