@@ -139,6 +139,9 @@
         con solo tener el modo seleccionado). Si SÍ cambia pero el número de cadencia queda en 0,
         el problema es de dónde saca el reloj ese dato, no de la app.
       </p>
+      <p class="nota">Si arrancaste el micrófono o la cámara desde Calibración, siguen corriendo
+        acá y la cadencia que detecten también mueve al kayakista y la distancia — el último
+        sensor que reporte un dato nuevo es el que manda (igual que con el pulso banda/reloj).</p>
     </div>
 
     <div class="card">
@@ -773,6 +776,23 @@
         cadencia con la que cambia. Slider de sensibilidad compartido
         entre las dos fuentes (multiplica el piso adaptativo). Los dos
         streams se cortan solos si salís de la pestaña Calibración.
+   v23: dos pedidos de Hugo. (1) Cámara del test de audio/cámara cambiada
+        de trasera a FRONTAL (facingMode 'user') — así puede ver el HUD en
+        la pantalla mientras la cámara lo encuadra a él; con la trasera
+        tendría que mirar para otro lado. (2) "El modelo del kayakista
+        debe tener la cadencia que se determine a cada momento en la
+        sesión" — antes los detectores de audio/cámara solo actualizaban
+        su propio tile en Calibración, sin tocar actual.cadencia (la
+        variable que sí usa tick() para la distancia y loopSesionVivo()
+        para la velocidad de la animación en vivo). Ahora loopMicCadencia()
+        y loopCamCadencia() también escriben ahí cuando detectan un pico
+        — mismo criterio de "el último que escribe manda" que ya regía
+        entre banda/reloj para el pulso, ahora extendido a BLE/audio/
+        cámara para la cadencia. Para que esto sirva durante una sesión
+        real, cambiarTab() ya NO corta el micrófono/cámara al pasar de
+        Calibración a Sesión (sí se cortan yendo a cualquier otra
+        pestaña) — se pueden arrancar en Calibración y seguir corriendo
+        durante toda la sesión.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1137,7 +1157,15 @@ function loopMicCadencia() {
   for (let i = 0; i < buf.length; i++) { const d = buf[i] - 128; suma += d * d; }
   const rms = Math.sqrt(suma / buf.length);
   micEstado = procesarEnergiaPico(micEstado, rms, performance.now(), sensibilidadPico);
-  if (micEstado.cadencia != null) document.getElementById('cadMic').firstChild.textContent = Math.round(micEstado.cadencia);
+  if (micEstado.cadencia != null) {
+    const cad = Math.round(micEstado.cadencia);
+    document.getElementById('cadMic').firstChild.textContent = cad;
+    // alimenta la MISMA variable que usa el resto de la app (distancia, animación en vivo del
+    // kayakista) — así, si esto queda corriendo durante una sesión real, el modelo se mueve con
+    // la cadencia que se va determinando en cada momento, no solo con la del reloj. Mismo
+    // criterio de "el último que escribe manda" que ya se usa para el pulso banda/reloj.
+    actual.cadencia = cad;
+  }
   if (micEstado.huboPico) destellar('flashMic');
   micRAF = requestAnimationFrame(loopMicCadencia);
 }
@@ -1158,7 +1186,9 @@ const CAM_ANCHO = 48, CAM_ALTO = 36; // resolución bajita a propósito: no hace
 async function toggleCamCadencia() {
   if (camStream) { detenerCamCadencia(); return; }
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    // frontal, no trasera — a pedido de Hugo, así puede ver el HUD en la pantalla mientras la
+    // cámara lo encuadra a él (con la trasera tendría que mirar para otro lado)
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
     const video = document.getElementById('videoCam');
     video.srcObject = camStream;
     video.style.display = 'block';
@@ -1187,7 +1217,11 @@ function loopCamCadencia() {
       for (let i = 0; i < frame.length; i += 4) diff += Math.abs(frame[i] - camFramePrev[i]); // canal rojo como proxy de luminancia
       const energia = diff / (CAM_ANCHO * CAM_ALTO);
       camEstado = procesarEnergiaPico(camEstado, energia, performance.now(), sensibilidadPico);
-      if (camEstado.cadencia != null) document.getElementById('cadCam').firstChild.textContent = Math.round(camEstado.cadencia);
+      if (camEstado.cadencia != null) {
+        const cad = Math.round(camEstado.cadencia);
+        document.getElementById('cadCam').firstChild.textContent = cad;
+        actual.cadencia = cad; // mismo motivo que en loopMicCadencia — ver comentario ahí
+      }
       if (camEstado.huboPico) destellar('flashCam');
     }
     camFramePrev = frame;
@@ -2338,7 +2372,10 @@ function cambiarTab(nombre) {
   // Calibración (donde tiene sentido que siga sonando aunque cambies de vista dentro de la
   // misma pestaña, ej. estás viendo el paso 2 de un entreno)
   if (nombre !== 'entrenos' && nombre !== 'calibracion') { metroDetener(); metroDetenerBotonLibreYCalib(); if (ejecucion) detenerEjecucionEntreno(); }
-  if (nombre !== 'calibracion') { if (micStream) detenerMicCadencia(); if (camStream) detenerCamCadencia(); }
+  // el audio/cámara puede seguir corriendo entre Calibración y Sesión a propósito — si Hugo lo
+  // arrancó para usarlo como fuente de cadencia real durante la sesión, cambiar de pestaña entre
+  // esas dos no debería cortarlo. Se corta yendo a cualquier otra pestaña.
+  if (nombre !== 'calibracion' && nombre !== 'sesion') { if (micStream) detenerMicCadencia(); if (camStream) detenerCamCadencia(); }
 }
 
 renderCalibracion();
