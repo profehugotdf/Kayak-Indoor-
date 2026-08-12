@@ -115,7 +115,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v27</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v28</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -885,6 +885,34 @@
         todavía no vimos, nunca más debería llegar un número disparatado a
         la pantalla — se va a quedar clampeado en 200, visiblemente raro
         pero no absurdo.
+   v28: con v27 ya confirmado corriendo (badge "v27" visible en la
+        captura, "Kayak-Indoor" en la URL), Hugo reportó números ahora
+        acotados pero "aproximadamente el doble" de la cadencia real —
+        135-154 p/m contra lo que él sabía que estaba remando más cerca de
+        la mitad. Diagnóstico (sin video de la cámara esta vez, a partir
+        del patrón del error): con el ROI chico, la señal de velocidad
+        angular es ruidosa — un solo "hump" real (una palada) puede bajar
+        un poco en el medio por ese ruido y volver a subir, contándose
+        como DOS paladas en vez de una. Reproduje el escenario con un test
+        sintético (un hump con un valle de ruido en el medio): con
+        los umbrales de antes (alto 0.55/bajo 0.35 del rango, refractario
+        280ms) efectivamente cuenta 2; ensanchando el margen (alto
+        0.65/bajo 0.20, refractario 350ms específico para cámara —
+        exigen una excursión más marcada antes de contar) el mismo hump
+        cuenta 1 sola vez, sin perder paladas reales bien separadas.
+        Al armar ese test encontré un efecto secundario real aparte:
+        "arranque en frío" — con pocas muestras todavía, el rango
+        (mín/máx) de la ventana es minúsculo por pura casualidad, así que
+        hasta el ruido de fondo cruza el 65% de ese rango chiquito y
+        dispara un pico falso. Agregado un mínimo de 8 muestras en
+        ventana antes de evaluar cualquier pico — sin eso, los primeros
+        instantes de cualquier conexión de cámara podían arrancar con una
+        palada fantasma.
+        Esto es un ajuste EMPÍRICO a partir de la proporción "aprox. el
+        doble" que reportó Hugo, no algo que haya podido validar con datos
+        reales de este caso puntual (no mandó video de la cámara esta
+        vez) — pendiente confirmar con la próxima prueba si esto lo
+        corrige del todo o si hace falta seguir ajustando.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1249,6 +1277,11 @@ function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
   const VENTANA_MS = opts.ventanaMs || 1200;
   const FACTOR_ALTO = opts.factorAlto || 0.55;
   const FACTOR_BAJO = opts.factorBajo || 0.35;
+  const MIN_MUESTRAS = opts.minMuestras || 8; // "arranque en frío": con pocas muestras todavía,
+  // el rango (mín/máx) de la ventana es chiquito por pura casualidad (ni siquiera vio una palada
+  // real todavía), así que hasta el ruido de fondo cruza el 65% de ese rango minúsculo y dispara
+  // un pico falso. Con esto, no se evalúa nada hasta tener una ventana mínimamente representativa
+  // — nada más se acumula historial esos primeros instantes.
   const REFRACTARIO_MS = opts.refractarioMs || 280; // BUG de v25: esto faltaba. Sin un mínimo
   // entre paladas, ruido de un par de milisegundos entre frames (a 60fps eso es ~16ms) podía
   // contarse como paladas separadas — es justo lo que dio los números absurdos que mandó Hugo
@@ -1262,7 +1295,7 @@ function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
   let huboPico = false;
   let ultimoPico = estado.ultimoPico;
   const intervalos = estado.intervalos ? estado.intervalos.slice() : [];
-  if (rango > 1e-6) {
+  if (rango > 1e-6 && historial.length >= MIN_MUESTRAS) {
     const uAlto = mn + rango * FACTOR_ALTO, uBajo = mn + rango * FACTOR_BAJO;
     const puedeContar = ultimoPico == null || tsMs - ultimoPico >= REFRACTARIO_MS;
     if (!estadoAlto && energia > uAlto && puedeContar) {
@@ -1508,7 +1541,14 @@ function loopCamCadencia() {
       energia = diff / (CAM_ANCHO * CAM_ALTO);
     }
     if (energia != null) {
-      camEstado = procesarEnergiaHisteresis(camEstado, energia, performance.now());
+      // umbrales más separados y refractario más largo que el default, específicamente para
+      // cámara: con el ROI chico y la señal de ángulo con ruido, un "hump" real de velocidad
+      // angular puede bajar un poquito en el medio por ruido y volver a subir, contándose como
+      // dos paladas en vez de una — Hugo reportó justo eso, "aproximadamente el doble" de la
+      // cadencia real. Con más margen entre los umbrales, un dip chico de ruido en el medio de
+      // un hump ya no alcanza para resetear el estado "alto" y volver a contar.
+      camEstado = procesarEnergiaHisteresis(camEstado, energia, performance.now(),
+        { factorAlto: 0.65, factorBajo: 0.20, refractarioMs: 350 });
       if (camEstado.cadencia != null) {
         const cad = Math.round(camEstado.cadencia);
         document.getElementById('cadCam').firstChild.textContent = cad;
