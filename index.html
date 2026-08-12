@@ -1,0 +1,2352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Kayak Indoor</title>
+<style>
+  :root{
+    --bg:#0A0D10;
+    --panel:#12161B;
+    --panel2:#171C22;
+    --borde:#1F262D;
+    --texto:#EDEFF2;
+    --muted:#818B95;
+    --ritmo:#4FD8C4;
+    --pulso:#FF6B57;
+    --pendiente:#E8B84B;
+    --z1:#4FD8C4; --z2:#6FDD8E; --z3:#E8D24B; --z4:#F08B3C; --z5:#FF5A5F;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--texto);font-family:var(--sans);
+    height:100%; overflow-x:hidden;}
+  body{padding-bottom:24px;}
+  button{font-family:inherit; cursor:pointer;}
+  input{font-family:inherit;}
+
+  header{position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; background:rgba(10,13,16,0.92); backdrop-filter:blur(6px); border-bottom:1px solid var(--borde);}
+  header h1{font-size:19px; margin:0; letter-spacing:0.5px; font-weight:800;}
+  header .ver{font-family:var(--mono); font-size:11px; color:var(--muted); border:1px solid var(--borde);
+    border-radius:20px; padding:2px 9px; margin-left:8px;}
+  header .titulowrap{display:flex; align-items:baseline;}
+
+  nav.tabs{display:flex; gap:6px; padding:0 14px 10px; overflow-x:auto;}
+  nav.tabs button{flex:none; padding:8px 12px; border-radius:20px; border:1px solid var(--borde);
+    background:var(--panel2); color:var(--muted); font-weight:700; font-size:12px; white-space:nowrap;}
+  nav.tabs button.sel{color:var(--bg); background:var(--ritmo); border-color:var(--ritmo);}
+
+  main{padding:0 14px 24px;}
+  .view{display:none;}
+  .view.activa{display:block;}
+
+  .card{background:var(--panel); border:1px solid var(--borde); border-radius:14px; padding:14px; margin-bottom:12px;}
+  .card h2{font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin:0 0 10px;}
+  .fila{display:flex; gap:10px;}
+  .fila > *{flex:1;}
+
+  .estado-conexion{font-size:12px; color:var(--muted); margin-top:6px; font-family:var(--mono);}
+  .estado-conexion.ok{color:var(--z2);}
+  .estado-conexion.err{color:var(--pulso);}
+  .btn{display:block; width:100%; padding:12px; border-radius:10px; border:1px solid var(--borde);
+    background:var(--panel2); color:var(--texto); font-weight:700; font-size:14px; margin-top:8px;}
+  .btn.primario{background:var(--ritmo); color:#04211D; border-color:var(--ritmo);}
+  .btn.peligro{background:var(--pulso); color:#2A0B06; border-color:var(--pulso);}
+  .btn.chico{padding:8px; font-size:12px;}
+  .btn:disabled{opacity:0.4;}
+
+  .hud-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .hud-tile{background:var(--panel2); border:1px solid var(--borde); border-radius:12px; padding:12px; text-align:center;}
+  .hud-tile .val{font-family:var(--mono); font-size:26px; font-weight:800;}
+  .hud-tile .lbl{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-top:2px;}
+  .hud-tile.pulso .val{color:var(--pulso);}
+  .hud-tile.cad .val{color:var(--ritmo);}
+
+  .calib-fila{padding:10px 0; border-bottom:1px solid var(--borde);}
+  .calib-fila:last-child{border-bottom:none;}
+  .calib-fila-top{display:flex; align-items:center; gap:10px;}
+  .calib-fila-top .cad{font-family:var(--mono); font-weight:800; width:70px;}
+  .calib-fila-bottom{display:flex; align-items:center; gap:8px; margin-top:8px; margin-left:80px;}
+  .entreno-item{display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--borde);}
+  .entreno-item:last-child{border-bottom:none;}
+  .entreno-item .nombre{flex:1; font-weight:700;}
+  .entreno-item .dur{font-family:var(--mono); color:var(--muted); font-size:12px;}
+  .paso-fila{display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--borde);}
+  .paso-fila:last-child{border-bottom:none;}
+  .paso-fila input{padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--bg); color:var(--texto); font-family:var(--mono);}
+  .paso-fila input.cadIn{width:70px;}
+  .paso-fila input.durIn{width:75px;}
+  .paso-fila .quitar{flex:none; background:none; border:none; color:var(--pulso); font-size:18px; padding:4px 8px;}
+  .calib-fila input, .calib-fila select{width:100%; padding:8px; border-radius:8px; border:1px solid var(--borde);
+    background:var(--bg); color:var(--texto); font-family:var(--mono);}
+  .calib-fila select{flex:none; width:auto;}
+  .calib-fila .estado{width:22px; text-align:center; font-size:14px;}
+
+  table.lista{width:100%; border-collapse:collapse; font-size:13px;}
+  table.lista th{text-align:left; color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase;
+    padding:4px 6px; border-bottom:1px solid var(--borde);}
+  table.lista td{padding:8px 6px; border-bottom:1px solid var(--borde); font-family:var(--mono);}
+  table.lista tr.vacia td{color:var(--muted); font-family:var(--sans); text-align:center; padding:20px 0;}
+
+  .toast{position:fixed; left:50%; bottom:20px; transform:translateX(-50%) translateY(20px); opacity:0;
+    background:var(--panel2); border:1px solid var(--borde); color:var(--texto); padding:10px 16px; border-radius:10px;
+    font-size:13px; transition:all .2s; z-index:99; pointer-events:none;}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  .nota{font-size:12px; color:var(--muted); line-height:1.5;}
+
+  .editor-momento-btn{padding:8px 2px; border-radius:9px; border:1px solid var(--borde);
+    background:var(--panel2); color:var(--muted); font-size:11px; font-weight:700;}
+  .editor-momento-btn[data-momento$="D"]{border-bottom:2px solid var(--ritmo);}
+  .editor-momento-btn[data-momento$="I"]{border-bottom:2px solid var(--pendiente);}
+  .editor-momento-btn.sel{background:#1c2a1f; color:#fff; border-width:2px;}
+  .editor-grid4{display:grid; grid-template-columns:repeat(4, 1fr); gap:5px;}
+  .editor-vista-btn{flex:1; padding:8px 4px; border-radius:9px; border:1px solid var(--borde);
+    background:var(--panel2); color:var(--muted); font-weight:700; font-size:12px;}
+  .editor-vista-btn.sel{border-color:#fff; color:#fff; background:#22303a;}
+  .editor-sticky{position:sticky; top:0; z-index:5; box-shadow:0 12px 14px -10px rgba(0,0,0,0.6);}
+  .editor-val{font-family:var(--mono); color:var(--ritmo); font-size:12px;}
+  #canvasEditorKayak{margin-top:6px; border-radius:12px; background:#0d1a12; width:100%; display:block;}
+  #canvasSesionVivo{border-radius:12px; background:#0d1a12; width:100%; display:block;}
+  #view-editor input[type=range]{width:100%; margin:2px 0 14px; touch-action:pan-y;}
+  #view-editor label{display:flex; justify-content:space-between; margin-top:2px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v1</span></div>
+</header>
+<nav class="tabs">
+  <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
+  <button onclick="cambiarTab('calibracion')">📏 Calibración</button>
+  <button onclick="cambiarTab('entrenos')">🥁 Entrenos</button>
+  <button onclick="cambiarTab('editor')">🛠️ Editor</button>
+  <button onclick="cambiarTab('historial')">📈 Historial</button>
+</nav>
+<main>
+
+  <!-- ============ SESIÓN ============ -->
+  <section class="view activa" id="view-sesion">
+    <div class="card">
+      <h2>Sensores</h2>
+      <button class="btn" onclick="conectarRelojBLE()">Conectar reloj (modo Carrera Virtual)</button>
+      <div class="estado-conexion" id="estadoBLE">Sin conectar.</div>
+      <button class="btn chico" onclick="conectarBandaHR()">Conectar banda de pulso aparte</button>
+      <p class="nota" style="margin-top:8px; font-family:var(--mono); font-size:11px;" id="debugRSC">
+        RSC crudo: sin datos todavía. Si esto no cambia al remar, la notificación no está
+        llegando (probablemente hay que apretar "Iniciar" la actividad en el reloj, no alcanza
+        con solo tener el modo seleccionado). Si SÍ cambia pero el número de cadencia queda en 0,
+        el problema es de dónde saca el reloj ese dato, no de la app.
+      </p>
+    </div>
+
+    <div class="card">
+      <canvas id="canvasSesionVivo" height="220"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>En vivo</h2>
+      <div class="hud-grid">
+        <div class="hud-tile cad"><div class="val" id="hudCadencia">--</div><div class="lbl">Paladas/min</div></div>
+        <div class="hud-tile pulso"><div class="val" id="hudPulso">--</div><div class="lbl">Pulso</div></div>
+        <div class="hud-tile"><div class="val" id="hudDistancia">--</div><div class="lbl">Distancia est. (m)</div></div>
+        <div class="hud-tile"><div class="val" id="hudTiempo">00:00</div><div class="lbl">Tiempo</div></div>
+        <div class="hud-tile" style="grid-column:span 2;"><div class="val" id="hudFantasma">--</div><div class="lbl">vs. fantasma 👻</div></div>
+      </div>
+      <div class="nota" style="margin-top:10px;" id="notaCalib"></div>
+    </div>
+
+    <div class="card" id="fantasmaInfo"></div>
+
+    <div class="card">
+      <button class="btn primario" id="btnIniciar" onclick="iniciarSesion()">Iniciar sesión</button>
+      <button class="btn peligro" id="btnFinalizar" style="display:none;" onclick="finalizarSesion()">Finalizar sesión</button>
+    </div>
+  </section>
+
+  <!-- ============ CALIBRACIÓN ============ -->
+  <section class="view" id="view-calibracion">
+    <div class="card">
+      <h2>Protocolo de calibración</h2>
+      <p class="nota">
+        Con metrónomo a cada cadencia objetivo, remá hasta la distancia que elijas (podés bajarla
+        en las cadencias más exigentes) y anotá cuánto tardaste (mm:ss). Con estos puntos, la app
+        estima la velocidad para cualquier cadencia intermedia durante la sesión real.
+      </p>
+      <p class="nota" style="color:var(--pendiente);">
+        ⚠️ El velocímetro está calibrado al radio del disco de la paleta (ajustable). Si tocás esa
+        configuración de radio después de calibrar, estos valores quedan inválidos sin aviso —
+        anotá en algún lado qué radio/rueda tenías puesto al calibrar, y volvé a calibrar si lo cambiás.
+      </p>
+      <div id="listaCalib"></div>
+      <button class="btn primario" onclick="guardarCalibracion()">Guardar calibración</button>
+      <div class="estado-conexion" id="estadoCalib"></div>
+    </div>
+
+    <div class="card">
+      <h2>Probar banda Garmin HRM-Pro+</h2>
+      <p class="nota">
+        Conecta la banda directo (sin pasar por el reloj) y muestra en vivo exactamente lo que
+        transmite por BLE — sirve para confirmar si además del pulso expone algún servicio de
+        cadencia (running_speed_and_cadence), o si por este canal solo manda pulso.
+      </p>
+      <button class="btn" onclick="probarBandaGarmin()">Conectar y probar</button>
+      <button class="btn chico" onclick="desconectarPruebaBanda()">Desconectar</button>
+      <div class="estado-conexion" id="estadoPruebaBanda">Sin conectar.</div>
+      <div class="hud-grid" style="margin-top:10px;">
+        <div class="hud-tile pulso"><div class="val" id="pruebaPulso">--</div><div class="lbl">Pulso (bpm)</div></div>
+        <div class="hud-tile"><div class="val" id="pruebaRSCEstado" style="font-size:14px;">--</div><div class="lbl">Servicio de cadencia (RSC)</div></div>
+      </div>
+      <p class="nota" style="margin-top:8px;">Cadencia cruda RSC: <span id="pruebaRSCCadencia">--</span> ·
+        Velocidad cruda RSC: <span id="pruebaRSCVelocidad">--</span></p>
+      <p class="nota">Bytes crudos del último paquete RSC: <span id="pruebaRSCCrudo" style="font-family:var(--mono);">--</span></p>
+    </div>
+
+    <div class="card">
+      <h2>Cadencia por audio/cámara (experimental)</h2>
+      <p class="nota">
+        Detecta paladas por sonido (el ruido de la resistencia de aire en cada palada) o por
+        movimiento de cámara (encuadrá el brazo o la pala), sin depender de ningún sensor
+        Bluetooth. Los dos usan el mismo algoritmo de detección de picos — probalos juntos para
+        comparar cuál engancha mejor con tu ergómetro.
+      </p>
+      <div class="fila">
+        <button class="btn" id="btnMic" onclick="toggleMicCadencia()">🎤 Micrófono</button>
+        <button class="btn" id="btnCam" onclick="toggleCamCadencia()">📷 Cámara</button>
+      </div>
+      <video id="videoCam" autoplay muted playsinline style="width:100%; border-radius:10px; margin-top:8px; display:none; background:#000;"></video>
+      <div class="hud-grid" style="margin-top:10px;">
+        <div class="hud-tile"><div class="val" id="cadMic">--<span id="flashMic" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por audio</div></div>
+        <div class="hud-tile"><div class="val" id="cadCam">--<span id="flashCam" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por cámara</div></div>
+      </div>
+      <label style="margin-top:10px; display:block;">Sensibilidad (más alto = detecta picos más marcados solamente) <span id="lblSensibilidad" class="editor-val">1.6</span></label>
+      <input type="range" id="sliderSensibilidad" min="120" max="300" value="160" oninput="cambiarSensibilidadPico(this.value)">
+    </div>
+  </section>
+
+  <!-- ============ ENTRENOS DE CADENCIA (metrónomo) ============ -->
+  <section class="view" id="view-entrenos">
+    <div class="card">
+      <h2>Metrónomo libre</h2>
+      <div class="hud-grid" style="grid-template-columns:1fr;">
+        <div class="hud-tile"><div class="val" id="metroBPMVal">80</div><div class="lbl">Paladas/min</div></div>
+      </div>
+      <input type="range" id="metroBPMSlider" min="40" max="160" value="80" oninput="cambiarBPMLibre(this.value)" style="margin-top:10px;">
+      <button class="btn primario" id="btnMetroLibre" onclick="toggleMetronomoLibre()">▶ Iniciar metrónomo</button>
+    </div>
+
+    <div class="card" id="cardListaEntrenos">
+      <h2>Mis entrenamientos de cadencia</h2>
+      <div id="listaEntrenos"></div>
+      <button class="btn primario" onclick="nuevoEntreno()">+ Nuevo entrenamiento</button>
+    </div>
+
+    <div class="card" id="cardEditorEntreno" style="display:none;">
+      <h2>Editar entrenamiento</h2>
+      <input type="text" id="entrenoNombre" placeholder="Nombre (ej. Piramidal de cadencia)"
+        style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); margin-bottom:10px;">
+      <div id="listaPasosEntreno"></div>
+      <button class="btn chico" onclick="agregarPasoEntreno()">+ Agregar paso</button>
+      <div class="fila" style="margin-top:10px;">
+        <button class="btn primario" onclick="guardarEntreno()">Guardar</button>
+        <button class="btn" onclick="cancelarEdicionEntreno()">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="card" id="cardEjecutandoEntreno" style="display:none;">
+      <h2 id="ejecutandoNombre">Entrenamiento</h2>
+      <div class="hud-grid">
+        <div class="hud-tile cad"><div class="val" id="ejecutandoCadencia">--</div><div class="lbl">Paladas/min objetivo</div></div>
+        <div class="hud-tile"><div class="val" id="ejecutandoRestante">00:00</div><div class="lbl">Resta este paso</div></div>
+      </div>
+      <p class="nota" style="margin-top:10px;" id="ejecutandoSiguiente"></p>
+      <button class="btn peligro" onclick="detenerEjecucionEntreno()" style="margin-top:8px;">■ Detener</button>
+    </div>
+  </section>
+
+  <!-- ============ EDITOR DE ANIMACIÓN ============ -->
+  <section class="view" id="view-editor">
+    <div class="card editor-sticky">
+      <div class="editor-grid4">
+        <button class="btn chico editor-momento-btn" data-momento="entradaD" onclick="seleccionarEditorMomento('entradaD')">Entrada D</button>
+        <button class="btn chico editor-momento-btn" data-momento="traccionD" onclick="seleccionarEditorMomento('traccionD')">Tracción D</button>
+        <button class="btn chico editor-momento-btn" data-momento="salidaD" onclick="seleccionarEditorMomento('salidaD')">Salida D</button>
+        <button class="btn chico editor-momento-btn" data-momento="recuperacionD" onclick="seleccionarEditorMomento('recuperacionD')">Recup. D</button>
+        <button class="btn chico editor-momento-btn" data-momento="entradaI" onclick="seleccionarEditorMomento('entradaI')">Entrada I</button>
+        <button class="btn chico editor-momento-btn" data-momento="traccionI" onclick="seleccionarEditorMomento('traccionI')">Tracción I</button>
+        <button class="btn chico editor-momento-btn" data-momento="salidaI" onclick="seleccionarEditorMomento('salidaI')">Salida I</button>
+        <button class="btn chico editor-momento-btn" data-momento="recuperacionI" onclick="seleccionarEditorMomento('recuperacionI')">Recup. I</button>
+      </div>
+      <div class="fila" style="margin-top:8px;">
+        <button class="editor-vista-btn sel" data-vista="der" onclick="cambiarEditorVista('der')">Sliders: Derecho</button>
+        <button class="editor-vista-btn" data-vista="izq" onclick="cambiarEditorVista('izq')">Sliders: Izquierdo</button>
+      </div>
+      <canvas id="canvasEditorKayak" height="200"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Previsualización animada (los 8 instantes en loop)</h2>
+      <canvas id="canvasEditorPreview" height="160"></canvas>
+      <button class="btn primario" id="btnEditorPlay" onclick="editorTogglePlay()" style="margin-top:8px;">▶ Reproducir</button>
+    </div>
+
+    <div class="card">
+      <label>Rotación de torso (este instante) <span id="lblRotacion" class="editor-val"></span></label>
+      <input type="range" id="ed_rotacion" min="-500" max="500" oninput="actualizarEditorRotacion(this.value)">
+      <button class="btn chico" onclick="reiniciarEditorMomento()">↺ Reiniciar este instante (los dos lados) a su valor por defecto</button>
+      <button class="btn chico" onclick="espejarEditorInstante()" style="margin-top:8px;">🪞 Espejar D→I: pisa Entrada/Tracción/Salida/Recuperación I con el espejo de los D</button>
+      <p class="nota" style="margin-top:10px;">Necesito capturas de pantalla de este canvas para ir corrigiendo — no puedo ver cómo se renderiza.</p>
+    </div>
+
+    <div class="card" id="cardEditorDer">
+      <h2>Brazo Derecho</h2>
+      <label>Codo X <span id="lblDerCodoX" class="editor-val"></span></label>
+      <input type="range" id="ed_der_elX" min="-700" max="700" oninput="actualizarEditor('der','elX', this.value)">
+      <label>Codo Y <span id="lblDerCodoY" class="editor-val"></span></label>
+      <input type="range" id="ed_der_elY" min="-700" max="700" oninput="actualizarEditor('der','elY', this.value)">
+      <label>Mano X <span id="lblDerManoX" class="editor-val"></span></label>
+      <input type="range" id="ed_der_wrX" min="-1300" max="1300" oninput="actualizarEditor('der','wrX', this.value)">
+      <label>Mano Y <span id="lblDerManoY" class="editor-val"></span></label>
+      <input type="range" id="ed_der_wrY" min="-1300" max="1300" oninput="actualizarEditor('der','wrY', this.value)">
+      <label>Escala de la pala (0 = no se ve, bajo el agua) <span id="lblDerEscalaPala" class="editor-val"></span></label>
+      <input type="range" id="ed_der_escalaPala" min="0" max="1500" oninput="actualizarEditor('der','escalaPala', this.value)">
+      <label>Espuma: offset X <span id="lblDerSplashX" class="editor-val"></span></label>
+      <input type="range" id="ed_der_splashX" min="-500" max="500" oninput="actualizarEditor('der','splashX', this.value)">
+      <label>Espuma: offset Y <span id="lblDerSplashY" class="editor-val"></span></label>
+      <input type="range" id="ed_der_splashY" min="-500" max="500" oninput="actualizarEditor('der','splashY', this.value)">
+      <label>Espuma: escala (0 = no se ve) <span id="lblDerSplashEscala" class="editor-val"></span></label>
+      <input type="range" id="ed_der_splashEscala" min="0" max="1500" oninput="actualizarEditor('der','splashEscala', this.value)">
+    </div>
+    <div class="card" id="cardEditorIzq" style="display:none;">
+      <h2>Brazo Izquierdo</h2>
+      <label>Codo X <span id="lblIzqCodoX" class="editor-val"></span></label>
+      <input type="range" id="ed_izq_elX" min="-700" max="700" oninput="actualizarEditor('izq','elX', this.value)">
+      <label>Codo Y <span id="lblIzqCodoY" class="editor-val"></span></label>
+      <input type="range" id="ed_izq_elY" min="-700" max="700" oninput="actualizarEditor('izq','elY', this.value)">
+      <label>Mano X <span id="lblIzqManoX" class="editor-val"></span></label>
+      <input type="range" id="ed_izq_wrX" min="-1300" max="1300" oninput="actualizarEditor('izq','wrX', this.value)">
+      <label>Mano Y <span id="lblIzqManoY" class="editor-val"></span></label>
+      <input type="range" id="ed_izq_wrY" min="-1300" max="1300" oninput="actualizarEditor('izq','wrY', this.value)">
+      <label>Escala de la pala (0 = no se ve, bajo el agua) <span id="lblIzqEscalaPala" class="editor-val"></span></label>
+      <input type="range" id="ed_izq_escalaPala" min="0" max="1500" oninput="actualizarEditor('izq','escalaPala', this.value)">
+      <label>Espuma: offset X <span id="lblIzqSplashX" class="editor-val"></span></label>
+      <input type="range" id="ed_izq_splashX" min="-500" max="500" oninput="actualizarEditor('izq','splashX', this.value)">
+      <label>Espuma: offset Y <span id="lblIzqSplashY" class="editor-val"></span></label>
+      <input type="range" id="ed_izq_splashY" min="-500" max="500" oninput="actualizarEditor('izq','splashY', this.value)">
+      <label>Espuma: escala (0 = no se ve) <span id="lblIzqSplashEscala" class="editor-val"></span></label>
+      <input type="range" id="ed_izq_splashEscala" min="0" max="1500" oninput="actualizarEditor('izq','splashEscala', this.value)">
+    </div>
+
+    <div class="card">
+      <h2>Proporciones del cuerpo y el equipo (iguales en los 8 instantes)</h2>
+      <label>Alto de tronco (cadera→hombro) <span id="lblProp_alturaTorso" class="editor-val"></span></label>
+      <input type="range" id="ed_prop_alturaTorso" min="1000" max="3000" oninput="actualizarProporcion('alturaTorso', this.value)">
+      <label>Ancho de tronco (cadera) <span id="lblProp_anchoTorsoCadera" class="editor-val"></span></label>
+      <input type="range" id="ed_prop_anchoTorsoCadera" min="200" max="1200" oninput="actualizarProporcion('anchoTorsoCadera', this.value)">
+      <label>Ancho de tronco (hombros) <span id="lblProp_anchoTorsoHombros" class="editor-val"></span></label>
+      <input type="range" id="ed_prop_anchoTorsoHombros" min="200" max="1200" oninput="actualizarProporcion('anchoTorsoHombros', this.value)">
+      <label>Separación de hombros (simula rotación) <span id="lblProp_anchoHombros" class="editor-val"></span></label>
+      <input type="range" id="ed_prop_anchoHombros" min="100" max="900" oninput="actualizarProporcion('anchoHombros', this.value)">
+      <label>Largo de pértiga (mano→pala) <span id="lblProp_largoPertiga" class="editor-val"></span></label>
+      <input type="range" id="ed_prop_largoPertiga" min="200" max="1200" oninput="actualizarProporcion('largoPertiga', this.value)">
+      <label>Largo de pala <span id="lblProp_largoPala" class="editor-val"></span></label>
+      <input type="range" id="ed_prop_largoPala" min="100" max="800" oninput="actualizarProporcion('largoPala', this.value)">
+      <label>Ancho de pala <span id="lblProp_anchoPala" class="editor-val"></span></label>
+      <input type="range" id="ed_prop_anchoPala" min="50" max="400" oninput="actualizarProporcion('anchoPala', this.value)">
+      <label>Altura del kayakista sobre el kayak <span id="lblProp_alturaSobreKayak" class="editor-val"></span></label>
+      <input type="range" id="ed_prop_alturaSobreKayak" min="-300" max="900" oninput="actualizarProporcion('alturaSobreKayak', this.value)">
+      <button class="btn chico" onclick="reiniciarProporciones()">↺ Reiniciar proporciones a su valor por defecto</button>
+    </div>
+
+    <div class="card">
+      <h2>Guardar la edición (para no perderla entre versiones)</h2>
+      <p class="nota">El localStorage puede no sobrevivir entre archivos nuevos que te mande. Con
+        "Generar código" me mandás el texto y lo pego como nuevos valores por defecto; con
+        "Descargar edición" te queda un respaldo en el teléfono que podés recargar después.</p>
+      <button class="btn primario" onclick="exportarEditorKayak()">Generar código</button>
+      <textarea id="editorCodigoExportadoKayak" readonly rows="4"
+        style="width:100%; margin-top:8px; background:var(--panel2); color:var(--texto); border:1px solid var(--borde); border-radius:8px; font-family:var(--mono); font-size:11px; padding:8px;"
+        placeholder="Tocá 'Generar código' y copiá lo que aparezca acá"></textarea>
+      <button class="btn chico" onclick="descargarEdicionEditorKayak()" style="margin-top:8px;">⬇️ Descargar edición (.json)</button>
+      <label class="btn chico" style="display:block; text-align:center; margin-top:8px;">
+        ⬆️ Cargar edición (.json)
+        <input type="file" accept="application/json" onchange="manejarArchivoEdicionKayak(event)" style="display:none;">
+      </label>
+    </div>
+  </section>
+
+  <!-- ============ HISTORIAL ============ -->
+  <section class="view" id="view-historial">
+    <div class="card">
+      <h2>Forma (combinada con Correr y Bici Indoor)</h2>
+      <div class="hud-grid">
+        <div class="hud-tile"><div class="val" id="formaCTL">--</div><div class="lbl">CTL</div></div>
+        <div class="hud-tile"><div class="val" id="formaATL">--</div><div class="lbl">ATL</div></div>
+        <div class="hud-tile"><div class="val" id="formaTSB">--</div><div class="lbl">TSB</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Sesiones de kayak</h2>
+      <table class="lista">
+        <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th></tr></thead>
+        <tbody id="tablaSesiones"><tr class="vacia"><td colspan="6">Sin sesiones todavía</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   KAYAK INDOOR — historial de versiones
+   ============================================================
+   v1: primer esqueleto. Arrancado a partir del código de Correr (v46) para
+       reusar convenciones: lsGet/lsSet, formato de tiempo, toast, pasoEWMA,
+       calcularSerieFormaCombinada (misma clave compartida
+       entrenamiento_forma_registro, misma fórmula EWMA), conexión BLE de
+       reloj/banda de pulso.
+
+       DECISIONES / SUPUESTOS de esta versión, a confirmar con datos reales:
+       - Fuente de cadencia: reloj Garmin en modo Carrera Virtual (único modo
+         confirmado que transmite algo por BLE), servicio estándar
+         running_speed_and_cadence. A diferencia de handleRSC() en Correr
+         (que multiplica x2 porque el campo BLE viene en zancadas/min y la
+         app usa pasos/min), ACÁ se toma el valor crudo del campo BLE tal
+         cual = paladas/min. Sin verificar todavía contra un conteo manual
+         real — si al probarlo la cadencia mostrada resulta ser la mitad
+         (o el doble) de las paladas reales, corregir el factor en
+         handleRSC() (un solo lugar, como en Correr).
+       - Sin Arduino+sensor Hall todavía: la distancia NO viene de un sensor
+         propio del ergómetro. Se estima interpolando la cadencia en vivo
+         contra una curva cadencia→velocidad armada a mano con el protocolo
+         de calibración (4 series de 30" a 60/80/100/120 paladas/min,
+         leyendo la distancia de esas series en el velocímetro de bici
+         montado en la paleta). Interpolación lineal entre puntos,
+         constante fuera de rango. Pendiente: si el Arduino+Hall se arma
+         más adelante, esta estimación pasa a ser una alternativa/respaldo,
+         no la fuente principal.
+       - TSS de la sesión: por ahora basado en pulso promedio vs. un umbral
+         de pulso manual (mismo patrón de intensidad al cuadrado que usa
+         Correr para ritmo), NO en la distancia estimada — la estimación de
+         distancia por calibración es demasiado aproximada todavía para
+         basar el TSS en eso. Revisar cuando haya más sesiones reales.
+
+       PENDIENTE (no en esta versión): editor de animación del kayakista y
+       render en vivo, exportación TCX, ajuste fino del protocolo de
+       calibración (ej. permitir más de 4 puntos), pulido de HUD.
+   v2: cambio de protocolo de calibración por precisión del velocímetro (±100m
+       en un intervalo corto de tiempo era demasiado ruido). Ahora en vez de
+       "30 segundos, anotar metros" es "500 metros fijos (con metrónomo a la
+       cadencia objetivo), anotar el tiempo en mm:ss" — un valor redondo en
+       el visor es más fácil de detectar que leer metros exactos, y el
+       tiempo se cronometra con precisión aparte. velocidadEstimada() ahora
+       calcula CALIB_DISTANCIA_M / tiempoSeg en vez de distanciaM / 30.
+       La distancia mostrada en el HUD durante la sesión sigue siendo una
+       ESTIMACIÓN aproximada, no una medición — pendiente decidir si vale la
+       pena redondearla en el HUD para no sugerir una precisión que no hay.
+   v3: aviso en la pantalla de Calibración: el velocímetro está calibrado al
+       radio del disco de la paleta (ajustable), no mide avance real como en
+       una bici — si se toca esa configuración después de calibrar, los
+       datos guardados quedan inválidos sin que la app lo detecte. Solo un
+       cartel, no hay forma de validarlo por software.
+   v4: primer Editor de animación del kayakista, mismo patrón que Correr —
+       8 instantes (Entrada/Tracción/Salida/Recuperación × D/I), cada uno
+       define el cuerpo completo (codo+mano por lado, relativos al hombro,
+       coeficiente × escala) más una rotación de torso por instante (en vez
+       del "bounce" vertical de Correr). Sin piernas animadas (fijas en la
+       cabina). dibujarKayakistaDesdeD() dibuja torso+cabeza+brazos+pala a
+       partir de esos campos — misma idea que dibujarPoseDesdeD() de
+       Correr, reusa segmentoGrueso().
+       IMPORTANTE: los valores por defecto (EDITOR_KEYFRAMES_DEFAULT_K) son
+       un placeholder a ojo, sin ninguna captura de pantalla real todavía —
+       a diferencia de Correr (que arrancó de fórmulas ya validadas en v19),
+       este punto de partida seguramente se vea mal y necesita iterar con
+       capturas reales del canvas antes de confiar en la pose.
+       Simplificación respecto a Correr: un solo "modo" de intensidad, no
+       hay franjas tipo caminata/trote/carrera/sprint — a definir si hace
+       falta variar la pose según cadencia más adelante.
+   v5: BUG encontrado por Hugo con captura de pantalla: en v4 el canvas solo
+       mostraba la elipse del pozo de cabina, nada más (ni torso, ni brazos,
+       ni pala). Causa: dibujarKayakistaDesdeD() llamaba a segmentoGrueso(),
+       pero esa función nunca se copió a este archivo (existe en Correr,
+       pero kayak.html es un archivo aparte) — ReferenceError silencioso a
+       mitad del dibujo, cortaba todo lo que venía después de la elipse.
+       Agregadas segmentoGrueso() y shadeHex() (copiadas de Correr).
+       Agregado test_dibujo.js: ctx simulado que llama a
+       dibujarKayakistaDesdeD() para los 8 momentos y falla si hay una
+       excepción o una coordenada NaN/Infinity — este test SÍ hubiera
+       agarrado el bug de arriba antes de entregar.
+       También, a pedido de Hugo: extraje frames del video de referencia
+       que mandó al principio de la conversación (vista trasera, lago con
+       orillas arboladas, horizonte, casco del kayak, estela, salpicadura
+       de espuma al salir la pala del agua) y rehice el render con eso:
+       - dibujarEscenaLago(): cielo, lomas/árboles simplificados en el
+         horizonte, agua con líneas de reflejo.
+       - dibujarCascoKayak(): silueta del casco + estela en V detrás.
+       - dibujarSplash(): columna de espuma + gotas en la pala que sale del
+         agua (se dispara en el canvas del editor cuando el instante
+         seleccionado es "Salida D" o "Salida I").
+       - Pala rediseñada: hojas ovaladas orientadas según el ángulo del eje
+         (antes eran óvalos sin rotar), color oscuro tipo fibra de carbono
+         como en el video (antes era un remo de madera clara, no correspondía).
+       - Valores por defecto de los 8 instantes actualizados con más
+         amplitud (mano de arriba extendida cerca de la cabeza) mirando los
+         frames del video — siguen siendo un punto de partida a ojo, no una
+         medición exacta, pero ahora con referencia real en vez de
+         inventados de cero.
+   v6: a pedido de Hugo (con captura de pantalla de "Salida I" y "Sliders:
+       Izquierdo"): casco corregido — lo tenía invertido (punta angosta
+       pegada al torso, ancho lejos); ahora es ancho en la cabina (pegado
+       al torso, que es lo que se ve más cerca en la vista trasera) y se
+       afina hasta la punta de popa hacia abajo/lejos de la cámara.
+       Agregada tarjeta "Proporciones del cuerpo y el equipo" en el Editor,
+       con sliders para: alto y ancho de tronco (cadera y hombros por
+       separado), separación de hombros (para simular la rotación del
+       torso — cuanto más separados, más "brazo de palanca" visual al
+       rotar), largo de pértiga (distancia mano→pala) y largo/ancho de
+       pala. Es un objeto aparte (PROPORCIONES_DEFAULT_K / localStorage
+       kayak_proporciones) porque a diferencia de elX/elY/wrX/wrY estos
+       valores son los mismos en los 8 instantes, no cambian palada a
+       palada.
+   v7: Hugo marcó (captura) que el kayakista queda "flotando" separado del
+       pozo de cabina, sin forma de bajarlo para que coincida. Causa: el
+       casco se dibujaba en hipY+0.15 (un offset fijo hardcodeado) mientras
+       el torso arrancaba en hipY — quedaba un hueco que no había forma de
+       cerrar desde la UI. Agregada proporción "alturaSobreKayak" (nueva en
+       PROPORCIONES_DEFAULT_K, default 0.15 para no cambiar el look actual
+       de entrada) con su slider — ahora el casco queda en una referencia
+       FIJA (gyBase) y el kayakista se ancla a esa altura por encima, así
+       que Hugo puede subirlo o bajarlo hasta que calce con la cabina.
+   v8: dos pedidos de Hugo con captura de "Sliders: Izquierdo": (1) la pala
+       quedaba dibujada ENCIMA del torso/cabeza en vez de pasar por detrás
+       — en dibujarKayakistaDesdeD() ahora se calculan las posiciones de
+       mano primero (sin dibujar), se dibuja la pala, y RECIÉN DESPUÉS
+       torso+cabeza+brazos (así la mano tapa la pértiga en el punto de
+       agarre, y el torso/cabeza tapan la pértiga donde corresponda, en vez
+       de la pértiga tapándolos a ellos). (2) Quiere poder guardar la
+       edición para no perderla entre versiones del archivo — agregado el
+       mismo mecanismo que ya tiene Correr: botón "Generar código" (vuelca
+       editorDatos+proporciones como texto JS listo para pegar como nuevos
+       valores por defecto) + "Descargar edición" (.json de respaldo) +
+       "Cargar edición" (para releer ese .json). Motivo de por qué hacía
+       falta esto además del guardado automático en localStorage: cada
+       archivo nuevo que le mando puede terminar en un origen de browser
+       distinto (depende de cómo Brave trate cada descarga), así que
+       localStorage no está garantizado que sobreviva de una versión a la
+       siguiente.
+   v9: dos pedidos más de Hugo (con captura de "Sliders: Derecho"): (1) la
+       mano tampoco debe superponerse al tronco — mismo tipo de problema
+       que la pala en v8. Reordené el dibujo: ahora los brazos se dibujan
+       ANTES que el torso/cabeza (no después), así el torso tapa el
+       antebrazo donde corresponda en vez de quedar la mano "flotando"
+       encima del tronco. (2) Cada pala debe cambiar de tamaño de forma
+       INDEPENDIENTE por lado y por instante — antes largoPala/anchoPala
+       eran un tamaño fijo compartido por las dos hojas. Agregado un campo
+       nuevo por lado en cada uno de los 8 instantes: "escalaPala"
+       (0 a 1.5, multiplica a largoPala/anchoPala de esa proporción global).
+       Si escalaPala <= 0.01 directamente no se dibuja esa hoja (para
+       "desaparece en la tracción", que queda bajo el agua). Valores de
+       partida (a ojo, pendiente de ajustar mirando el render real): chica
+       en la Entrada (≈0.45, perspectiva/lejos), 0 en la Tracción (no se
+       dibuja, bajo el agua), normal en Salida/Recuperación (0.7-1.0).
+       EDITOR_CAMPOS_K ahora incluye 'escalaPala' — cargarSlidersDesdeEditorDatos
+       y actualizarEditor ya la levantan solas porque iteran genéricamente
+       sobre esa lista; solo hubo que sumar el caso a mano en
+       actualizarEtiquetasEditor() (esa función sí tiene los 4 campos
+       hardcodeados) y agregar los dos sliders nuevos en el HTML.
+   v10: previsualización animada, a pedido de Hugo — mismo patrón que
+        Correr: interpolarLadoEnSecuenciaK()/interpolarRotacionEnSecuenciaK()
+        interpolan con suavizado coseno (no lineal a los saltos) entre los
+        2 instantes que rodean a editorPreviewT, que avanza sola en un
+        requestAnimationFrame (editorPreviewLoop) a razón de ~3.1s el ciclo
+        completo de los 8 instantes. Canvas aparte (canvasEditorPreview,
+        más chico) con botón Reproducir/Pausa. La interpolación incluye
+        escalaPala, así que la pala también encoge/agranda suave en vez de
+        aparecer/desaparecer de golpe al cruzar de instante. El splash se
+        dispara mientras el instante "de piso" (sin la parte fraccionaria)
+        sea Salida D o I. cambiarTab() para el loop si salís de la pestaña
+        Editor, para no seguir animando de fondo sin necesidad.
+   v11: BUG DE RAÍZ encontrado por Hugo ("pude editar entrada D, al pasar a
+        tracción D los sliders de brazos no funcionan" + "la previsualización
+        nunca pasa por la posición de entrada derecha"): tenía guardada en
+        localStorage una edición de una versión anterior a v9, sin el campo
+        escalaPala. actualizarEtiquetasEditor() hace
+        d[lado].escalaPala.toFixed(3) sin chequear que exista — con el dato
+        viejo, escalaPala es undefined, así que .toFixed() tira TypeError.
+        Como actualizarEtiquetasEditor() se llama ANTES que
+        guardarEditorDatos() y renderEditorPose() dentro de actualizarEditor(),
+        la excepción cortaba la función a mitad de camino: el valor se
+        aplicaba en memoria pero nunca se guardaba ni se volvía a dibujar —
+        por eso "los sliders no funcionan" (en realidad sí cambiaban el
+        dato, pero no se veía ni quedaba guardado) y por eso entrada D
+        "nunca se veía" en la previsualización (sus ediciones tampoco se
+        habían guardado nunca). Arreglado con una migración en
+        cargarEditorDatos(): recorre los 8 instantes y completa cualquier
+        campo de EDITOR_CAMPOS_K que falte con el valor por defecto — así
+        una edición vieja nunca vuelve a romper por un campo nuevo que se
+        agregue más adelante.
+        Además, a pedido de Hugo: posición de la espuma ajustable por lado
+        Y por instante (splashX, splashY, splashEscala — offset desde la
+        punta de esa pala, y escala con el mismo criterio 0=invisible que
+        escalaPala). Reemplaza la lógica vieja de "splashLado" fijo
+        (hardcodeada a Salida D/I) — dibujarKayakistaDesdeD() ya no recibe
+        ese parámetro, la espuma sale directo de los datos de cada lado. Al
+        estar en EDITOR_CAMPOS_K, la previsualización también la interpola
+        suave (aparece/desaparece gradual, no de golpe).
+   v12: EDITOR_KEYFRAMES_DEFAULT_K y PROPORCIONES_DEFAULT_K reemplazados por
+        el texto que generó Hugo con "Generar código" — la edición que
+        había ido ajustando a mano en el teléfono (posiciones de brazos,
+        escalas de pala, posición de la espuma en tracción/salida, y
+        proporciones del cuerpo/kayak) ahora es el punto de partida por
+        defecto del archivo, no algo que dependa de que sobreviva en su
+        localStorage.
+   v13: exportación a TCX (para subir a TrainingPeaks), mismo esquema y
+        mismo orden de tags que ya usa Correr dentro de <Lap> (exigido por
+        el schema oficial de Garmin TrainingCenterDatabase v2: TotalTime-
+        Seconds, DistanceMeters, Calories, [AverageHeartRateBpm],
+        [MaximumHeartRateBpm], Intensity, [Cadence], TriggerMethod, Track).
+        Sport="Other" porque el schema TCX no tiene un valor para kayak
+        (solo admite Running/Biking/Other). Para que el Track tenga puntos
+        reales (no solo el resumen del Lap), ahora tick() guarda un punto
+        por segundo (t, distAcum, pulso, cadencia) en puntosSesion, y
+        finalizarSesion() lo adjunta a la sesión guardada como
+        sesion.puntos — antes solo se guardaban los agregados finales.
+        Botón "TCX" nuevo en cada fila de la tabla de Historial
+        (exportarSesionTCX(id)) que arma el XML y lo descarga.
+        Pendiente marcado en el propio código: <Cadence> y <RunCadence> son
+        campos pensados para pasos/pedaleada en el schema, no paladas —
+        van igual porque es mejor que nada, pero TrainingPeaks podría
+        etiquetarlos como cadencia de carrera/pedaleo en vez de paladas.
+   v14: pestaña nueva "🥁 Entrenos", a pedido de Hugo — metrónomo integrado
+        (motor con lookahead scheduler sobre Web Audio, no setInterval a
+        pelo, para que no se desincronice en sesiones largas: cada 25ms
+        chequea si hay que agendar el próximo click dentro de los próximos
+        100ms, usando el reloj de precisión audioCtx.currentTime) y arriba
+        de eso, entrenamientos de cadencia armables (lista de pasos
+        {cadencia, duración}, guardados en localStorage bajo
+        kayak_entrenos_cadencia). Al correr un entreno, el metrónomo
+        cambia de BPM solo en cada paso y avanza automáticamente
+        (indiceYRestante() calcula en qué paso está y cuánto le queda,
+        pura y testeada aparte). El AudioContext se crea recién al primer
+        toque de Play (requisito de los navegadores en mobile — no se
+        puede arrancar audio sin gesto del usuario).
+        A pedido de Hugo, mismo motor reusado en Calibración: cada una de
+        las 4 filas (60/80/100/120 p/m) tiene ahora su botón de metrónomo
+        para marcar el ritmo durante esa serie de 500m, sin depender del
+        modo Carrera Virtual del reloj.
+        Solo puede sonar un metrónomo a la vez — arrancar uno (libre, de
+        calibración, o de un entreno) apaga cualquier otro. cambiarTab()
+        lo apaga si salís de Entrenos/Calibración a otra pestaña.
+   v15: dos pedidos de Hugo con captura de Calibración: (1) BUG — el campo
+        mm:ss no se veía. Causa: el botón ▶ nuevo tenía class="btn chico",
+        y .btn define width:100% — dentro del flex de calib-fila eso hizo
+        que el botón intentara ocupar toda la fila, empujando el input y
+        el ✅ fuera del viewport (y el body tiene overflow-x:hidden, así
+        que quedaban invisibles en vez de generar scroll horizontal
+        visible). Arreglado agregando width:auto en el style inline del
+        botón. (2) CALIB_CADENCIAS ahora es [60,70,80,90,100,110,120] en
+        vez de [60,80,100,120] — cada 10 p/m en vez de cada 20, y Hugo
+        puede frenar en 110 si no se siente en condiciones de hacer 500m a
+        120 (nada obliga a completar las 7 filas, guardarCalibracion()
+        sigue pidiendo un mínimo de 2 puntos cargados, no los 7).
+   v16: al teclado que le apareció a Hugo en el campo mm:ss no le aparecía
+        ":" (sí "."), así que cargó "6.22" en vez de "6:22" — parseMMSS()
+        antes rechazaba eso silenciosamente (guardarCalibracion() ignora
+        sin avisar cualquier fila que no parsee). Ahora acepta ":" O "."
+        como separador. inputmode cambiado de "numeric" a "decimal" en ese
+        campo y en el de duración de pasos de Entrenos (mismo parser), para
+        que el teclado que aparezca tenga más chance de incluir el punto.
+   v17: dos pedidos de Hugo. (1) Distancia de calibración configurable por
+        fila (100/200/300/400/500m, antes 500 fijo) — a cadencias altas no
+        siempre da el aire para 500m completos. Los puntos de calibración
+        ahora guardan {cadencia, distanciaM, tiempoSeg} en vez de solo
+        {cadencia, tiempoSeg}; velocidadEstimada() usa distanciaM/tiempoSeg
+        por punto (con fallback a 500 si una calibración vieja no tiene el
+        campo). calib-fila pasó de una sola línea a dos (cadencia+metrónomo
+        arriba, distancia+tiempo abajo) porque ya no entraba todo junto en
+        una pantalla de celular. (2) Tarjeta nueva "Probar banda Garmin
+        HRM-Pro+" en Calibración: conexión de diagnóstico aparte de la de
+        Sesión, que pide heart_rate y prueba si la banda TAMBIÉN expone
+        running_speed_and_cadence (la HRM-Pro+ es de pecho, pero Garmin la
+        diseñó para poder mandar dinámica de carrera además del pulso).
+        Muestra pulso en vivo, si detectó o no el servicio de cadencia, y
+        si lo detectó, cadencia/velocidad crudas del paquete RSC sin
+        ningún ajuste aplicado — más los bytes crudos, para chequear a
+        mano contra lo que dice el manual si hiciera falta.
+   v18: modo Fantasma, a pedido de Hugo — competir en vivo contra una
+        sesión anterior. Reusa los puntos por segundo que ya guarda cada
+        sesión (existen desde el TCX de v13, sesion.puntos: [{t,
+        distAcum,...}]). Desde Historial, botón 👻 en cualquier sesión con
+        track para elegirla como fantasma (guarda solo el ID en
+        K_FANTASMA_ID, no duplica datos); la tarjeta "En vivo" de Sesión
+        muestra un tile "vs. fantasma" con la diferencia de distancia en
+        cada segundo (+X m / -X m, verde/rojo), calculada interpolando
+        distanciaFantasmaEnT() entre los puntos guardados del fantasma en
+        el mismo instante t. Si el fantasma ya terminó su sesión pero vos
+        seguís remando, se queda clavado en su distancia final (no sigue
+        sumando solo). Sin sesión con track guardado todavía, el botón 👻
+        no aparece en esa fila.
+   v19: render del kayakista en vivo durante la sesión, a pedido de Hugo
+        ("quisiera tener la pantalla del kayakista y el hud a la vista
+        mientras realizo la sesión"). Mismo patrón que loopEscena() de
+        Correr: canvasSesionVivo con su propio requestAnimationFrame
+        (loopSesionVivo), la fase de la animación avanza atada a la
+        cadencia REAL (actual.cadencia), no a un tiempo fijo como la
+        previsualización del Editor — un ciclo completo de los 8 instantes
+        son 2 paladas (D+I), así que a "cadencia" p/m los 8 instantes
+        avanzan a razón de cadencia/15 por segundo. Sin sensor conectado
+        usa una cadencia base de 70 para que no quede congelado.
+        Además, arriba del canvas se dibuja el cartel de metros vs.
+        fantasma (dibujarBadgeFantasma, calcado del badge de Correr):
+        verde y "+Xm" si vas adelante, rojo y "-Xm" si vas atrás — mismo
+        cálculo (calcularGapFantasma) que ya usa el tile numérico del HUD,
+        factorizado a una sola función para que HUD y cartel nunca puedan
+        desincronizarse mostrando números distintos.
+        El bucle se para si salís de la pestaña Sesión (cambiarTab) y se
+        retoma solo si volvés con una sesión en curso; si no hay sesión
+        activa, igual se dibuja una vez la pose estática al entrar a la
+        pestaña, para que el canvas no quede en blanco.
+   v20: Hugo reportó: "el modo Carrera Virtual se conecta pero no se
+        registra dato de cadencia". Causa más probable, encontrada
+        revisando el código: el tile "Paladas/min" del HUD solo se pinta
+        DENTRO de tick(), y tick() solo corre mientras hay una sesión
+        iniciada (setInterval armado en iniciarSesion()) — si conectás el
+        reloj y mirás el HUD sin haber tocado "Iniciar sesión", el dato
+        puede estar llegando perfecto a actual.cadencia pero nunca se ve
+        reflejado en pantalla. Arreglado: handleRSC()/handleHR() ahora
+        actualizan el HUD directo apenas llega cada notificación BLE
+        (si !sesionActiva, para no pisarse con lo que ya escribe tick()
+        durante una sesión real).
+        Por las dudas el problema fuera OTRA cosa (ej. el reloj no manda
+        notificaciones hasta que apretás "Iniciar" la actividad EN el
+        reloj, no solo tener el modo seleccionado — o el campo de
+        cadencia del paquete viniera en 0 desde el propio reloj), agregado
+        un debug crudo (#debugRSC) en la tarjeta Sensores que muestra los
+        bytes tal cual de cada paquete RSC recibido, más los campos ya
+        parseados (velocidad y cadencia sin ajustar) — así se puede ver
+        de un vistazo si el problema es de la app (nunca llega nada) o
+        del reloj (llega, pero cadencia = 0).
+        Verifiqué el parseo contra el spec BLE oficial de RSC Measurement:
+        byte0=flags, bytes1-2=velocidad instantánea (uint16 LE, unidades
+        de 1/256 m/s), byte3=cadencia instantánea (uint8) — velocidad y
+        cadencia son SIEMPRE obligatorias en el paquete (no dependen de
+        ningún bit de flags, a diferencia de largo de zancada/distancia
+        total que sí son opcionales) — el offset que ya usaba handleRSC()
+        (salteo flags + salteo speed = byte 3) es correcto según el spec.
+   v21: con la captura del debug de v20 (bytes 00 00 00 00, siempre),
+        confirmado: las notificaciones SÍ llegan (si no llegara nada, esa
+        línea se hubiera quedado en el placeholder inicial) — el reloj
+        manda paquetes bien formados pero con velocidad y cadencia real
+        en 0. No es un bug de la app: el reloj en modo Carrera Virtual no
+        está reconociendo el remado como zancadas (probablemente porque
+        ese modo busca en el acelerómetro de la muñeca un patrón
+        específico de brazada al correr, y el vaivén de remada no calza).
+        De paso, encontrado revisando la misma captura: con cadencia
+        real=0 todo el tiempo, la distancia mostrada igual subió a 125m —
+        porque velocidadEstimada() "clampeaba" cadencia=0 al punto de
+        calibración más bajo (60 p/m), el mismo criterio que usa para
+        cadencias por DEBAJO del rango calibrado. Arreglado: cadencia 0
+        o sin dato ahora devuelve velocidad 0 directo, antes de cualquier
+        interpolación — así la app no acumula distancia sola si el sensor
+        no está reportando nada real.
+   v22: Hugo preguntó si se podía sacar cadencia por micrófono o cámara,
+        como alternativa que no depende de ningún sensor Bluetooth ni de
+        una app de Garmin (investigué esa vía — Connect IQ no permite que
+        el reloj se anuncie como periférico BLE, solo conectarse a otros
+        sensores, así que una app de reloj propia no hubiera resuelto la
+        transmisión en vivo de todos modos). Tarjeta nueva "Cadencia por
+        audio/cámara (experimental)" en Calibración, con los dos al lado
+        para comparar en vivo — a pedido explícito de Hugo, no elegí uno.
+        Mismo detector de picos genérico (procesarEnergiaPico(), función
+        PURA sin DOM/audio/video) para las dos fuentes: recibe una
+        "energía" instantánea y decide si fue un pico contra un piso que
+        se adapta solo (media móvil exponencial, no un umbral fijo), con
+        un refractario de 280ms para no contar dos veces la misma palada.
+        Cadencia = 60000 / promedio de los últimos intervalos entre picos.
+        Audio: RMS de getByteTimeDomainData (Web Audio API) sobre el
+        micrófono (getUserMedia audio). Cámara: diferencia de píxeles
+        (canal rojo como proxy de luminancia) entre frames sucesivos,
+        muestreados a una resolución bajita a propósito (48×36) porque no
+        hace falta más para medir "cuánto cambió la imagen", solo la
+        cadencia con la que cambia. Slider de sensibilidad compartido
+        entre las dos fuentes (multiplica el piso adaptativo). Los dos
+        streams se cortan solos si salís de la pestaña Calibración.
+   ============================================================ */
+
+const LS_PREFIX = 'kayak_';
+const K_SESIONES = LS_PREFIX + 'sesiones';
+const K_CALIBRACION = LS_PREFIX + 'calibracion';
+const K_UMBRAL_PULSO = LS_PREFIX + 'umbral_pulso';
+const K_FORMA_COMPARTIDA = 'entrenamiento_forma_registro';
+
+const CALIB_CADENCIAS = [60, 70, 80, 90, 100, 110, 120];
+const CALIB_DISTANCIAS_DISPONIBLES = [100, 200, 300, 400, 500];
+const CALIB_DISTANCIA_DEFAULT = 500;
+
+function lsGet(key, def) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; }
+  catch (e) { return def; }
+}
+function lsSet(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
+function parseMMSS(txt) {
+  if (!txt) return null;
+  // acepta ":" o "." como separador — algunos teclados numéricos (como el que le apareció a
+  // Hugo) no tienen ":", solo ".". "6.22" se interpreta igual que "6:22".
+  const m = txt.trim().match(/^(\d+)[:.](\d{1,2})$/);
+  if (!m) return null;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+}
+function segAMMSS(seg) {
+  if (seg == null || !isFinite(seg) || seg < 0) return '--:--';
+  seg = Math.round(seg);
+  const m = Math.floor(seg / 60), s = seg % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+function segAHMS(seg) {
+  seg = Math.round(seg);
+  const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = seg % 60;
+  return h > 0 ? (h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'))
+               : (String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'));
+}
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => t.classList.remove('show'), 2600);
+}
+function promedio(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
+
+/* ============================================================
+   CALIBRACIÓN cadencia -> velocidad
+   ============================================================ */
+// puntos: [{cadencia, distanciaM, tiempoSeg}], tiempoSeg = lo que tardó en remar distanciaM a
+// esa cadencia. distanciaM es POR PUNTO (Hugo puede elegir 100/200/300/400/500m en cada fila,
+// porque a cadencias altas quizás no le da el aire para bancarse los 500m completos). Devuelve
+// la velocidad estimada (m/s) para una cadencia dada, interpolando linealmente entre los puntos
+// conocidos y manteniendo constante el valor de punta fuera de rango.
+function velocidadEstimada(cadencia, puntosCalib) {
+  if (!puntosCalib || !puntosCalib.length) return 0;
+  // sin cadencia real (0 o sin dato) no hay que inventar velocidad — antes esto "clampeaba" al
+  // punto de calibración más bajo (ej. 60 p/m) igual que clampea por debajo de ese punto, así
+  // que con el sensor sin datos (cadencia=0) la app mostraba distancia acumulándose sola.
+  if (!cadencia || cadencia <= 0) return 0;
+  const pts = [...puntosCalib].sort((a, b) => a.cadencia - b.cadencia);
+  // fallback a 500 para calibraciones guardadas antes de que existiera distanciaM por punto
+  const vel = p => (p.distanciaM || CALIB_DISTANCIA_DEFAULT) / p.tiempoSeg;
+  if (cadencia <= pts[0].cadencia) return vel(pts[0]);
+  if (cadencia >= pts[pts.length - 1].cadencia) return vel(pts[pts.length - 1]);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (cadencia >= a.cadencia && cadencia <= b.cadencia) {
+      const t = (cadencia - a.cadencia) / (b.cadencia - a.cadencia);
+      return vel(a) + t * (vel(b) - vel(a));
+    }
+  }
+  return vel(pts[pts.length - 1]);
+}
+
+function calcularTSS(duracionSeg, pulsoPromedio, umbralPulso) {
+  if (!umbralPulso || !pulsoPromedio || duracionSeg <= 0) return 0;
+  const ifactor = pulsoPromedio / umbralPulso;
+  const horas = duracionSeg / 3600;
+  return Math.round(100 * horas * ifactor * ifactor);
+}
+function pasoEWMA(ctlPrev, atlPrev, tssHoy) {
+  const ctl = ctlPrev + (tssHoy - ctlPrev) / 42;
+  const atl = atlPrev + (tssHoy - atlPrev) / 7;
+  const tsb = ctlPrev - atlPrev;
+  return { ctl, atl, tsb };
+}
+
+/* ============================================================
+   FORMA COMPARTIDA (misma clave y fórmula que Correr / Bici Indoor)
+   ============================================================ */
+function actualizarFormaCompartida(sesion) {
+  const registro = lsGet(K_FORMA_COMPARTIDA, []);
+  registro.push({ fecha: sesion.fecha.slice(0, 10), deporte: 'kayak', tss: sesion.tss, id: sesion.id });
+  lsSet(K_FORMA_COMPARTIDA, registro);
+}
+function calcularSerieFormaCombinada() {
+  const registro = [...lsGet(K_FORMA_COMPARTIDA, [])].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  if (!registro.length) return { serie: [], ctl: 0, atl: 0, tsb: 0 };
+  const porDia = {};
+  registro.forEach(r => { porDia[r.fecha] = (porDia[r.fecha] || 0) + (r.tss || 0); });
+  const dias = Object.keys(porDia).sort();
+  const inicio = new Date(dias[0]);
+  const fin = new Date();
+  let ctl = 0, atl = 0;
+  const serie = [];
+  for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+    const key = d.toISOString().slice(0, 10);
+    const r = pasoEWMA(ctl, atl, porDia[key] || 0);
+    ctl = r.ctl; atl = r.atl;
+    serie.push({ fecha: key, ctl, atl, tsb: r.tsb });
+  }
+  const ultimo = serie[serie.length - 1];
+  return { serie, ctl: ultimo.ctl, atl: ultimo.atl, tsb: ultimo.tsb };
+}
+function renderForma() {
+  const f = calcularSerieFormaCombinada();
+  document.getElementById('formaCTL').textContent = f.ctl.toFixed(1);
+  document.getElementById('formaATL').textContent = f.atl.toFixed(1);
+  document.getElementById('formaTSB').textContent = (f.tsb >= 0 ? '+' : '') + f.tsb.toFixed(1);
+}
+
+/* ============================================================
+   BLE — reloj (Carrera Virtual) y banda de pulso
+   ============================================================ */
+let dispositivoReloj = null, dispositivoBanda = null;
+const actual = { cadencia: 0, pulso: 0 };
+
+async function conectarRelojBLE() {
+  if (!navigator.bluetooth) { toast('Este navegador no soporta Web Bluetooth'); return; }
+  const estadoEl = document.getElementById('estadoBLE');
+  try {
+    estadoEl.textContent = 'Buscando reloj en modo Carrera Virtual...';
+    estadoEl.className = 'estado-conexion';
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ['running_speed_and_cadence'] }],
+      optionalServices: ['heart_rate']
+    });
+    dispositivoReloj = device;
+    device.addEventListener('gattserverdisconnected', () => {
+      estadoEl.textContent = 'Reloj desconectado.';
+      estadoEl.className = 'estado-conexion err';
+    });
+    const server = await device.gatt.connect();
+    const rscService = await server.getPrimaryService('running_speed_and_cadence');
+    const rscChar = await rscService.getCharacteristic('rsc_measurement');
+    rscChar.addEventListener('characteristicvaluechanged', handleRSC);
+    await rscChar.startNotifications();
+
+    let hrOk = false;
+    try {
+      const hrService = await server.getPrimaryService('heart_rate');
+      const hrChar = await hrService.getCharacteristic('heart_rate_measurement');
+      hrChar.addEventListener('characteristicvaluechanged', handleHR);
+      await hrChar.startNotifications();
+      hrOk = true;
+    } catch (e) { /* sin HR por este canal, conectar banda aparte */ }
+    estadoEl.textContent = 'Conectado (' + device.name + ')' + (hrOk ? ' — HR incluido' : ' — sin HR, conectá la banda aparte');
+    estadoEl.className = 'estado-conexion ok';
+  } catch (e) {
+    estadoEl.textContent = 'No se pudo conectar: ' + e.message;
+    estadoEl.className = 'estado-conexion err';
+  }
+}
+function handleRSC(event) {
+  const v = event.target.value;
+  let idx = 1; // salteo flags
+  idx += 2; // salteo speed (no se usa, viene calculado para correr, no para paladas)
+  // Supuesto de esta versión: cadencia cruda del campo BLE = paladas/min directo, SIN el x2 que
+  // aplica Correr (ver changelog v1). Si se confirma que hace falta el x2 (o algún otro factor),
+  // corregir acá — único lugar donde entra el dato crudo.
+  const cadencia = v.getUint8(idx);
+  actual.cadencia = cadencia;
+  // actualizo el HUD EN VIVO acá, no solo dentro de tick() — antes el tile "Paladas/min" solo se
+  // pintaba mientras había una sesión corriendo (tick() vía setInterval, arrancado en
+  // iniciarSesion()), así que conectar el reloj y mirar el HUD sin haber tocado "Iniciar sesión"
+  // parecía que no llegaba ningún dato, aunque sí estuviera llegando.
+  const hudEl = document.getElementById('hudCadencia');
+  if (hudEl && !sesionActiva) hudEl.textContent = cadencia || '--';
+  actualizarDebugRSC(v);
+}
+function actualizarDebugRSC(v) {
+  const el = document.getElementById('debugRSC');
+  if (!el) return;
+  const bytes = [];
+  for (let i = 0; i < v.byteLength; i++) bytes.push(v.getUint8(i).toString(16).padStart(2, '0'));
+  const flags = v.getUint8(0);
+  const velocidadCruda = v.byteLength > 2 ? (v.getUint16(1, true) / 256).toFixed(2) : '--';
+  const cadenciaCruda = v.byteLength > 3 ? v.getUint8(3) : '--';
+  el.textContent = 'RSC crudo — bytes: ' + bytes.join(' ') + ' · flags: ' + flags +
+    ' · velocidad (sin ajustar): ' + velocidadCruda + ' m/s · cadencia (byte 3): ' + cadenciaCruda;
+}
+async function conectarBandaHR() {
+  if (!navigator.bluetooth) { toast('Este navegador no soporta Web Bluetooth'); return; }
+  const estadoEl = document.getElementById('estadoBLE');
+  try {
+    estadoEl.textContent = 'Buscando banda de pulso...';
+    estadoEl.className = 'estado-conexion';
+    const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] });
+    dispositivoBanda = device;
+    device.addEventListener('gattserverdisconnected', () => {
+      estadoEl.textContent = 'Banda desconectada.';
+      estadoEl.className = 'estado-conexion err';
+    });
+    const server = await device.gatt.connect();
+    const hrService = await server.getPrimaryService('heart_rate');
+    const hrChar = await hrService.getCharacteristic('heart_rate_measurement');
+    hrChar.addEventListener('characteristicvaluechanged', handleHR);
+    await hrChar.startNotifications();
+    estadoEl.textContent = 'Banda conectada (' + device.name + ')';
+    estadoEl.className = 'estado-conexion ok';
+  } catch (e) {
+    estadoEl.textContent = 'No se pudo conectar: ' + e.message;
+    estadoEl.className = 'estado-conexion err';
+  }
+}
+function handleHR(event) {
+  const v = event.target.value;
+  const flags = v.getUint8(0);
+  actual.pulso = (flags & 0x01) ? v.getUint16(1, true) : v.getUint8(1);
+  const hudEl = document.getElementById('hudPulso');
+  if (hudEl && !sesionActiva) hudEl.textContent = actual.pulso || '--';
+}
+
+/* ============================================================
+   PROBAR BANDA GARMIN HRM-Pro+ (Calibración) — conexión de diagnóstico
+   aparte de dispositivoBanda/dispositivoReloj de la Sesión, para poder
+   testear qué transmite la banda sin necesidad de tener una sesión
+   corriendo. Se conecta pidiendo heart_rate (obligatorio, es el filtro)
+   y prueba si TAMBIÉN expone running_speed_and_cadence — la HRM-Pro+ es
+   una banda de pecho, pero Garmin la diseñó para poder transmitir
+   dinámica de carrera además del pulso, así que vale la pena chequear.
+   ============================================================ */
+let dispositivoPrueba = null;
+async function probarBandaGarmin() {
+  if (!navigator.bluetooth) { toast('Este navegador no soporta Web Bluetooth'); return; }
+  const estadoEl = document.getElementById('estadoPruebaBanda');
+  try {
+    estadoEl.textContent = 'Buscando banda...';
+    estadoEl.className = 'estado-conexion';
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ['heart_rate'] }],
+      optionalServices: ['running_speed_and_cadence']
+    });
+    dispositivoPrueba = device;
+    device.addEventListener('gattserverdisconnected', () => {
+      estadoEl.textContent = 'Desconectada.';
+      estadoEl.className = 'estado-conexion err';
+    });
+    const server = await device.gatt.connect();
+    const hrService = await server.getPrimaryService('heart_rate');
+    const hrChar = await hrService.getCharacteristic('heart_rate_measurement');
+    hrChar.addEventListener('characteristicvaluechanged', handlePruebaHR);
+    await hrChar.startNotifications();
+
+    let rscOk = false;
+    try {
+      const rscService = await server.getPrimaryService('running_speed_and_cadence');
+      const rscChar = await rscService.getCharacteristic('rsc_measurement');
+      rscChar.addEventListener('characteristicvaluechanged', handlePruebaRSC);
+      await rscChar.startNotifications();
+      rscOk = true;
+    } catch (e) { /* esta banda no expone RSC por este canal */ }
+    document.getElementById('pruebaRSCEstado').textContent = rscOk
+      ? '✅ Sí — mirá los valores en vivo abajo'
+      : '❌ No — esta banda por BLE solo manda pulso';
+    estadoEl.textContent = 'Conectada (' + device.name + ')';
+    estadoEl.className = 'estado-conexion ok';
+  } catch (e) {
+    estadoEl.textContent = 'No se pudo conectar: ' + e.message;
+    estadoEl.className = 'estado-conexion err';
+  }
+}
+function handlePruebaHR(event) {
+  const v = event.target.value;
+  const flags = v.getUint8(0);
+  const bpm = (flags & 0x01) ? v.getUint16(1, true) : v.getUint8(1);
+  document.getElementById('pruebaPulso').textContent = bpm;
+}
+function handlePruebaRSC(event) {
+  const v = event.target.value;
+  const bytes = [];
+  for (let i = 0; i < v.byteLength; i++) bytes.push(v.getUint8(i).toString(16).padStart(2, '0'));
+  document.getElementById('pruebaRSCCrudo').textContent = bytes.join(' ');
+  // parseo estándar del campo RSC (mismo formato que usa handleRSC en Sesión): byte0=flags,
+  // bytes1-2=velocidad instantánea (uint16 LE, unidades de 1/256 m/s), byte3=cadencia (uint8).
+  // Acá se muestra tal cual, sin aplicar ningún factor de corrección — es justamente lo que hay
+  // que ver para confirmar si corresponde algún ajuste.
+  const velocidadCruda = v.getUint16(1, true) / 256;
+  const cadenciaCruda = v.getUint8(3);
+  document.getElementById('pruebaRSCVelocidad').textContent = velocidadCruda.toFixed(2) + ' m/s (sin ajustar)';
+  document.getElementById('pruebaRSCCadencia').textContent = cadenciaCruda;
+}
+function desconectarPruebaBanda() {
+  if (dispositivoPrueba && dispositivoPrueba.gatt && dispositivoPrueba.gatt.connected) dispositivoPrueba.gatt.disconnect();
+  dispositivoPrueba = null;
+  document.getElementById('estadoPruebaBanda').textContent = 'Sin conectar.';
+  document.getElementById('estadoPruebaBanda').className = 'estado-conexion';
+}
+
+/* ============================================================
+   CADENCIA POR AUDIO/CÁMARA (experimental) — mismo detector de picos
+   genérico para las dos fuentes: le doy una "energía" instantánea (RMS de
+   audio, o diferencia de píxeles entre frames de video) y un timestamp, y
+   me dice si eso fue un pico (una palada) usando un piso que se adapta
+   solo (media móvil exponencial), no un umbral fijo — así no hay que
+   recalibrar la sensibilidad si cambia el ruido de fondo o la luz.
+   Función PURA (sin DOM/audio/video real), para poder testearla aparte
+   con una señal sintética de picos conocidos.
+   ============================================================ */
+function procesarEnergiaPico(estado, energia, tsMs, factorPico) {
+  factorPico = factorPico || 1.6;
+  const REFRACTARIO_MS = 280; // no cuenta dos picos separados por menos de esto (tope ~214 p/m)
+  const ALFA_BASELINE = 0.05; // qué tan rápido se adapta el piso a la energía de fondo
+  const baseline = estado.baseline == null ? energia : estado.baseline + ALFA_BASELINE * (energia - estado.baseline);
+  const huboPico = energia > baseline * factorPico &&
+    (estado.ultimoPico == null || tsMs - estado.ultimoPico >= REFRACTARIO_MS);
+  const intervalos = estado.intervalos ? estado.intervalos.slice() : [];
+  let ultimoPico = estado.ultimoPico;
+  if (huboPico) {
+    if (ultimoPico != null) {
+      intervalos.push(tsMs - ultimoPico);
+      if (intervalos.length > 5) intervalos.shift();
+    }
+    ultimoPico = tsMs;
+  }
+  const promedioMs = intervalos.length ? intervalos.reduce((a, b) => a + b, 0) / intervalos.length : null;
+  const cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  return { baseline, ultimoPico, intervalos, cadencia, huboPico };
+}
+
+let sensibilidadPico = 1.6;
+function cambiarSensibilidadPico(valorSlider) {
+  sensibilidadPico = parseInt(valorSlider, 10) / 100;
+  document.getElementById('lblSensibilidad').textContent = sensibilidadPico.toFixed(2);
+}
+
+// --- MICRÓFONO ---
+let micStream = null, micAudioCtx = null, micAnalyser = null, micRAF = null, micEstado = {};
+async function toggleMicCadencia() {
+  if (micStream) { detenerMicCadencia(); return; }
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = micAudioCtx.createMediaStreamSource(micStream);
+    micAnalyser = micAudioCtx.createAnalyser();
+    micAnalyser.fftSize = 1024;
+    source.connect(micAnalyser);
+    micEstado = {};
+    document.getElementById('btnMic').textContent = '🎤 Detener';
+    loopMicCadencia();
+  } catch (e) {
+    toast('No se pudo usar el micrófono: ' + e.message);
+  }
+}
+function loopMicCadencia() {
+  if (!micStream) return;
+  const buf = new Uint8Array(micAnalyser.fftSize);
+  micAnalyser.getByteTimeDomainData(buf);
+  let suma = 0;
+  for (let i = 0; i < buf.length; i++) { const d = buf[i] - 128; suma += d * d; }
+  const rms = Math.sqrt(suma / buf.length);
+  micEstado = procesarEnergiaPico(micEstado, rms, performance.now(), sensibilidadPico);
+  if (micEstado.cadencia != null) document.getElementById('cadMic').firstChild.textContent = Math.round(micEstado.cadencia);
+  if (micEstado.huboPico) destellar('flashMic');
+  micRAF = requestAnimationFrame(loopMicCadencia);
+}
+function detenerMicCadencia() {
+  if (micRAF) cancelAnimationFrame(micRAF);
+  micRAF = null;
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  micStream = null;
+  if (micAudioCtx) micAudioCtx.close();
+  micAudioCtx = null;
+  document.getElementById('btnMic').textContent = '🎤 Micrófono';
+  document.getElementById('cadMic').firstChild.textContent = '--';
+}
+
+// --- CÁMARA ---
+let camStream = null, camRAF = null, camEstado = {}, camFramePrev = null;
+const CAM_ANCHO = 48, CAM_ALTO = 36; // resolución bajita a propósito: no hace falta más para medir movimiento
+async function toggleCamCadencia() {
+  if (camStream) { detenerCamCadencia(); return; }
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const video = document.getElementById('videoCam');
+    video.srcObject = camStream;
+    video.style.display = 'block';
+    await video.play();
+    camFramePrev = null;
+    camEstado = {};
+    document.getElementById('btnCam').textContent = '📷 Detener';
+    loopCamCadencia();
+  } catch (e) {
+    toast('No se pudo usar la cámara: ' + e.message);
+  }
+}
+function loopCamCadencia() {
+  if (!camStream) return;
+  const video = document.getElementById('videoCam');
+  if (video.videoWidth > 0) {
+    if (!loopCamCadencia._canvas) {
+      loopCamCadencia._canvas = document.createElement('canvas');
+      loopCamCadencia._canvas.width = CAM_ANCHO; loopCamCadencia._canvas.height = CAM_ALTO;
+    }
+    const cv = loopCamCadencia._canvas, ctx = cv.getContext('2d');
+    ctx.drawImage(video, 0, 0, CAM_ANCHO, CAM_ALTO);
+    const frame = ctx.getImageData(0, 0, CAM_ANCHO, CAM_ALTO).data;
+    if (camFramePrev) {
+      let diff = 0;
+      for (let i = 0; i < frame.length; i += 4) diff += Math.abs(frame[i] - camFramePrev[i]); // canal rojo como proxy de luminancia
+      const energia = diff / (CAM_ANCHO * CAM_ALTO);
+      camEstado = procesarEnergiaPico(camEstado, energia, performance.now(), sensibilidadPico);
+      if (camEstado.cadencia != null) document.getElementById('cadCam').firstChild.textContent = Math.round(camEstado.cadencia);
+      if (camEstado.huboPico) destellar('flashCam');
+    }
+    camFramePrev = frame;
+  }
+  camRAF = requestAnimationFrame(loopCamCadencia);
+}
+function detenerCamCadencia() {
+  if (camRAF) cancelAnimationFrame(camRAF);
+  camRAF = null;
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = null;
+  camFramePrev = null;
+  const video = document.getElementById('videoCam');
+  video.srcObject = null;
+  video.style.display = 'none';
+  document.getElementById('btnCam').textContent = '📷 Cámara';
+  document.getElementById('cadCam').firstChild.textContent = '--';
+}
+function destellar(id) {
+  const el = document.getElementById(id);
+  el.textContent = ' ●';
+  clearTimeout(destellar._h && destellar._h[id]);
+  destellar._h = destellar._h || {};
+  destellar._h[id] = setTimeout(() => { el.textContent = ''; }, 120);
+}
+
+/* ============================================================
+   CALIBRACIÓN — UI
+   ============================================================ */
+/* ============================================================
+   METRÓNOMO — motor con planificación anticipada (Web Audio), no
+   setInterval a pelo, para que no se desincronice en entrenos largos.
+   Patrón estándar "lookahead scheduler": cada 25ms reviso si hay que
+   programar el próximo click dentro de los próximos 100ms, y lo prendo con
+   el reloj de precisión del AudioContext (audioCtx.currentTime), no con
+   Date.now() — así el tiempo real transcurrido entre clicks no depende de
+   cuán preciso sea el setInterval del navegador.
+   ============================================================ */
+let metroAudioCtx = null;
+let metroBPM = 80;
+let metroActivo = false;
+let metroProximoTick = 0;
+let metroTimerID = null;
+const METRO_LOOKAHEAD_MS = 25;
+const METRO_VENTANA_SEG = 0.1;
+
+function metroAsegurarAudioCtx() {
+  if (!metroAudioCtx) metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (metroAudioCtx.state === 'suspended') metroAudioCtx.resume();
+  return metroAudioCtx;
+}
+function metroReproducirClick(tiempo) {
+  const ctx = metroAudioCtx;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.frequency.value = 1000;
+  osc.type = 'square';
+  gain.gain.setValueAtTime(0.35, tiempo);
+  gain.gain.exponentialRampToValueAtTime(0.001, tiempo + 0.04);
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.start(tiempo); osc.stop(tiempo + 0.05);
+}
+function metroPlanificar() {
+  if (!metroActivo) return;
+  const ctx = metroAudioCtx;
+  while (metroProximoTick < ctx.currentTime + METRO_VENTANA_SEG) {
+    metroReproducirClick(metroProximoTick);
+    metroProximoTick += 60 / metroBPM;
+  }
+  metroTimerID = setTimeout(metroPlanificar, METRO_LOOKAHEAD_MS);
+}
+function metroIniciar(bpm) {
+  metroBPM = bpm;
+  const ctx = metroAsegurarAudioCtx();
+  metroActivo = true;
+  metroProximoTick = ctx.currentTime + 0.05;
+  metroPlanificar();
+}
+function metroDetener() {
+  metroActivo = false;
+  if (metroTimerID) { clearTimeout(metroTimerID); metroTimerID = null; }
+}
+function metroCambiarBPM(bpm) {
+  metroBPM = bpm;
+  // no reprogramo metroProximoTick a mitad de un click: el próximo tick ya agendado termina su
+  // intervalo actual con el BPM viejo y desde ahí en adelante usa el nuevo — evita un salto
+  // brusco de fase que se sentiría como un tropezón en vez de un cambio de ritmo.
+}
+
+/* ============================================================
+   ENTRENOS DE CADENCIA — lista de pasos {cadencia, duracionSeg}, con el
+   metrónomo llevando el ritmo de cada paso y avanzando solo.
+   ============================================================ */
+const K_ENTRENOS_CADENCIA = LS_PREFIX + 'entrenos_cadencia';
+let entrenoEnEdicion = null; // { id, nombre, pasos: [...] } mientras se está creando/editando
+let ejecucion = null; // { entreno, inicio, pasoActual, intervalID } mientras corre un entreno
+
+// dado el array de pasos y los segundos transcurridos desde que arrancó el entreno, devuelve en
+// qué paso está y cuánto le queda a ESE paso. Pura, sin DOM — así se puede testear aparte.
+function indiceYRestante(pasos, elapsedSeg) {
+  let acumulado = 0;
+  for (let i = 0; i < pasos.length; i++) {
+    const fin = acumulado + pasos[i].duracionSeg;
+    if (elapsedSeg < fin) return { indice: i, restanteSeg: fin - elapsedSeg, terminado: false };
+    acumulado = fin;
+  }
+  return { indice: Math.max(0, pasos.length - 1), restanteSeg: 0, terminado: true };
+}
+function duracionTotalEntreno(pasos) { return pasos.reduce((acc, p) => acc + p.duracionSeg, 0); }
+
+function renderListaEntrenos() {
+  const entrenos = lsGet(K_ENTRENOS_CADENCIA, []);
+  const cont = document.getElementById('listaEntrenos');
+  if (!entrenos.length) { cont.innerHTML = '<p class="nota">Sin entrenamientos guardados todavía.</p>'; return; }
+  cont.innerHTML = entrenos.map(e =>
+    '<div class="entreno-item">' +
+    '<div class="nombre">' + e.nombre + '<br><span class="dur">' + segAHMS(duracionTotalEntreno(e.pasos)) + ' · ' + e.pasos.length + ' pasos</span></div>' +
+    '<button class="btn chico" style="margin:0;" onclick="iniciarEjecucionEntreno(\'' + e.id + '\')">▶</button>' +
+    '<button class="btn chico" style="margin:0;" onclick="editarEntreno(\'' + e.id + '\')">✎</button>' +
+    '<button class="btn chico" style="margin:0; color:var(--pulso);" onclick="borrarEntreno(\'' + e.id + '\')">🗑</button>' +
+    '</div>'
+  ).join('');
+}
+function nuevoEntreno() {
+  entrenoEnEdicion = { id: 'ent_' + Date.now(), nombre: '', pasos: [{ cadencia: 80, duracionSeg: 60 }] };
+  mostrarEditorEntreno();
+}
+function editarEntreno(id) {
+  const entreno = lsGet(K_ENTRENOS_CADENCIA, []).find(e => e.id === id);
+  if (!entreno) return;
+  entrenoEnEdicion = JSON.parse(JSON.stringify(entreno));
+  mostrarEditorEntreno();
+}
+function mostrarEditorEntreno() {
+  document.getElementById('cardListaEntrenos').style.display = 'none';
+  document.getElementById('cardEditorEntreno').style.display = 'block';
+  document.getElementById('entrenoNombre').value = entrenoEnEdicion.nombre;
+  renderPasosEntreno();
+}
+function renderPasosEntreno() {
+  const cont = document.getElementById('listaPasosEntreno');
+  cont.innerHTML = entrenoEnEdicion.pasos.map((p, i) =>
+    '<div class="paso-fila">' +
+    '<span class="editor-val" style="width:18px;">' + (i + 1) + '</span>' +
+    '<input class="cadIn" type="number" inputmode="numeric" value="' + p.cadencia + '" placeholder="p/m" onchange="actualizarPasoEntreno(' + i + ",'cadencia', this.value)\">" +
+    '<span class="nota">p/m ·</span>' +
+    '<input class="durIn" type="text" inputmode="decimal" value="' + segAMMSS(p.duracionSeg) + '" placeholder="mm:ss" onchange="actualizarPasoEntreno(' + i + ",'duracion', this.value)\">" +
+    '<button class="quitar" onclick="quitarPasoEntreno(' + i + ')">✕</button>' +
+    '</div>'
+  ).join('');
+}
+function actualizarPasoEntreno(i, campo, valor) {
+  if (campo === 'cadencia') {
+    const n = parseInt(valor, 10);
+    if (!isNaN(n) && n > 0) entrenoEnEdicion.pasos[i].cadencia = n;
+  } else if (campo === 'duracion') {
+    const seg = parseMMSS(valor);
+    if (seg && seg > 0) entrenoEnEdicion.pasos[i].duracionSeg = seg;
+  }
+  renderPasosEntreno();
+}
+function agregarPasoEntreno() {
+  entrenoEnEdicion.pasos.push({ cadencia: 80, duracionSeg: 60 });
+  renderPasosEntreno();
+}
+function quitarPasoEntreno(i) {
+  if (entrenoEnEdicion.pasos.length <= 1) { toast('Tiene que quedar al menos un paso'); return; }
+  entrenoEnEdicion.pasos.splice(i, 1);
+  renderPasosEntreno();
+}
+function guardarEntreno() {
+  const nombre = document.getElementById('entrenoNombre').value.trim();
+  if (!nombre) { toast('Ponele un nombre al entrenamiento'); return; }
+  entrenoEnEdicion.nombre = nombre;
+  const entrenos = lsGet(K_ENTRENOS_CADENCIA, []);
+  const idx = entrenos.findIndex(e => e.id === entrenoEnEdicion.id);
+  if (idx >= 0) entrenos[idx] = entrenoEnEdicion; else entrenos.push(entrenoEnEdicion);
+  lsSet(K_ENTRENOS_CADENCIA, entrenos);
+  entrenoEnEdicion = null;
+  document.getElementById('cardEditorEntreno').style.display = 'none';
+  document.getElementById('cardListaEntrenos').style.display = 'block';
+  renderListaEntrenos();
+  toast('Entrenamiento guardado');
+}
+function cancelarEdicionEntreno() {
+  entrenoEnEdicion = null;
+  document.getElementById('cardEditorEntreno').style.display = 'none';
+  document.getElementById('cardListaEntrenos').style.display = 'block';
+}
+function borrarEntreno(id) {
+  if (!confirm('¿Borrar este entrenamiento?')) return;
+  lsSet(K_ENTRENOS_CADENCIA, lsGet(K_ENTRENOS_CADENCIA, []).filter(e => e.id !== id));
+  renderListaEntrenos();
+}
+
+function iniciarEjecucionEntreno(id) {
+  const entreno = lsGet(K_ENTRENOS_CADENCIA, []).find(e => e.id === id);
+  if (!entreno || !entreno.pasos.length) return;
+  metroDetenerBotonLibreYCalib();
+  ejecucion = { entreno, inicioMs: Date.now(), pasoActual: -1 };
+  document.getElementById('cardListaEntrenos').style.display = 'none';
+  document.getElementById('cardEjecutandoEntreno').style.display = 'block';
+  document.getElementById('ejecutandoNombre').textContent = entreno.nombre;
+  ejecucion.intervalID = setInterval(tickEjecucionEntreno, 250);
+  tickEjecucionEntreno();
+}
+function tickEjecucionEntreno() {
+  if (!ejecucion) return;
+  const elapsedSeg = (Date.now() - ejecucion.inicioMs) / 1000;
+  const { indice, restanteSeg, terminado } = indiceYRestante(ejecucion.entreno.pasos, elapsedSeg);
+  if (terminado) { finalizarEjecucionEntreno(); return; }
+  if (indice !== ejecucion.pasoActual) {
+    ejecucion.pasoActual = indice;
+    metroIniciar(ejecucion.entreno.pasos[indice].cadencia);
+  }
+  document.getElementById('ejecutandoCadencia').textContent = ejecucion.entreno.pasos[indice].cadencia;
+  document.getElementById('ejecutandoRestante').textContent = segAHMS(restanteSeg);
+  const siguiente = ejecucion.entreno.pasos[indice + 1];
+  document.getElementById('ejecutandoSiguiente').textContent = siguiente
+    ? ('Después: ' + siguiente.cadencia + ' p/m durante ' + segAHMS(siguiente.duracionSeg))
+    : 'Último paso del entrenamiento';
+}
+function finalizarEjecucionEntreno() {
+  clearInterval(ejecucion.intervalID);
+  metroDetener();
+  toast('Entrenamiento terminado');
+  ejecucion = null;
+  document.getElementById('cardEjecutandoEntreno').style.display = 'none';
+  document.getElementById('cardListaEntrenos').style.display = 'block';
+}
+function detenerEjecucionEntreno() {
+  if (!ejecucion) return;
+  clearInterval(ejecucion.intervalID);
+  metroDetener();
+  ejecucion = null;
+  document.getElementById('cardEjecutandoEntreno').style.display = 'none';
+  document.getElementById('cardListaEntrenos').style.display = 'block';
+}
+
+// metrónomo libre (tarjeta de arriba de la pestaña Entrenos)
+function toggleMetronomoLibre() {
+  const btn = document.getElementById('btnMetroLibre');
+  if (metroActivo) { metroDetener(); btn.textContent = '▶ Iniciar metrónomo'; }
+  else { metroDetenerBotonesCalib(); metroIniciar(metroBPM); btn.textContent = '❚❚ Detener metrónomo'; }
+}
+function cambiarBPMLibre(valor) {
+  metroBPM = parseInt(valor, 10);
+  document.getElementById('metroBPMVal').textContent = metroBPM;
+  if (metroActivo) metroCambiarBPM(metroBPM);
+}
+// botón de metrónomo por fila en Calibración — toggle independiente por cadencia, pero solo uno
+// puede sonar a la vez (arrancar uno apaga cualquier otro que estuviera sonando)
+let metroBotonCalibActivo = null;
+function toggleMetronomoBoton(bpm, idBoton) {
+  const btn = document.getElementById(idBoton);
+  if (metroBotonCalibActivo === idBoton) {
+    metroDetener();
+    btn.textContent = '▶';
+    metroBotonCalibActivo = null;
+    return;
+  }
+  metroDetenerBotonesCalib();
+  metroDetenerBotonLibre();
+  metroIniciar(bpm);
+  btn.textContent = '❚❚';
+  metroBotonCalibActivo = idBoton;
+}
+function metroDetenerBotonesCalib() {
+  if (metroBotonCalibActivo) {
+    const btn = document.getElementById(metroBotonCalibActivo);
+    if (btn) btn.textContent = '▶';
+    metroBotonCalibActivo = null;
+  }
+  metroDetener();
+}
+function metroDetenerBotonLibre() {
+  const btn = document.getElementById('btnMetroLibre');
+  if (btn) btn.textContent = '▶ Iniciar metrónomo';
+}
+function metroDetenerBotonLibreYCalib() {
+  metroDetenerBotonesCalib();
+  metroDetenerBotonLibre();
+}
+
+function renderCalibracion() {
+  const guardada = lsGet(K_CALIBRACION, []);
+  const cont = document.getElementById('listaCalib');
+  cont.innerHTML = CALIB_CADENCIAS.map(c => {
+    const previo = guardada.find(p => p.cadencia === c);
+    const distanciaPrevia = previo ? (previo.distanciaM || CALIB_DISTANCIA_DEFAULT) : CALIB_DISTANCIA_DEFAULT;
+    const opcionesDistancia = CALIB_DISTANCIAS_DISPONIBLES.map(d =>
+      '<option value="' + d + '"' + (d === distanciaPrevia ? ' selected' : '') + '>' + d + 'm</option>'
+    ).join('');
+    return '<div class="calib-fila">' +
+      '<div class="calib-fila-top">' +
+      '<div class="cad">' + c + ' p/m</div>' +
+      '<button class="btn chico" style="margin:0; padding:6px 10px; flex:none; width:auto;" id="btnMetroCalib' + c + '" onclick="toggleMetronomoBoton(' + c + ", 'btnMetroCalib" + c + '\')">▶</button>' +
+      '<div class="estado">' + (previo ? '✅' : '') + '</div>' +
+      '</div>' +
+      '<div class="calib-fila-bottom">' +
+      '<select id="calibDist' + c + '">' + opcionesDistancia + '</select>' +
+      '<input type="text" inputmode="decimal" placeholder="mm:ss (o mm.ss)" id="calibIn' + c + '"' +
+        (previo ? ' value="' + segAMMSS(previo.tiempoSeg) + '"' : '') + '>' +
+      '</div>' +
+      '</div>';
+  }).join('');
+}
+function guardarCalibracion() {
+  const puntos = [];
+  for (const c of CALIB_CADENCIAS) {
+    const el = document.getElementById('calibIn' + c);
+    const distanciaM = parseInt(document.getElementById('calibDist' + c).value, 10);
+    const tiempoSeg = parseMMSS(el.value);
+    if (tiempoSeg && tiempoSeg > 0) puntos.push({ cadencia: c, distanciaM, tiempoSeg });
+  }
+  if (puntos.length < 2) {
+    document.getElementById('estadoCalib').textContent = 'Cargá al menos 2 series para poder interpolar.';
+    document.getElementById('estadoCalib').className = 'estado-conexion err';
+    return;
+  }
+  lsSet(K_CALIBRACION, puntos);
+  document.getElementById('estadoCalib').textContent = 'Calibración guardada (' + puntos.length + ' puntos).';
+  document.getElementById('estadoCalib').className = 'estado-conexion ok';
+  renderCalibracion();
+  actualizarNotaCalib();
+}
+function actualizarNotaCalib() {
+  const puntos = lsGet(K_CALIBRACION, []);
+  const nota = document.getElementById('notaCalib');
+  nota.textContent = puntos.length >= 2
+    ? ('Distancia estimada por interpolación de cadencia (' + puntos.length + ' puntos de calibración).')
+    : 'Sin calibración cargada todavía — la distancia va a quedar en 0. Cargá al menos 2 series en la pestaña Calibración.';
+}
+
+/* ============================================================
+   SESIÓN
+   ============================================================ */
+let sesionActiva = null, tickInterval = null, puntosSesion = [];
+
+/* ============================================================
+   FANTASMA — compite contra una sesión anterior. Reusa los puntos por
+   segundo que ya guarda cada sesión (puntos: [{t, distAcum, ...}]) desde
+   que se agregó el TCX en v13. Se guarda solo el ID de la sesión elegida
+   (K_FANTASMA_ID) — la sesión en sí sigue viviendo en K_SESIONES.
+   ============================================================ */
+const K_FANTASMA_ID = LS_PREFIX + 'fantasma_id';
+
+// distancia que había recorrido el fantasma en el segundo tSeg, interpolando entre los puntos
+// guardados. Antes del primer punto = 0. Después del último punto (el fantasma ya terminó, pero
+// vos seguís remando) = se queda clavado en su distancia final, no sigue sumando solo.
+function distanciaFantasmaEnT(puntos, tSeg) {
+  if (!puntos || !puntos.length) return 0;
+  if (tSeg <= puntos[0].t) return (tSeg / puntos[0].t) * puntos[0].distAcum || 0;
+  const ultimo = puntos[puntos.length - 1];
+  if (tSeg >= ultimo.t) return ultimo.distAcum;
+  for (let i = 0; i < puntos.length - 1; i++) {
+    const a = puntos[i], b = puntos[i + 1];
+    if (tSeg >= a.t && tSeg <= b.t) {
+      const frac = b.t === a.t ? 0 : (tSeg - a.t) / (b.t - a.t);
+      return a.distAcum + frac * (b.distAcum - a.distAcum);
+    }
+  }
+  return ultimo.distAcum;
+}
+function obtenerFantasma() {
+  const id = lsGet(K_FANTASMA_ID, null);
+  if (!id) return null;
+  return lsGet(K_SESIONES, []).find(s => s.id === id) || null;
+}
+function seleccionarFantasma(id) {
+  lsSet(K_FANTASMA_ID, id);
+  toast('Fantasma elegido — va a competir en tu próxima sesión');
+  renderFantasmaEnSesion();
+}
+function quitarFantasma() {
+  localStorage.removeItem(K_FANTASMA_ID);
+  renderFantasmaEnSesion();
+}
+function renderFantasmaEnSesion() {
+  const cont = document.getElementById('fantasmaInfo');
+  if (!cont) return;
+  const fantasma = obtenerFantasma();
+  if (!fantasma || !fantasma.puntos || !fantasma.puntos.length) {
+    cont.innerHTML = '<p class="nota">Sin fantasma elegido — activá uno desde Historial para competir contra una sesión anterior.</p>';
+    return;
+  }
+  cont.innerHTML = '<p class="nota">👻 Fantasma: ' + new Date(fantasma.fecha).toLocaleDateString('es-AR') +
+    ' (' + fantasma.distanciaM + 'm en ' + segAHMS(fantasma.duracionSeg) + ')' +
+    ' <button class="btn chico" style="display:inline-block; width:auto; margin:0 0 0 8px; padding:4px 8px;" onclick="quitarFantasma()">Quitar</button></p>';
+}
+
+/* ============================================================
+   RENDER EN VIVO durante la sesión — mismo patrón que loopEscena() de
+   Correr: la fase de la animación avanza sola con requestAnimationFrame,
+   a una velocidad atada a la cadencia REAL (no a un tiempo fijo como la
+   previsualización del Editor). Un ciclo completo de los 8 instantes =
+   2 paladas (una D + una I), así que a "cadencia" paladas/min, el ciclo
+   completo dura 120/cadencia segundos → los 8 instantes avanzan a razón
+   de cadencia/15 por segundo.
+   Además dibuja arriba del canvas el cartel de metros vs. fantasma
+   (verde adelante / rojo atrás), calcado del badge de Correr.
+   ============================================================ */
+let tGlobalVivo = 0, sesionRAF = null, sesionUltimoTS = 0;
+const CADENCIA_BASE_SI_NO_HAY_DATO = 70; // para que la animación no quede congelada sin sensor conectado
+
+function iniciarBucleVivo() {
+  sesionUltimoTS = 0;
+  if (!sesionRAF) sesionRAF = requestAnimationFrame(loopSesionVivo);
+}
+function pararBucleVivo() {
+  if (sesionRAF) { cancelAnimationFrame(sesionRAF); sesionRAF = null; }
+}
+function loopSesionVivo(ts) {
+  if (!sesionActiva) { sesionRAF = null; return; }
+  const dt = sesionUltimoTS ? Math.min(0.1, (ts - sesionUltimoTS) / 1000) : 0;
+  sesionUltimoTS = ts;
+  const cadencia = actual.cadencia || CADENCIA_BASE_SI_NO_HAY_DATO;
+  tGlobalVivo = (tGlobalVivo + (cadencia / 15) * dt) % 8;
+  renderSesionVivo();
+  sesionRAF = requestAnimationFrame(loopSesionVivo);
+}
+function dibujarBadgeFantasma(ctx, w, gapM) {
+  if (gapM == null) return;
+  const adelante = gapM >= 0;
+  const lbl = (adelante ? '+' : '') + Math.round(gapM) + 'm';
+  ctx.font = '700 16px system-ui';
+  ctx.textAlign = 'center';
+  const tw = ctx.measureText(lbl).width;
+  const boxW = tw + 20;
+  ctx.fillStyle = 'rgba(4,7,10,.75)';
+  ctx.fillRect(w / 2 - boxW / 2, 8, boxW, 28);
+  ctx.fillStyle = adelante ? '#3fb950' : '#ff6b6b';
+  ctx.fillText(lbl, w / 2, 28);
+  ctx.textAlign = 'start';
+}
+function renderSesionVivo() {
+  const canvas = document.getElementById('canvasSesionVivo');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth || canvas.width, h = canvas.height;
+  canvas.width = w; canvas.height = h;
+  const horizonY = h * 0.28;
+  dibujarEscenaLago(ctx, w, h, horizonY);
+  const dDer = interpolarLadoEnSecuenciaK(tGlobalVivo, 'der');
+  const dIzq = interpolarLadoEnSecuenciaK(tGlobalVivo, 'izq');
+  const rotacion = interpolarRotacionEnSecuenciaK(tGlobalVivo);
+  const s = h * 0.30;
+  dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
+  if (sesionActiva) {
+    const tSeg = (Date.now() - sesionActiva.inicio) / 1000;
+    const gap = calcularGapFantasma(sesionActiva.distanciaM, tSeg);
+    dibujarBadgeFantasma(ctx, w, gap);
+  }
+}
+
+function iniciarSesion() {
+  sesionActiva = {
+    id: 'k_' + Date.now(),
+    fecha: new Date().toISOString(),
+    inicio: Date.now(),
+    distanciaM: 0,
+    pulsos: [],
+  };
+  puntosSesion = [];
+  document.getElementById('btnIniciar').style.display = 'none';
+  document.getElementById('btnFinalizar').style.display = 'block';
+  tickInterval = setInterval(tick, 1000);
+  iniciarBucleVivo();
+  toast('Sesión iniciada');
+}
+// diferencia contra el fantasma en metros (positivo = vas adelante), o null si no hay fantasma
+// elegido o no tiene track guardado. Un solo lugar para esta cuenta — la usan tanto el tile
+// numérico del HUD (tick(), cada 1s) como el cartel dibujado arriba del canvas en vivo (cada
+// frame), para que ninguno de los dos se desincronice del otro con lógica duplicada.
+function calcularGapFantasma(distanciaPropiaM, tSeg) {
+  const fantasma = obtenerFantasma();
+  if (!fantasma || !fantasma.puntos || !fantasma.puntos.length) return null;
+  return distanciaPropiaM - distanciaFantasmaEnT(fantasma.puntos, tSeg);
+}
+function tick() {
+  if (!sesionActiva) return;
+  const puntosCalib = lsGet(K_CALIBRACION, []);
+  const vel = velocidadEstimada(actual.cadencia, puntosCalib);
+  sesionActiva.distanciaM += vel; // 1 tick = 1 segundo
+  if (actual.pulso > 0) sesionActiva.pulsos.push(actual.pulso);
+  const tSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
+  // un punto por segundo, para poder armar un TCX con track real (no solo el resumen del Lap)
+  puntosSesion.push({ t: tSeg, distAcum: sesionActiva.distanciaM, pulso: actual.pulso || null, cadencia: actual.cadencia || null });
+
+  document.getElementById('hudCadencia').textContent = actual.cadencia || '--';
+  document.getElementById('hudPulso').textContent = actual.pulso || '--';
+  document.getElementById('hudDistancia').textContent = Math.round(sesionActiva.distanciaM);
+  document.getElementById('hudTiempo').textContent = segAHMS(tSeg);
+
+  const tileFantasma = document.getElementById('hudFantasma');
+  const gap = calcularGapFantasma(sesionActiva.distanciaM, tSeg);
+  if (tileFantasma) {
+    if (gap != null) {
+      const delta = Math.round(gap);
+      tileFantasma.textContent = (delta >= 0 ? '+' : '') + delta + 'm';
+      tileFantasma.style.color = delta >= 0 ? 'var(--z2)' : 'var(--pulso)';
+    } else {
+      tileFantasma.textContent = '--';
+    }
+  }
+}
+function finalizarSesion() {
+  if (!sesionActiva) return;
+  clearInterval(tickInterval);
+  pararBucleVivo();
+  const duracionSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
+  const pulsoPromedio = promedio(sesionActiva.pulsos);
+  const pulsoMax = sesionActiva.pulsos.length ? Math.max(...sesionActiva.pulsos) : null;
+  const cadenciasValidas = puntosSesion.filter(p => p.cadencia).map(p => p.cadencia);
+  const cadenciaPromedio = cadenciasValidas.length ? Math.round(promedio(cadenciasValidas)) : null;
+  const umbralPulso = lsGet(K_UMBRAL_PULSO, null);
+  const tss = calcularTSS(duracionSeg, pulsoPromedio, umbralPulso);
+
+  const sesion = {
+    id: sesionActiva.id,
+    fecha: sesionActiva.fecha,
+    duracionSeg,
+    distanciaM: Math.round(sesionActiva.distanciaM),
+    pulsoPromedio: Math.round(pulsoPromedio) || null,
+    pulsoMax,
+    cadenciaPromedio,
+    tss,
+    puntos: puntosSesion,
+  };
+  const sesiones = lsGet(K_SESIONES, []);
+  sesiones.push(sesion);
+  lsSet(K_SESIONES, sesiones);
+  actualizarFormaCompartida(sesion);
+
+  sesionActiva = null;
+  puntosSesion = [];
+  document.getElementById('btnIniciar').style.display = 'block';
+  document.getElementById('btnFinalizar').style.display = 'none';
+  document.getElementById('hudTiempo').textContent = '00:00';
+  toast('Sesión guardada');
+  renderHistorial();
+  cambiarTab('historial');
+}
+
+/* ============================================================
+   EXPORTAR TCX (para subir a TrainingPeaks)
+   ============================================================
+   Mismo esquema que ya usa Correr: orden EXACTO que exige el schema oficial
+   de Garmin (TrainingCenterDatabase v2) dentro de <Lap> — TotalTimeSeconds,
+   DistanceMeters, Calories, [AverageHeartRateBpm], [MaximumHeartRateBpm],
+   Intensity, [Cadence], TriggerMethod, Track. Calories/Intensity/
+   TriggerMethod son obligatorios aunque no tengamos el dato real (Calories=0
+   es válido) — sin esto, TrainingPeaks puede rechazar el archivo o
+   importarlo mal. Sport="Other" porque el schema TCX solo admite
+   Running/Biking/Other — no existe un valor de Kayaking.
+   </Cadence> a nivel Lap y <RunCadence> en las extensiones TPX son campos
+   pensados para pasos/pedaleada, no paladas — los uso igual (mejor que
+   nada para ver la cadencia en TrainingPeaks) pero puede que el servicio
+   los etiquete como "cadencia de carrera/pedaleo" en vez de "paladas".
+   ============================================================ */
+function generarTCX(sesion) {
+  const puntos = sesion.puntos || [];
+  const t0 = new Date(sesion.fecha);
+  const filas = puntos.map(p => {
+    const tiempoAbs = new Date(t0.getTime() + p.t * 1000).toISOString();
+    let xml = '<Trackpoint><Time>' + tiempoAbs + '</Time><DistanceMeters>' + p.distAcum.toFixed(2) + '</DistanceMeters>';
+    if (p.pulso) xml += '<HeartRateBpm><Value>' + Math.round(p.pulso) + '</Value></HeartRateBpm>';
+    if (p.cadencia) xml += '<Extensions><TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2"><RunCadence>' + Math.round(p.cadencia) + '</RunCadence></TPX></Extensions>';
+    xml += '</Trackpoint>';
+    return xml;
+  }).join('');
+  let lap = '<TotalTimeSeconds>' + sesion.duracionSeg + '</TotalTimeSeconds>' +
+    '<DistanceMeters>' + sesion.distanciaM.toFixed(2) + '</DistanceMeters>' +
+    '<Calories>0</Calories>';
+  if (sesion.pulsoPromedio) lap += '<AverageHeartRateBpm><Value>' + Math.round(sesion.pulsoPromedio) + '</Value></AverageHeartRateBpm>';
+  if (sesion.pulsoMax) lap += '<MaximumHeartRateBpm><Value>' + Math.round(sesion.pulsoMax) + '</Value></MaximumHeartRateBpm>';
+  lap += '<Intensity>Active</Intensity>';
+  if (sesion.cadenciaPromedio) lap += '<Cadence>' + Math.round(sesion.cadenciaPromedio) + '</Cadence>';
+  lap += '<TriggerMethod>Manual</TriggerMethod><Track>' + filas + '</Track>';
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">' +
+    '<Activities><Activity Sport="Other"><Id>' + t0.toISOString() + '</Id>' +
+    '<Lap StartTime="' + t0.toISOString() + '">' + lap + '</Lap></Activity></Activities></TrainingCenterDatabase>';
+}
+function exportarSesionTCX(id) {
+  const sesion = lsGet(K_SESIONES, []).find(x => x.id === id);
+  if (!sesion) { toast('No encontré esa sesión'); return; }
+  const xml = generarTCX(sesion);
+  const blob = new Blob([xml], { type: 'application/vnd.garmin.tcx+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const fecha = new Date(sesion.fecha).toISOString().slice(0, 10);
+  a.href = url; a.download = 'kayak_' + fecha + '.tcx';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('TCX descargado');
+}
+
+/* ============================================================
+   HISTORIAL
+   ============================================================ */
+function renderHistorial() {
+  renderForma();
+  const sesiones = [...lsGet(K_SESIONES, [])].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  const tbody = document.getElementById('tablaSesiones');
+  if (!sesiones.length) {
+    tbody.innerHTML = '<tr class="vacia"><td colspan="6">Sin sesiones todavía</td></tr>';
+    return;
+  }
+  tbody.innerHTML = sesiones.map(s => {
+    const fantasmaActualId = lsGet(K_FANTASMA_ID, null);
+    const esFantasma = s.id === fantasmaActualId;
+    const tieneTrack = s.puntos && s.puntos.length > 0;
+    return '<tr><td>' + new Date(s.fecha).toLocaleDateString('es-AR') + '</td>' +
+    '<td>' + segAHMS(s.duracionSeg) + '</td>' +
+    '<td>' + s.distanciaM + 'm</td>' +
+    '<td>' + s.tss + '</td>' +
+    '<td><button class="btn chico" style="margin:0; padding:4px 8px;" onclick="exportarSesionTCX(\'' + s.id + '\')">TCX</button></td>' +
+    '<td>' + (tieneTrack
+      ? '<button class="btn chico" style="margin:0; padding:4px 8px;' + (esFantasma ? ' background:var(--ritmo); color:var(--bg);' : '') + '" onclick="seleccionarFantasma(\'' + s.id + '\')">' + (esFantasma ? '✅' : '👻') + '</button>'
+      : '') + '</td></tr>';
+  }).join('');
+}
+
+/* ============================================================
+   EDITOR DE ANIMACIÓN — modelo del kayakista
+   ============================================================
+   Mismo patrón que el editor de Correr: 8 instantes de la palada completa
+   (Entrada/Tracción/Salida/Recuperación × D/I — un lado tira mientras el
+   otro hace de "mano de arriba"), cada uno define el cuerpo COMPLETO (los
+   dos brazos a la vez), ajustado a ojo con sliders, no calculado.
+   Brazo: codo (elX,elY) y mano (wrX,wrY) relativos al HOMBRO de ese lado,
+   en coeficiente × escala s (misma convención que elX/elY/wrX/wrY en
+   Correr). No hay piernas animadas (quedan fijas en el pozo de la cabina).
+   "rotacionTorso" reemplaza al "bounce" de Correr: en vez de oscilación
+   vertical de todo el cuerpo, es el giro del torso hacia cada lado.
+   Valores por defecto: PLACEHOLDER a ojo, sin ninguna referencia visual
+   todavía (a diferencia de Correr, que arrancó de fórmulas ya validadas).
+   Hace falta iterar con capturas de pantalla reales antes de confiar en
+   que la pose "se ve" a remo.
+   ============================================================ */
+const EDITOR_CAMPOS_K = ['elX', 'elY', 'wrX', 'wrY', 'escalaPala', 'splashX', 'splashY', 'splashEscala'];
+const EDITOR_MOMENTOS_K = ['entradaD', 'traccionD', 'salidaD', 'recuperacionD', 'entradaI', 'traccionI', 'salidaI', 'recuperacionI'];
+const EDITOR_KEYFRAMES_DEFAULT_K = {
+  "entradaD": {
+    "rotacion": 0.171,
+    "der": { "elX": 0.129, "elY": 0.315, "wrX": -0.098, "wrY": 0.669, "escalaPala": 0.544, "splashX": 0, "splashY": 0, "splashEscala": 0 },
+    "izq": { "elX": -0.336, "elY": -0.185, "wrX": -0.207, "wrY": -0.597, "escalaPala": 0.93, "splashX": 0, "splashY": 0, "splashEscala": 0 }
+  },
+  "traccionD": {
+    "rotacion": 0.01,
+    "der": { "elX": 0.371, "elY": 0.408, "wrX": 0.439, "wrY": 0.707, "escalaPala": 0, "splashX": 0.023, "splashY": 0.015, "splashEscala": 0.366 },
+    "izq": { "elX": 0.308, "elY": -0.241, "wrX": 0.56, "wrY": -0.587, "escalaPala": 1, "splashX": 0, "splashY": 0, "splashEscala": 0.944 }
+  },
+  "salidaD": {
+    "rotacion": -0.158,
+    "der": { "elX": 0.362, "elY": 0.42, "wrX": 0.74, "wrY": 0.563, "escalaPala": 1, "splashX": 0, "splashY": 0.451, "splashEscala": 0.618 },
+    "izq": { "elX": 0.232, "elY": 0.022, "wrX": 0.815, "wrY": 0.043, "escalaPala": 0.7, "splashX": 0, "splashY": 0, "splashEscala": 0 }
+  },
+  "recuperacionD": {
+    "rotacion": -0.284,
+    "der": { "elX": 0.43, "elY": 0.1, "wrX": 0.761, "wrY": -0.045, "escalaPala": 0.803, "splashX": 0.023, "splashY": 0.5, "splashEscala": 0 },
+    "izq": { "elX": -0.15, "elY": 0.2, "wrX": -0.2, "wrY": -0.065, "escalaPala": 0.45, "splashX": 0, "splashY": 0, "splashEscala": 0 }
+  },
+  "entradaI": {
+    "rotacion": -0.3,
+    "der": { "elX": 0.016, "elY": -0.129, "wrX": -0.34, "wrY": -0.22, "escalaPala": 1, "splashX": 0, "splashY": 0, "splashEscala": 0 },
+    "izq": { "elX": -0.135, "elY": 0.266, "wrX": -0.046, "wrY": 0.257, "escalaPala": 0.45, "splashX": 0, "splashY": 0, "splashEscala": 0 }
+  },
+  "traccionI": {
+    "rotacion": -0.1,
+    "der": { "elX": -0.32, "elY": -0.35, "wrX": -0.55, "wrY": -0.581, "escalaPala": 1, "splashX": 0, "splashY": 0, "splashEscala": 0 },
+    "izq": { "elX": -0.219, "elY": 0.398, "wrX": -0.304, "wrY": 0.78, "escalaPala": 0, "splashX": 0, "splashY": 0, "splashEscala": 0 }
+  },
+  "salidaI": {
+    "rotacion": 0.1,
+    "der": { "elX": -0.319, "elY": 0.032, "wrX": -0.859, "wrY": 0.08, "escalaPala": 0.618, "splashX": 0, "splashY": 0, "splashEscala": 0 },
+    "izq": { "elX": -0.219, "elY": 0.429, "wrX": -0.524, "wrY": 0.873, "escalaPala": 1, "splashX": 0, "splashY": 0, "splashEscala": 1 }
+  },
+  "recuperacionI": {
+    "rotacion": 0.3,
+    "der": { "elX": 0.099, "elY": 0.037, "wrX": -0.168, "wrY": 0.004, "escalaPala": 0.45, "splashX": 0, "splashY": 0, "splashEscala": 0 },
+    "izq": { "elX": -0.312, "elY": 0.149, "wrX": -0.741, "wrY": 0.049, "escalaPala": 0.934, "splashX": -0.004, "splashY": 0.5, "splashEscala": 0 }
+  }
+};
+const K_EDITOR_DATOS = LS_PREFIX + 'editor_datos';
+let editorMomento = 'traccionD', editorVista = 'der';
+let editorPreviewT = 0, editorPreviewRAF = null, editorPreviewLast = 0, editorPlaying = false;
+let editorDatos = cargarEditorDatos();
+
+function cargarEditorDatos() {
+  const guardado = lsGet(K_EDITOR_DATOS, null);
+  if (!guardado) return JSON.parse(JSON.stringify(EDITOR_KEYFRAMES_DEFAULT_K));
+  // migración: rellenar campos que no existían en ediciones guardadas de versiones previas
+  // (ej. escalaPala se agregó en v9 — una edición guardada en v8 no la tiene, y sin esto
+  // cualquier lectura de d[lado].escalaPala.toFixed(...) tira TypeError y corta el guardado a
+  // mitad de camino, que es justo el bug que reportó Hugo: "los sliders no funcionan").
+  EDITOR_MOMENTOS_K.forEach(mo => {
+    if (!guardado[mo]) { guardado[mo] = JSON.parse(JSON.stringify(EDITOR_KEYFRAMES_DEFAULT_K[mo])); return; }
+    if (guardado[mo].rotacion === undefined) guardado[mo].rotacion = EDITOR_KEYFRAMES_DEFAULT_K[mo].rotacion;
+    ['der', 'izq'].forEach(lado => {
+      if (!guardado[mo][lado]) { guardado[mo][lado] = JSON.parse(JSON.stringify(EDITOR_KEYFRAMES_DEFAULT_K[mo][lado])); return; }
+      EDITOR_CAMPOS_K.forEach(campo => {
+        if (guardado[mo][lado][campo] === undefined) guardado[mo][lado][campo] = EDITOR_KEYFRAMES_DEFAULT_K[mo][lado][campo];
+      });
+    });
+  });
+  return guardado;
+}
+function guardarEditorDatos() { lsSet(K_EDITOR_DATOS, editorDatos); }
+
+function seleccionarEditorMomento(momento) {
+  editorMomento = momento;
+  document.querySelectorAll('.editor-momento-btn').forEach(b => b.classList.toggle('sel', b.dataset.momento === momento));
+  cargarSlidersDesdeEditorDatos();
+  renderEditorPose();
+}
+function cambiarEditorVista(vista) {
+  editorVista = vista;
+  document.querySelectorAll('.editor-vista-btn').forEach(b => b.classList.toggle('sel', b.dataset.vista === vista));
+  document.getElementById('cardEditorDer').style.display = vista === 'der' ? '' : 'none';
+  document.getElementById('cardEditorIzq').style.display = vista === 'izq' ? '' : 'none';
+}
+function cargarSlidersDesdeEditorDatos() {
+  const d = editorDatos[editorMomento];
+  document.getElementById('ed_rotacion').value = Math.round(d.rotacion * 1000);
+  for (const lado of ['der', 'izq']) {
+    EDITOR_CAMPOS_K.forEach(campo => { document.getElementById('ed_' + lado + '_' + campo).value = Math.round(d[lado][campo] * 1000); });
+  }
+  actualizarEtiquetasEditor();
+}
+function actualizarEtiquetasEditor() {
+  const d = editorDatos[editorMomento];
+  document.getElementById('lblRotacion').textContent = d.rotacion.toFixed(3);
+  const PREFIJOS = { der: 'Der', izq: 'Izq' };
+  for (const lado of ['der', 'izq']) {
+    const p = PREFIJOS[lado];
+    document.getElementById('lbl' + p + 'CodoX').textContent = d[lado].elX.toFixed(3);
+    document.getElementById('lbl' + p + 'CodoY').textContent = d[lado].elY.toFixed(3);
+    document.getElementById('lbl' + p + 'ManoX').textContent = d[lado].wrX.toFixed(3);
+    document.getElementById('lbl' + p + 'ManoY').textContent = d[lado].wrY.toFixed(3);
+    document.getElementById('lbl' + p + 'EscalaPala').textContent = d[lado].escalaPala.toFixed(3);
+    document.getElementById('lbl' + p + 'SplashX').textContent = d[lado].splashX.toFixed(3);
+    document.getElementById('lbl' + p + 'SplashY').textContent = d[lado].splashY.toFixed(3);
+    document.getElementById('lbl' + p + 'SplashEscala').textContent = d[lado].splashEscala.toFixed(3);
+  }
+}
+function actualizarEditor(lado, campo, valorSlider) {
+  editorDatos[editorMomento][lado][campo] = parseInt(valorSlider, 10) / 1000;
+  actualizarEtiquetasEditor();
+  guardarEditorDatos();
+  renderEditorPose();
+}
+function actualizarEditorRotacion(valorSlider) {
+  editorDatos[editorMomento].rotacion = parseInt(valorSlider, 10) / 1000;
+  document.getElementById('lblRotacion').textContent = editorDatos[editorMomento].rotacion.toFixed(3);
+  guardarEditorDatos();
+  renderEditorPose();
+}
+function reiniciarEditorMomento() {
+  editorDatos[editorMomento] = JSON.parse(JSON.stringify(EDITOR_KEYFRAMES_DEFAULT_K[editorMomento]));
+  cargarSlidersDesdeEditorDatos();
+  guardarEditorDatos();
+  renderEditorPose();
+}
+// espejo D->I: cada instante "I" se llena con el espejo izquierda-derecha del "D" correspondiente
+// (mismos números, der/izq intercambiados; la inversión geométrica la hace dibujarKayakistaDesdeD
+// sola al reflejar en X). rotacion se invierte de signo (gira para el otro lado).
+function espejarEditorInstante() {
+  if (!confirm('Esto va a REEMPLAZAR Entrada/Tracción/Salida/Recuperación I con el espejo de los D correspondientes. Se pierde lo que hayas ajustado ahí. ¿Seguro?')) return;
+  ['entrada', 'traccion', 'salida', 'recuperacion'].forEach(base => {
+    const origen = editorDatos[base + 'D'];
+    editorDatos[base + 'I'] = { rotacion: -origen.rotacion, der: JSON.parse(JSON.stringify(origen.izq)), izq: JSON.parse(JSON.stringify(origen.der)) };
+  });
+  guardarEditorDatos();
+  cargarSlidersDesdeEditorDatos();
+  renderEditorPose();
+  toast('Instantes "I" regenerados espejando los "D"');
+}
+
+/* ============================================================
+   PREVISUALIZACIÓN ANIMADA — mismo patrón que Correr: interpola entre los
+   8 instantes con suavizado coseno (no lineal a los saltos) y lo reproduce
+   en loop en un canvas aparte, más chico, con play/pausa.
+   ============================================================ */
+// interpola UN lado entre dos instantes consecutivos de la secuencia de 8 (incluye escalaPala,
+// así la pala también encoge/agranda suave en vez de saltar de golpe entre instantes)
+function interpolarLadoEnSecuenciaK(tGlobal, lado) {
+  const i = Math.floor(tGlobal) % 8;
+  const frac = tGlobal - Math.floor(tGlobal);
+  const easeFrac = (1 - Math.cos(frac * Math.PI)) / 2;
+  const a = editorDatos[EDITOR_MOMENTOS_K[i]][lado], b = editorDatos[EDITOR_MOMENTOS_K[(i + 1) % 8]][lado];
+  const out = {};
+  EDITOR_CAMPOS_K.forEach(campo => { out[campo] = a[campo] + (b[campo] - a[campo]) * easeFrac; });
+  return out;
+}
+function interpolarRotacionEnSecuenciaK(tGlobal) {
+  const i = Math.floor(tGlobal) % 8;
+  const frac = tGlobal - Math.floor(tGlobal);
+  const easeFrac = (1 - Math.cos(frac * Math.PI)) / 2;
+  const a = editorDatos[EDITOR_MOMENTOS_K[i]].rotacion, b = editorDatos[EDITOR_MOMENTOS_K[(i + 1) % 8]].rotacion;
+  return a + (b - a) * easeFrac;
+}
+function editorTogglePlay() {
+  editorPlaying = !editorPlaying;
+  document.getElementById('btnEditorPlay').textContent = editorPlaying ? '❚❚ Pausa' : '▶ Reproducir';
+  if (editorPlaying) { editorPreviewLast = 0; editorPreviewRAF = requestAnimationFrame(editorPreviewLoop); }
+}
+function pararEditorPreviewLoop() {
+  if (editorPreviewRAF) { cancelAnimationFrame(editorPreviewRAF); editorPreviewRAF = null; }
+  editorPlaying = false;
+  const btn = document.getElementById('btnEditorPlay');
+  if (btn) btn.textContent = '▶ Reproducir';
+}
+function editorPreviewLoop(ts) {
+  if (!editorPlaying) { editorPreviewRAF = null; return; }
+  const dt = editorPreviewLast ? Math.min(0.1, (ts - editorPreviewLast) / 1000) : 0;
+  editorPreviewLast = ts;
+  editorPreviewT = (editorPreviewT + dt * 2.6) % 8; // ~3.1s por ciclo completo de los 8 instantes
+  renderEditorPreview();
+  editorPreviewRAF = requestAnimationFrame(editorPreviewLoop);
+}
+function renderEditorPreview() {
+  const canvas = document.getElementById('canvasEditorPreview');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth || canvas.width, h = canvas.height;
+  canvas.width = w; canvas.height = h;
+  const horizonY = h * 0.28;
+  dibujarEscenaLago(ctx, w, h, horizonY);
+  const dDer = interpolarLadoEnSecuenciaK(editorPreviewT, 'der');
+  const dIzq = interpolarLadoEnSecuenciaK(editorPreviewT, 'izq');
+  const rotacion = interpolarRotacionEnSecuenciaK(editorPreviewT);
+  const s = h * 0.30;
+  dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
+}
+
+
+// helpers de dibujo (mismo criterio que Correr: shadeHex para sombrear, segmentoGrueso para
+// huesos/miembros como un trapecio entre dos puntos con ancho propio en cada punta)
+function shadeHex(hex, f) {
+  const n = parseInt(hex.slice(1), 16); let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  r = Math.min(255, r * f) | 0; g = Math.min(255, g * f) | 0; b = Math.min(255, b * f) | 0;
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+function segmentoGrueso(ctx, x1, y1, x2, y2, w1, w2, color) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x1 + nx * w1 / 2, y1 + ny * w1 / 2);
+  ctx.lineTo(x2 + nx * w2 / 2, y2 + ny * w2 / 2);
+  ctx.lineTo(x2 - nx * w2 / 2, y2 - ny * w2 / 2);
+  ctx.lineTo(x1 - nx * w1 / 2, y1 - ny * w1 / 2);
+  ctx.closePath();
+  ctx.fill();
+}
+// escena de fondo: cielo, línea de horizonte con lomas/árboles simplificados, agua. Referencia:
+// el video que mandó Hugo (vista trasera, lago en calma, orillas arboladas, cielo gris claro).
+function dibujarEscenaLago(ctx, w, h, horizonY) {
+  const cieloGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
+  cieloGrad.addColorStop(0, '#c9c4b8');
+  cieloGrad.addColorStop(1, '#dcd7c9');
+  ctx.fillStyle = cieloGrad;
+  ctx.fillRect(0, 0, w, horizonY);
+
+  // lomas verdes justo en el horizonte
+  ctx.fillStyle = '#7a9569';
+  ctx.beginPath();
+  ctx.moveTo(0, horizonY);
+  ctx.quadraticCurveTo(w * 0.25, horizonY - h * 0.02, w * 0.5, horizonY);
+  ctx.quadraticCurveTo(w * 0.75, horizonY + h * 0.015, w, horizonY - h * 0.01);
+  ctx.lineTo(w, horizonY);
+  ctx.closePath();
+  ctx.fill();
+
+  // arbolitos simples a los costados
+  function arbol(x, y, r, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x - r * 0.6, y + r * 0.15, r * 0.75, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + r * 0.6, y + r * 0.15, r * 0.7, 0, Math.PI * 2); ctx.fill();
+  }
+  const rArbol = h * 0.045;
+  [0.06, 0.14, 0.20].forEach((fx, i) => arbol(w * fx, horizonY - rArbol * 0.6, rArbol * (0.8 + i * 0.15), '#5c8a54'));
+  [0.94, 0.86, 0.80].forEach((fx, i) => arbol(w * fx, horizonY - rArbol * 0.6, rArbol * (0.8 + i * 0.15), '#5c8a54'));
+
+  // agua
+  const aguaGrad = ctx.createLinearGradient(0, horizonY, 0, h);
+  aguaGrad.addColorStop(0, '#7f8f97');
+  aguaGrad.addColorStop(1, '#4b5a63');
+  ctx.fillStyle = aguaGrad;
+  ctx.fillRect(0, horizonY, w, h - horizonY);
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    const y = horizonY + (h - horizonY) * (0.15 + i * 0.15);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+}
+// casco del kayak visto desde atrás: ANCHO cerca de la cabina (donde se sienta, pegado al
+// torso) que se AFINA hasta una punta hacia abajo/cerca de cámara (la popa) — antes lo tenía al
+// revés (punta pegada al torso, ancho lejos), Hugo lo marcó viendo la captura.
+function dibujarCascoKayak(ctx, cx, cabinaY, s) {
+  const anchoCabina = 0.55 * s, largoPopa = 1.15 * s;
+  ctx.fillStyle = '#c7cdd1';
+  ctx.beginPath();
+  ctx.moveTo(cx - anchoCabina, cabinaY);
+  ctx.quadraticCurveTo(cx - anchoCabina * 0.9, cabinaY + largoPopa * 0.55, cx, cabinaY + largoPopa);
+  ctx.quadraticCurveTo(cx + anchoCabina * 0.9, cabinaY + largoPopa * 0.55, cx + anchoCabina, cabinaY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = shadeHex('#c7cdd1', 0.75);
+  ctx.beginPath();
+  ctx.ellipse(cx, cabinaY + 0.22 * s, anchoCabina * 0.65, 0.20 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // estela, arrancando desde la punta de popa (lo más cerca de cámara)
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = Math.max(1, s * 0.02);
+  [-1, 1].forEach(sgn => {
+    ctx.beginPath();
+    ctx.moveTo(cx, cabinaY + largoPopa);
+    ctx.quadraticCurveTo(cx + sgn * 0.9 * s, cabinaY + largoPopa + 0.8 * s, cx + sgn * 2.1 * s, cabinaY + largoPopa + 1.5 * s);
+    ctx.stroke();
+  });
+}
+// salpicadura de salida de pala: columna de espuma + gotas, como en el video de referencia.
+// splashEscala multiplica todo el tamaño de la espuma (0 = no se dibuja).
+function dibujarSplash(ctx, x, y, s, escala) {
+  escala = escala == null ? 1 : escala;
+  if (escala <= 0.01) return;
+  const sp = s * escala;
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath();
+  ctx.moveTo(x - 0.06 * sp, y);
+  ctx.quadraticCurveTo(x - 0.10 * sp, y - 0.5 * sp, x - 0.02 * sp, y - 0.95 * sp);
+  ctx.lineTo(x + 0.05 * sp, y - 0.95 * sp);
+  ctx.quadraticCurveTo(x + 0.10 * sp, y - 0.5 * sp, x + 0.06 * sp, y);
+  ctx.closePath();
+  ctx.fill();
+  const gotas = [[-0.14, -1.05, 0.05], [0.10, -1.15, 0.045], [-0.02, -1.25, 0.04], [0.18, -0.9, 0.035]];
+  gotas.forEach(([gx, gy, gr]) => {
+    ctx.beginPath();
+    ctx.arc(x + gx * sp, y + gy * sp, gr * sp, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + 0.04 * sp, 0.22 * sp, 0.06 * sp, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// proporciones del cuerpo/equipo — NO cambian entre instantes de la palada (a diferencia de
+// elX/elY/wrX/wrY/rotacion), son medidas fijas que Hugo pidió poder ajustar aparte.
+const PROPORCIONES_DEFAULT_K = {
+  "alturaTorso": 1,
+  "anchoTorsoCadera": 0.519,
+  "anchoTorsoHombros": 0.782,
+  "anchoHombros": 0.53,
+  "largoPertiga": 0.418,
+  "largoPala": 0.227,
+  "anchoPala": 0.35,
+  "alturaSobreKayak": -0.235
+};
+const K_PROPORCIONES = LS_PREFIX + 'proporciones';
+let proporciones = { ...PROPORCIONES_DEFAULT_K, ...lsGet(K_PROPORCIONES, {}) };
+
+// dibuja al kayakista completo a partir de datos de pose por lado (dDer/dIzq) + rotación de
+// torso. Vista desde atrás, siguiendo al kayak (misma cámara que el video de referencia).
+// splashLado: 'der' | 'izq' | null — de qué lado dibujar la salpicadura de salida.
+// prop: proporciones de cuerpo/equipo (alturaTorso, anchos, largoPertiga, largoPala, anchoPala).
+function dibujarKayakistaDesdeD(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey, prop) {
+  prop = prop || PROPORCIONES_DEFAULT_K;
+  const skin = '#e8934c';
+  // gyBase = referencia fija del casco (no se mueve). El kayakista se ancla a "alturaSobreKayak"
+  // por encima de esa referencia — Hugo lo pidió ajustable porque antes quedaba un hueco fijo
+  // (0.15 hardcodeado) entre el torso y el pozo de cabina que no podía cerrar.
+  const hipY = gyBase - prop.alturaSobreKayak * s;
+  const shY = hipY - prop.alturaTorso * s;
+  const shCenterX = cx + (rotacion || 0) * s * 0.6;
+  const anchoHombros = prop.anchoHombros * s;
+  const shDerX = shCenterX + anchoHombros / 2, shIzqX = shCenterX - anchoHombros / 2;
+
+  dibujarCascoKayak(ctx, cx, gyBase, s);
+
+  // posiciones de mano (cálculo puro, sin dibujar todavía) — las necesito antes que el torso
+  // para poder dibujar la pala POR DETRÁS del cuerpo (vista trasera: la pértiga pasa detrás del
+  // tronco y la cabeza cuando cruza por ahí, no por encima como quedaba antes).
+  function manoDe(shX, d) { return { x: shX + d.wrX * s, y: shY + d.wrY * s }; }
+  const manoDer = manoDe(shDerX, dDer);
+  const manoIzq = manoDe(shIzqX, dIzq);
+
+  // pala: eje entre las dos manos, con las dos hojas sobresaliendo a cada lado (forma de
+  // remo/spade, no óvalo simple — más parecido al video de referencia). Se dibuja ANTES que el
+  // torso/cabeza/brazos para que esos la tapen donde corresponda.
+  // Escala de cada hoja INDEPENDIENTE por lado (dDer.escalaPala / dIzq.escalaPala), no un tamaño
+  // fijo compartido: a pedido de Hugo, más chica en la entrada (perspectiva, lejos) y casi
+  // desaparecida en la tracción (está bajo el agua, no se ve desde atrás).
+  const dx = manoDer.x - manoIzq.x, dy = manoDer.y - manoIzq.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const overhang = prop.largoPertiga * s;
+  const palaDerX = manoDer.x + ux * overhang, palaDerY = manoDer.y + uy * overhang;
+  const palaIzqX = manoIzq.x - ux * overhang, palaIzqY = manoIzq.y - uy * overhang;
+  segmentoGrueso(ctx, palaIzqX, palaIzqY, palaDerX, palaDerY, 0.075 * s, 0.075 * s, '#20242b');
+  const angulo = Math.atan2(uy, ux);
+  [[palaDerX, palaDerY, dDer.escalaPala], [palaIzqX, palaIzqY, dIzq.escalaPala]].forEach(([x, y, escala]) => {
+    escala = escala == null ? 1 : escala;
+    if (escala <= 0.01) return; // prácticamente invisible (bajo el agua) — ni la dibujo
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angulo);
+    ctx.fillStyle = '#20242b';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, prop.anchoPala * s * escala, prop.largoPala * s * escala, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // brazos, por detrás del torso/cabeza — a pedido de Hugo, la mano NO debe superponerse al
+  // tronco: si el antebrazo cruza por delante del torso, el torso lo tiene que tapar, no al
+  // revés (mismo criterio que ya se aplicó con la pala).
+  function brazo(shX, d) {
+    const elX = shX + d.elX * s, elY = shY + d.elY * s;
+    const wrX = shX + d.wrX * s, wrY = shY + d.wrY * s;
+    segmentoGrueso(ctx, shX, shY, elX, elY, 0.20 * s, 0.15 * s, skin);
+    segmentoGrueso(ctx, elX, elY, wrX, wrY, 0.15 * s, 0.11 * s, skin);
+  }
+  brazo(shDerX, dDer);
+  brazo(shIzqX, dIzq);
+
+  // torso (por encima de la pala Y de los brazos)
+  segmentoGrueso(ctx, cx, hipY, shCenterX, shY, prop.anchoTorsoCadera * s, prop.anchoTorsoHombros * s, jersey);
+  // cabeza (por encima de todo)
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.arc(shCenterX, shY - 0.34 * s, 0.24 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // espuma: posición y escala vienen de los datos de cada lado (splashX/splashY/splashEscala,
+  // como offset desde la punta de esa pala) — a pedido de Hugo, ajustable en CADA uno de los 8
+  // instantes y por lado, no fija a "sale espuma solo en Salida D/I".
+  [[palaDerX, palaDerY, dDer], [palaIzqX, palaIzqY, dIzq]].forEach(([px, py, d]) => {
+    dibujarSplash(ctx, px + (d.splashX || 0) * s, py + (d.splashY || 0) * s, s, d.splashEscala);
+  });
+}
+function guardarProporciones() { lsSet(K_PROPORCIONES, proporciones); }
+function actualizarProporcion(campo, valorSlider) {
+  proporciones[campo] = parseInt(valorSlider, 10) / 1000;
+  document.getElementById('lblProp_' + campo).textContent = proporciones[campo].toFixed(3);
+  guardarProporciones();
+  renderEditorPose();
+}
+function cargarSlidersProporciones() {
+  Object.keys(PROPORCIONES_DEFAULT_K).forEach(campo => {
+    document.getElementById('ed_prop_' + campo).value = Math.round(proporciones[campo] * 1000);
+    document.getElementById('lblProp_' + campo).textContent = proporciones[campo].toFixed(3);
+  });
+}
+function reiniciarProporciones() {
+  proporciones = { ...PROPORCIONES_DEFAULT_K };
+  guardarProporciones();
+  cargarSlidersProporciones();
+  renderEditorPose();
+}
+
+/* ============================================================
+   EXPORTAR / IMPORTAR LA EDICIÓN (mismo patrón que Correr)
+   ============================================================
+   "Generar código": vuelca editorDatos + proporciones como texto JS listo
+   para pegar como nuevos valores por defecto — así lo que ajustes a ojo no
+   se pierde entre versiones del archivo (localStorage no sobrevive
+   necesariamente entre descargas nuevas, cada archivo puede quedar en un
+   origen distinto). "Descargar edición" baja un .json de respaldo rápido;
+   "Cargar edición" lo vuelve a leer.
+   ============================================================ */
+function exportarEditorKayak() {
+  const texto = '// Edición del kayakista (Kayak Indoor) — pegar como nuevos valores por defecto.\n' +
+    'const EDITOR_KEYFRAMES_DEFAULT_K = ' + JSON.stringify(editorDatos, null, 2) + ';\n' +
+    'const PROPORCIONES_DEFAULT_K = ' + JSON.stringify(proporciones, null, 2) + ';';
+  document.getElementById('editorCodigoExportadoKayak').value = texto;
+  toast('Código generado — copialo y mandámelo');
+}
+function descargarEdicionEditorKayak() {
+  const paquete = { tipo: 'edicion_kayak_v1', exportado: new Date().toISOString(), editorDatos, proporciones };
+  const blob = new Blob([JSON.stringify(paquete, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'kayak_edicion_' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Edición descargada');
+}
+function manejarArchivoEdicionKayak(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { procesarArchivoEdicionKayak(reader.result); }
+    catch (e) { toast('Error leyendo el archivo: ' + e.message); }
+    evt.target.value = '';
+  };
+  reader.readAsText(file);
+}
+function procesarArchivoEdicionKayak(texto) {
+  const paquete = JSON.parse(texto);
+  if (paquete.tipo !== 'edicion_kayak_v1' || !paquete.editorDatos) throw new Error('No es un archivo de edición de Kayak Indoor válido');
+  if (!confirm('Esto va a REEMPLAZAR toda tu edición actual (instantes + proporciones) por la del archivo. ¿Seguro?')) return;
+  editorDatos = paquete.editorDatos;
+  proporciones = { ...PROPORCIONES_DEFAULT_K, ...(paquete.proporciones || {}) };
+  guardarEditorDatos();
+  guardarProporciones();
+  cargarSlidersDesdeEditorDatos();
+  cargarSlidersProporciones();
+  renderEditorPose();
+  toast('Edición restaurada desde el archivo');
+}
+function renderEditorPose() {
+  const canvas = document.getElementById('canvasEditorKayak');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth || canvas.width, h = canvas.height;
+  canvas.width = w; canvas.height = h;
+  const horizonY = h * 0.28;
+  dibujarEscenaLago(ctx, w, h, horizonY);
+  const d = editorDatos[editorMomento];
+  const s = h * 0.30;
+  dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, d.der, d.izq, d.rotacion, '#242424', proporciones);
+}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+function cambiarTab(nombre) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('activa'));
+  document.getElementById('view-' + nombre).classList.add('activa');
+  document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('sel'));
+  event && event.target && event.target.classList.add('sel');
+  if (nombre === 'historial') renderHistorial();
+  if (nombre === 'calibracion') renderCalibracion();
+  if (nombre === 'entrenos') renderListaEntrenos();
+  if (nombre === 'sesion') { renderFantasmaEnSesion(); if (sesionActiva) iniciarBucleVivo(); else renderSesionVivo(); }
+  else pararBucleVivo(); // no seguir dibujando de fondo si salís de la pestaña Sesión
+  if (nombre === 'editor') { cargarSlidersDesdeEditorDatos(); cargarSlidersProporciones(); renderEditorPose(); renderEditorPreview(); }
+  else pararEditorPreviewLoop(); // no seguir animando de fondo si salís del Editor
+  // no dejar el metrónomo sonando de fondo si te vas a otra pestaña que no sea Entrenos o
+  // Calibración (donde tiene sentido que siga sonando aunque cambies de vista dentro de la
+  // misma pestaña, ej. estás viendo el paso 2 de un entreno)
+  if (nombre !== 'entrenos' && nombre !== 'calibracion') { metroDetener(); metroDetenerBotonLibreYCalib(); if (ejecucion) detenerEjecucionEntreno(); }
+  if (nombre !== 'calibracion') { if (micStream) detenerMicCadencia(); if (camStream) detenerCamCadencia(); }
+}
+
+renderCalibracion();
+actualizarNotaCalib();
+renderHistorial();
+renderFantasmaEnSesion();
+renderSesionVivo();
+document.querySelector('.editor-momento-btn[data-momento="traccionD"]').classList.add('sel');
+</script>
+</body>
+</html>
