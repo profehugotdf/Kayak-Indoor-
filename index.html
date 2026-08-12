@@ -115,7 +115,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v1</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v27</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -223,8 +223,9 @@
         <div id="camROIOverlay" style="position:absolute; border:2px solid var(--ritmo); background:rgba(79,216,196,0.18); display:none; pointer-events:none;"></div>
       </div>
       <p class="nota" id="notaROICamara">Arrastrá sobre el video para marcar la zona donde pasa la
-        pértiga — el análisis de movimiento se limita a esa zona (en vez de mirar todo el cuadro,
-        cara y fondo incluidos).</p>
+        pértiga — con una zona marcada, la app sigue el ÁNGULO de la pértiga (cuándo cambia de
+        inclinación de un lado al otro), que marca la palada mucho mejor que el movimiento
+        general. Sin zona marcada, usa movimiento general como respaldo (peor señal).</p>
       <button class="btn chico" onclick="reiniciarROICamara()">↺ Reiniciar selección (usar el cuadro completo)</button>
       <div class="hud-grid" style="margin-top:10px;">
         <div class="hud-tile"><div class="val" id="cadMic">--<span id="flashMic" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por audio</div></div>
@@ -838,6 +839,52 @@
         tiene sentido. El slider de sensibilidad ahora solo afecta al
         audio (la cámara se autoajusta con su propia ventana móvil, no
         necesita ese parámetro).
+   v26: Hugo mandó un segundo video real, mostrando cadencias de 500 y
+        1657 p/m — completamente absurdas. BUG DE RAÍZ encontrado:
+        procesarEnergiaHisteresis() de v25 nunca tuvo período refractario
+        (el detector de audio sí lo tenía, 280ms). Sin eso, ruido de un
+        par de milisegundos entre frames sucesivos (a 60fps, ~16ms) podía
+        contarse como paladas separadas — de ahí los números disparatados.
+        Agregado el mismo refractario de 280ms (~214 p/m tope) que ya
+        usaba el detector de audio.
+        Además, a pedido de Hugo ("el sonido es un chirriar irregular,
+        yo descartaría el audio; sería bueno detectar el cambio de
+        inclinación de la pértiga"): nuevo modo de detección por ÁNGULO,
+        no por movimiento general. calcularAnguloDominante() usa una
+        estructura tensor sobre gradientes simples (diferencias centrales,
+        no Sobel completo) para estimar el ángulo de la línea dominante de
+        contraste dentro de la zona marcada — la pértiga. desenrollarAngulo()
+        evita el salto falso de ~180° que da atan2 cuando la pértiga cruza
+        cerca de la vertical (una recta es periódica cada π, no 2π; sin
+        desenrollar, ese cruce se leería como un giro brusco que no
+        existió). La velocidad angular (grados que giró de un frame al
+        siguiente) alimenta el MISMO detector de histéresis que ya existía
+        — solo cambia qué señal se le da de comer. Este modo requiere
+        zona marcada (camROI): sobre el cuadro completo no tiene sentido,
+        agarraría bordes de cualquier cosa. Sin zona marcada, sigue
+        usando movimiento general como respaldo (comportamiento de v25).
+   v27: Hugo mandó un TERCER video, esta vez de una sesión real completa,
+        mostrando 1481-1819 p/m sostenidos — matemáticamente no debería
+        ser posible con el refractario de v26 (280ms mínimo entre paladas
+        → tope teórico ~214 p/m). Hipótesis más probable: el test se hizo
+        contra la versión ya subida a GitHub Pages ANTES de v26 (v24/v25),
+        no contra el archivo nuevo — el header no tenía forma de mostrar
+        qué versión real estaba corriendo (el badge decía "v1" fijo desde
+        el principio, sin actualizar nunca). Corregido: el badge ahora
+        muestra la versión real (v26 → de acá en más lo actualizo en cada
+        entrega), para poder confirmar de un vistazo en una captura si el
+        archivo que se está probando es el último.
+        Además, como defensa adicional (sea cual sea la causa real de
+        estos dos incidentes de cadencias imposibles): agregado un tope
+        físico de seguridad. Antes, tres lugares distintos escribían
+        actual.cadencia directo (handleRSC, loopMicCadencia,
+        loopCamCadencia) — ahora los tres pasan por una única función
+        establecerCadencia() que clampea entre 0 y 200 p/m antes de
+        aceptar cualquier valor. Ningún humano rema por encima de eso, así
+        que aunque algún detector (actual o futuro) tenga un bug nuevo que
+        todavía no vimos, nunca más debería llegar un número disparatado a
+        la pantalla — se va a quedar clampeado en 200, visiblemente raro
+        pero no absurdo.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -966,6 +1013,16 @@ function renderForma() {
    ============================================================ */
 let dispositivoReloj = null, dispositivoBanda = null;
 const actual = { cadencia: 0, pulso: 0 };
+// tope físico de seguridad: ningún humano rema por encima de esto. Después de ver DOS incidentes
+// separados de cadencias imposibles llegando a la pantalla (500-1819 p/m, por bugs distintos en
+// cada caso — falta de refractario una vez, sospecha de versión vieja la otra), mejor que
+// CUALQUIER fuente de cadencia (BLE, audio, cámara) pase por acá antes de tocar actual.cadencia,
+// en vez de confiar en que cada detector nunca se vaya a romper de una forma nueva.
+const CADENCIA_MAX_FISICA = 200;
+function establecerCadencia(valor) {
+  actual.cadencia = Math.max(0, Math.min(CADENCIA_MAX_FISICA, Math.round(valor)));
+  return actual.cadencia;
+}
 
 async function conectarRelojBLE() {
   if (!navigator.bluetooth) { toast('Este navegador no soporta Web Bluetooth'); return; }
@@ -1011,7 +1068,7 @@ function handleRSC(event) {
   // aplica Correr (ver changelog v1). Si se confirma que hace falta el x2 (o algún otro factor),
   // corregir acá — único lugar donde entra el dato crudo.
   const cadencia = v.getUint8(idx);
-  actual.cadencia = cadencia;
+  establecerCadencia(cadencia);
   // actualizo el HUD EN VIVO acá, no solo dentro de tick() — antes el tile "Paladas/min" solo se
   // pintaba mientras había una sesión corriendo (tick() vía setInterval, arrancado en
   // iniciarSesion()), así que conectar el reloj y mirar el HUD sin haber tocado "Iniciar sesión"
@@ -1192,6 +1249,10 @@ function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
   const VENTANA_MS = opts.ventanaMs || 1200;
   const FACTOR_ALTO = opts.factorAlto || 0.55;
   const FACTOR_BAJO = opts.factorBajo || 0.35;
+  const REFRACTARIO_MS = opts.refractarioMs || 280; // BUG de v25: esto faltaba. Sin un mínimo
+  // entre paladas, ruido de un par de milisegundos entre frames (a 60fps eso es ~16ms) podía
+  // contarse como paladas separadas — es justo lo que dio los números absurdos que mandó Hugo
+  // (500, 1657 p/m). Mismo tope que ya usaba el detector de audio (~214 p/m máximo).
   const historial = (estado.historial || []).concat([{ energia, ts: tsMs }])
     .filter(p => tsMs - p.ts <= VENTANA_MS);
   const valores = historial.map(p => p.energia);
@@ -1203,7 +1264,8 @@ function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
   const intervalos = estado.intervalos ? estado.intervalos.slice() : [];
   if (rango > 1e-6) {
     const uAlto = mn + rango * FACTOR_ALTO, uBajo = mn + rango * FACTOR_BAJO;
-    if (!estadoAlto && energia > uAlto) {
+    const puedeContar = ultimoPico == null || tsMs - ultimoPico >= REFRACTARIO_MS;
+    if (!estadoAlto && energia > uAlto && puedeContar) {
       huboPico = true;
       estadoAlto = true;
       if (ultimoPico != null) {
@@ -1218,6 +1280,49 @@ function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
   const promedioMs = intervalos.length ? intervalos.reduce((a, b) => a + b, 0) / intervalos.length : null;
   const cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
   return { historial, estadoAlto, ultimoPico, intervalos, cadencia, huboPico };
+}
+
+/* ============================================================
+   ÁNGULO DE LA PÉRTIGA — a pedido de Hugo, después de ver que el sonido
+   del ergómetro es un chirrido irregular (no sirve como pulso limpio) y
+   que el movimiento general de cámara es una señal débil comparada con
+   lo que realmente marca el ritmo: la pértiga cambiando de inclinación
+   de un lado al otro en cada palada. Esto detecta el ÁNGULO de la línea
+   dominante dentro de la zona marcada (no "cuánto se movió"), y usa la
+   velocidad angular (cuánto giró de un frame al siguiente) como señal
+   para el mismo detector de histéresis — cuando la pértiga cruza de una
+   inclinación a la otra, gira rápido (pico de velocidad angular); cuando
+   está cerca del extremo de cada lado, casi no gira (valle). Requiere que
+   Hugo haya marcado una zona (camROI) — sobre el cuadro completo no tiene
+   sentido, agarraría bordes de la cara, el fondo, la ropa, etc.
+   ============================================================ */
+// estructura tensor sobre gradientes simples (diferencias centrales, no Sobel completo — más
+// liviano y alcanza para una sola línea dominante como la pértiga). Devuelve el ángulo DOMINANTE
+// del contraste en radianes (rango -π/2 a π/2, porque una RECTA es igual a sí misma cada 180°,
+// no cada 360° como una dirección) o null si no hay contraste suficiente para estimar nada
+// (cámara tapada, zona sin bordes claros).
+function calcularAnguloDominante(frameRGBA, w, h) {
+  let Sxx = 0, Syy = 0, Sxy = 0, n = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const gx = frameRGBA[(y * w + (x + 1)) * 4] - frameRGBA[(y * w + (x - 1)) * 4];
+      const gy = frameRGBA[((y + 1) * w + x) * 4] - frameRGBA[((y - 1) * w + x) * 4];
+      Sxx += gx * gx; Syy += gy * gy; Sxy += gx * gy; n++;
+    }
+  }
+  if (n === 0 || (Sxx + Syy) < 50) return null; // sin contraste real, no hay borde que seguir
+  return 0.5 * Math.atan2(2 * Sxy, Sxx - Syy);
+}
+// "desenrolla" el ángulo entre un frame y el siguiente: como una recta es periódica cada π (no
+// 2π), el mismo ángulo físico puede salir calculado, por ejemplo, como +89° en un frame y -89°
+// en el siguiente (son la misma recta) — sin esto, ese salto de ~180° se leería como un giro
+// brusco falso. Elijo, de entre {ángulo, ángulo±π}, el que quede más cerca del ángulo anterior.
+function desenrollarAngulo(actual, anterior) {
+  if (anterior == null) return actual;
+  let a = actual;
+  while (a - anterior > Math.PI / 2) a -= Math.PI;
+  while (a - anterior < -Math.PI / 2) a += Math.PI;
+  return a;
 }
 
 let sensibilidadPico = 1.6;
@@ -1259,7 +1364,7 @@ function loopMicCadencia() {
     // kayakista) — así, si esto queda corriendo durante una sesión real, el modelo se mueve con
     // la cadencia que se va determinando en cada momento, no solo con la del reloj. Mismo
     // criterio de "el último que escribe manda" que ya se usa para el pulso banda/reloj.
-    actual.cadencia = cad;
+    establecerCadencia(cad);
   }
   if (micEstado.huboPico) destellar('flashMic');
   micRAF = requestAnimationFrame(loopMicCadencia);
@@ -1276,7 +1381,7 @@ function detenerMicCadencia() {
 }
 
 // --- CÁMARA ---
-let camStream = null, camRAF = null, camEstado = {}, camFramePrev = null;
+let camStream = null, camRAF = null, camEstado = {}, camFramePrev = null, camAnguloPrev = null;
 let camROI = null; // {x0,y0,x1,y1} normalizado 0..1 respecto del video — null = cuadro completo
 let roiArrastrando = false, roiInicio = null;
 const CAM_ANCHO = 48, CAM_ALTO = 36; // resolución bajita a propósito: no hace falta más para medir movimiento
@@ -1291,6 +1396,7 @@ async function toggleCamCadencia() {
     video.style.display = 'block';
     await video.play();
     camFramePrev = null;
+    camAnguloPrev = null;
     camEstado = {};
     document.getElementById('btnCam').textContent = '📷 Detener';
     inicializarROIListeners();
@@ -1383,15 +1489,30 @@ function loopCamCadencia() {
     }
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAM_ANCHO, CAM_ALTO);
     const frame = ctx.getImageData(0, 0, CAM_ANCHO, CAM_ALTO).data;
-    if (camFramePrev) {
+    let energia = null;
+    if (camROI) {
+      // con zona marcada: ángulo de la pértiga, no movimiento general (a pedido de Hugo — el
+      // ruido del ergómetro es un chirrido irregular, no sirve, y el movimiento general es una
+      // señal más débil que directamente seguir la inclinación)
+      const anguloCrudo = calcularAnguloDominante(frame, CAM_ANCHO, CAM_ALTO);
+      if (anguloCrudo != null) {
+        const anguloActual = desenrollarAngulo(anguloCrudo, camAnguloPrev);
+        if (camAnguloPrev != null) energia = Math.abs(anguloActual - camAnguloPrev) * (180 / Math.PI); // en grados, más intuitivo si algún día se muestra en debug
+        camAnguloPrev = anguloActual;
+      }
+    } else if (camFramePrev) {
+      // sin zona marcada: respaldo al movimiento general de cuadro completo (peor señal, pero
+      // sirve para tener algo mientras Hugo todavía no marcó dónde pasa la pértiga)
       let diff = 0;
       for (let i = 0; i < frame.length; i += 4) diff += Math.abs(frame[i] - camFramePrev[i]); // canal rojo como proxy de luminancia
-      const energia = diff / (CAM_ANCHO * CAM_ALTO);
+      energia = diff / (CAM_ANCHO * CAM_ALTO);
+    }
+    if (energia != null) {
       camEstado = procesarEnergiaHisteresis(camEstado, energia, performance.now());
       if (camEstado.cadencia != null) {
         const cad = Math.round(camEstado.cadencia);
         document.getElementById('cadCam').firstChild.textContent = cad;
-        actual.cadencia = cad; // mismo motivo que en loopMicCadencia — ver comentario ahí
+        establecerCadencia(cad); // mismo motivo que en loopMicCadencia — ver comentario ahí
       }
       if (camEstado.huboPico) destellar('flashCam');
     }
@@ -1405,6 +1526,7 @@ function detenerCamCadencia() {
   if (camStream) camStream.getTracks().forEach(t => t.stop());
   camStream = null;
   camFramePrev = null;
+  camAnguloPrev = null;
   const video = document.getElementById('videoCam');
   video.srcObject = null;
   video.style.display = 'none';
