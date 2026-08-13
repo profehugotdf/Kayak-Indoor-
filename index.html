@@ -115,7 +115,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v31</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v37</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -133,6 +133,9 @@
       <button class="btn" onclick="conectarRelojBLE()">Conectar reloj (modo Carrera Virtual)</button>
       <div class="estado-conexion" id="estadoBLE">Sin conectar.</div>
       <button class="btn chico" onclick="conectarBandaHR()">Conectar banda de pulso aparte</button>
+      <button class="btn chico" onclick="conectarSensorCadenciaBLE()">Conectar sensor de cadencia (BLE)</button>
+      <p class="nota" style="margin-top:6px;">RPM crudo del eje (velocidad de rotación, no
+        paladas): <span id="hudRPM" style="font-family:var(--mono); color:var(--ritmo);">--</span></p>
       <p class="nota" style="margin-top:8px; font-family:var(--mono); font-size:11px;" id="debugRSC">
         RSC crudo: sin datos todavía. Si esto no cambia al remar, la notificación no está
         llegando (probablemente hay que apretar "Iniciar" la actividad en el reloj, no alcanza
@@ -222,11 +225,18 @@
         <video id="videoCam" autoplay muted playsinline style="width:100%; border-radius:10px; display:none; background:#000; touch-action:none;"></video>
         <div id="camROIOverlay" style="position:absolute; border:2px solid var(--ritmo); background:rgba(79,216,196,0.18); display:none; pointer-events:none;"></div>
       </div>
-      <p class="nota" id="notaROICamara">Arrastrá sobre el video para marcar la zona donde pasa la
-        pértiga — con una zona marcada, la app sigue el ÁNGULO de la pértiga (cuándo cambia de
-        inclinación de un lado al otro), que marca la palada mucho mejor que el movimiento
-        general. Sin zona marcada, usa movimiento general como respaldo (peor señal).</p>
+      <p class="nota" id="notaROICamara">1) Arrastrá sobre el video para marcar la zona donde pasa
+        la pértiga. 2) Si le pusiste un marcador de color (fluo, o blanco/negro), tocá una vez
+        (sin arrastrar) sobre el marcador para que la app aprenda ese color — ahí sigue
+        directamente su posición, que es más preciso que el ángulo del caño. Sin marcador de
+        color, usa el ángulo de la pértiga; sin zona marcada, usa movimiento general (la señal
+        más débil de las tres).</p>
       <button class="btn chico" onclick="reiniciarROICamara()">↺ Reiniciar selección (usar el cuadro completo)</button>
+      <div class="fila" style="margin-top:8px; align-items:center;">
+        <span id="swatchColorMarcador" style="display:none; width:24px; height:24px; border-radius:6px; border:1px solid var(--borde); flex:none;"></span>
+        <p class="nota" id="textoColorMarcador" style="margin:0;">Sin color elegido — tocá (sin arrastrar) el marcador dentro de la zona</p>
+      </div>
+      <button class="btn chico" onclick="reiniciarColorMarcador()">↺ Olvidar color elegido (volver a ángulo/movimiento)</button>
       <div class="hud-grid" style="margin-top:10px;">
         <div class="hud-tile"><div class="val" id="cadMic">--<span id="flashMic" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por audio</div></div>
         <div class="hud-tile"><div class="val" id="cadCam">--<span id="flashCam" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por cámara</div></div>
@@ -400,8 +410,8 @@
     <div class="card">
       <h2>Sesiones de kayak</h2>
       <table class="lista">
-        <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th></tr></thead>
-        <tbody id="tablaSesiones"><tr class="vacia"><td colspan="6">Sin sesiones todavía</td></tr></tbody>
+        <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th><th></th></tr></thead>
+        <tbody id="tablaSesiones"><tr class="vacia"><td colspan="7">Sin sesiones todavía</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -947,6 +957,117 @@
         de luz/sombra típica de un metal cilíndrico) — el gris promedio
         real es más frío y algo más oscuro que el '#b0b4b8' de v30.
         Ajustado a '#9aa7b5'.
+   v32: después de varias vueltas ajustando cámara/audio sin llegar a un
+        resultado confiable, Hugo decidió pasar a un sensor de cadencia de
+        bici por BLE (imán+sensor montado en el mismo eje del volante/
+        ventilador donde ya está el velocímetro). Agregado el código de
+        conexión y parseo, listo para cuando llegue el sensor físico —
+        botón "Conectar sensor de cadencia (BLE)" nuevo en Sensores.
+        Formato distinto al RSC del reloj: el servicio estándar
+        cycling_speed_and_cadence manda un CONTADOR ACUMULADO de
+        revoluciones + el tiempo del último evento (no una cadencia ya
+        calculada) — calcularRPMDesdeEventosCSC() arma la cuenta a mano
+        entre dos lecturas sucesivas, con manejo del desborde del
+        contador (las revoluciones de manivela y el tiempo son uint16,
+        vuelven a 0 en 65536; las de rueda son uint32). Si el sensor
+        manda datos de manivela, se prefieren sobre los de rueda.
+        El sensor va a contar vueltas del eje, no paladas directamente —
+        si el volante da varias vueltas por palada, el número que
+        muestre "paladas/min" en pantalla no va a coincidir con lo que
+        Hugo cuenta a ojo. No rompe la distancia (se recalibra el
+        protocolo de 500m con este sensor como fuente, igual que ya se
+        hizo con reloj/cámara), es solo una cuestión de qué significa el
+        número mostrado — pendiente agregar un factor de conversión si
+        hace falta, una vez que se sepa la relación real vueltas/palada
+        de este ergómetro en particular.
+   v33: botón de eliminar sesión en Historial, a pedido de Hugo — con
+        confirmación (muestra fecha y distancia antes de borrar, no se
+        puede deshacer). eliminarSesion() también saca el aporte de esa
+        sesión de la Forma combinada (si no, quedaría un TSS fantasma
+        sumando aunque la sesión ya no exista en K_SESIONES) y la
+        deselecciona como fantasma si era la elegida.
+   v34: Hugo hizo una observación clave sobre el sensor de cadencia BLE
+        (todavía sin llegar, pero vale la pena resolverlo en el código
+        antes): "necesitamos saber la cadencia de paladas ADEMÁS de la
+        velocidad de rotación de la paleta" — son cosas distintas. El eje
+        del volante gira rápido durante el tirón de cada palada y se
+        frena en la recuperación, así que el RPM crudo sube y baja UNA
+        VEZ POR PALADA — no es un pulso limpio por palada, es la misma
+        forma de señal oscilante que ya se resolvió con la cámara (v25).
+        handleCSC() ahora separa las dos cosas: cscUltimoRPM guarda el
+        RPM crudo del eje (mostrado aparte en el HUD, tile nuevo "RPM
+        crudo del eje"), y ese mismo RPM se le pasa a
+        procesarEnergiaHisteresis() (el mismo detector de picos que ya
+        usa la cámara, reusado tal cual) para detectar cada palada real
+        — RECIÉN esa cadencia de picos es la que alimenta
+        establecerCadencia() (distancia, animación en vivo), no el RPM
+        crudo directo como hacía v32. Debería enganchar mejor que cámara
+        o audio, al ser una medición mecánica directa sin ruido de
+        imagen/sonido — pendiente confirmar cuando llegue el sensor.
+   v35: Hugo corrigió un detalle físico importante: "la velocidad de
+        rotación del volante no cae a cero porque tiene rodamientos
+        unidireccionales, que se van frenando de a poco por la fricción
+        del rodamiento y la resistencia del aire" — no es un sube-baja
+        limpio entre dos niveles como asumía v34, es más un diente de
+        sierra (sube fuerte con el tirón, decae GRADUAL en la
+        recuperación, sin llegar a un piso fijo). El detector de
+        histéresis de la cámara asume que hay un rango grande entre un
+        piso bajo y un techo alto — con este volante, a cadencias altas
+        el rango entre valle y pico puede achicarse mucho (no le da
+        tiempo a decaer antes del próximo tirón), lo que lo haría poco
+        confiable acá.
+        Agregado un detector distinto, procesarMinimoLocal(): en vez de
+        umbrales sobre el rango, sigue la TENDENCIA del RPM (¿está
+        subiendo o bajando ahora mismo?) y cuenta una palada en el
+        instante exacto donde deja de bajar y arranca a subir de nuevo —
+        el mínimo local, que es cuando el tirón vuelve a aplicar torque,
+        sin importarle a qué nivel absoluto haya decaído antes. Un
+        cambio tiene que superar una fracción chica (8%) del rango
+        reciente para contar como tendencia real, no ruido del sensor.
+        handleCSC() ahora usa este detector en vez del de histéresis.
+        Sigue siendo una función PURA testeada con una señal sintética,
+        pero esta vez armé el diente de sierra con decaimiento (no un
+        sube-baja limpio) para que se parezca más a la física real que
+        describió Hugo — pendiente la validación definitiva cuando
+        llegue el sensor y se pueda ver una traza real del RPM.
+   v36: Hugo propuso otro enfoque, sin esperar al sensor BLE: "necesitamos
+        detectar con máxima precisión la cantidad de paladas... quizás si
+        pongo un marcador fluo, o blanco y negro la pértiga, para que la
+        cámara detecte con precisión el movimiento (si no oscila es 0
+        paladas por minuto)". Tiene sentido — el aluminio de la pértiga
+        tiene poco contraste contra el cielo/fondo, así que el modo
+        ángulo (v25-v29) siempre trabajó con una señal débil de entrada;
+        con un marcador de color bien distinto, en vez de perseguir un
+        borde débil se puede seguir la POSICIÓN del marcador directamente,
+        mucho más simple y robusto.
+        Agregado modo nuevo, con prioridad sobre ángulo/movimiento
+        general: después de marcar la zona (arrastre, como antes), un
+        TOQUE sin arrastrar sobre el marcador (distingo toque de arrastre
+        por cuánto se movió el dedo) le enseña a la app ese color
+        (promedio de un cuadradito de 5×5 alrededor del toque, no un solo
+        píxel — evita caer justo en un borde/ruido de compresión).
+        calcularCentroideColor() busca cada cuadro los píxeles parecidos
+        a ese color (distancia RGB < 45) y calcula su centro de masa — la
+        posición del marcador. Esa posición Y alimenta el MISMO detector
+        de mínimo local que ya se armó para el sensor BLE (v35): un
+        vaivén completo de la pértiga son dos mínimos locales, uno por
+        lado, igual que la convención ya establecida. Reset de zona
+        también borra el color elegido (ya no aplicaría necesariamente).
+        Pendiente: probar con el marcador puesto de verdad — sin datos
+        reales, elegí 45 como umbral de distancia de color a ojo, capaz
+        hace falta ajustarlo según qué tan saturado/distinto quede el
+        marcador en la imagen real.
+   v37: Hugo preguntó si el color elegido con el toque se usaba solo con
+        tocarlo, o si de verdad quedaba para cuando arrancara la sesión.
+        Antes vivían solo en memoria (camROI y colorMarcador) — se
+        perdían al recargar la página (ej. al abrir cada versión nueva
+        que mando) y había que rearmar zona + color desde cero cada vez.
+        Agregado guardado en localStorage (K_CAM_ROI, K_CAM_COLOR_MARCADOR)
+        vía guardarROIYColor(), llamada apenas se elige la zona o el
+        color; toggleCamCadencia() ahora los carga desde ahí al conectar
+        la cámara, en vez de arrancar siempre en null. Los botones de
+        reiniciar (zona, color) también guardan el estado limpio, para
+        que un reinicio explícito sí se recuerde como tal la próxima vez.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1183,6 +1304,178 @@ function handleHR(event) {
 }
 
 /* ============================================================
+   SENSOR DE CADENCIA BLE (Cycling Speed and Cadence) — para cuando Hugo
+   consiga uno físico. Formato distinto al RSC del reloj: en vez de mandar
+   la cadencia ya calculada, manda un CONTADOR ACUMULADO de vueltas +
+   el tiempo del último evento (unidades de 1/1024 segundo) — hay que
+   armar la cuenta a mano con dos lecturas sucesivas, con cuidado del
+   desborde del contador (uint16 el de tiempo/manivela, uint32 el de
+   rueda — ambos vuelven a 0 al llegar a su máximo).
+   Servicio estándar: cycling_speed_and_cadence / csc_measurement.
+   Spec: flags (1 byte) — bit0: hay datos de RUEDA, bit1: hay datos de
+   MANIVELA. Si hay manivela, se prefiere sobre rueda (más cerca de
+   "una vuelta = un evento de pedaleo/remada" conceptualmente, aunque en
+   este ergómetro ninguna de las dos vaya a ser paladas 1:1 — hace falta
+   recalibrar el protocolo de 500m con este sensor como fuente, iguale
+   que ya se hizo con la cámara).
+   ============================================================ */
+// calcula RPM a partir de dos lecturas acumuladas (revoluciones + tiempo del evento en unidades
+// de 1/1024s), manejando el desborde del contador. modulo = 65536 para manivela (uint16),
+// 4294967296 para rueda (uint32). tiempoModulo siempre 65536 (el campo de tiempo es uint16).
+// Función PURA, sin BLE real — así se puede testear con secuencias sintéticas de antes/después.
+function calcularRPMDesdeEventosCSC(anterior, actualEvento, modulo) {
+  if (!anterior) return null;
+  let deltaRevs = actualEvento.revs - anterior.revs;
+  if (deltaRevs < 0) deltaRevs += modulo; // desbordó el contador de revoluciones
+  let deltaTiempo = actualEvento.tiempo - anterior.tiempo;
+  if (deltaTiempo < 0) deltaTiempo += 65536; // desbordó el contador de tiempo (siempre uint16)
+  if (deltaTiempo === 0) return null; // mismo evento repetido (el sensor no mandó nada nuevo)
+  const deltaTiempoMin = (deltaTiempo / 1024) / 60; // 1/1024s -> minutos
+  return deltaRevs / deltaTiempoMin;
+}
+let dispositivoCadenciaBLE = null, cscUltimaManivela = null, cscUltimaRueda = null;
+let cscEstadoPaladas = {}; // detector de picos sobre el RPM del sensor — ver comentario en handleCSC
+let cscUltimoRPM = null; // RPM crudo del eje, para mostrar aparte de la cadencia de paladas real
+
+/* ============================================================
+   DETECTOR DE MÍNIMO LOCAL — para el volante con rodamiento unidireccional
+   (a diferencia del de histéresis que usa cámara/audio). Hugo aclaró: el
+   volante NO frena a cero en la recuperación — sigue girando libre y va
+   perdiendo velocidad de a poco por la fricción del rodamiento y la
+   resistencia del aire. La forma de la señal es más un diente de sierra
+   (sube fuerte con el tirón, decae gradual) que un sube-baja limpio entre
+   dos niveles — y a cadencias altas, puede no alcanzar a decaer mucho
+   antes del próximo tirón, achicando el rango entre valle y pico.
+   En vez de umbrales sobre el RANGO (que asumen una caída grande), este
+   detector sigue la TENDENCIA (¿está subiendo o bajando el RPM ahora
+   mismo?) y cuenta una palada en el momento exacto donde deja de bajar y
+   arranca a subir de nuevo — el mínimo local, que es cuando el tirón
+   empieza a aplicar torque de nuevo, sin importar cuánto haya decaído
+   antes. Un cambio tiene que superar una fracción chica del rango
+   reciente para contar como tendencia real (filtra ruido de sensor sin
+   asumir que el valle llegue a ningún nivel absoluto).
+   Función PURA, testeada con una señal sintética de diente de sierra con
+   decaimiento (no un sube-baja limpio) para que se parezca a lo real.
+   ============================================================ */
+function procesarMinimoLocal(estado, valor, tsMs, opts) {
+  opts = opts || {};
+  const REFRACTARIO_MS = opts.refractarioMs || 280;
+  const VENTANA_MS = opts.ventanaMs || 1200;
+  const FRACCION_RUIDO = opts.fraccionRuido || 0.08; // % del rango reciente que un cambio tiene que superar para no tratarse como ruido
+  const RANGO_MINIMO = opts.rangoMinimo != null ? opts.rangoMinimo : 5; // piso ABSOLUTO (en las
+  // unidades de "valor", RPM acá) — sin esto, una señal casi chata (volante quieto, apenas ruido
+  // de sensor) tiene un rango tan chico que hasta ese ruido supera el 8% relativo y el detector
+  // "ve" tendencias falsas. No alcanza con exigir un rango RELATIVO grande si el rango absoluto
+  // ya es minúsculo de entrada.
+  const MIN_MUESTRAS = opts.minMuestras || 5;
+  const historial = (estado.historial || []).concat([{ valor, ts: tsMs }])
+    .filter(p => tsMs - p.ts <= VENTANA_MS);
+  const valores = historial.map(p => p.valor);
+  const mn = Math.min(...valores), mx = Math.max(...valores);
+  const rango = mx - mn;
+  const umbralRuido = rango * FRACCION_RUIDO;
+  let tendencia = estado.tendencia || null;
+  let huboPico = false;
+  let ultimoPico = estado.ultimoPico;
+  const intervalos = estado.intervalos ? estado.intervalos.slice() : [];
+  if (historial.length >= MIN_MUESTRAS && estado.valorAnterior != null && rango >= RANGO_MINIMO) {
+    const diff = valor - estado.valorAnterior;
+    let nuevaTendencia = tendencia;
+    if (diff > umbralRuido) nuevaTendencia = 'subiendo';
+    else if (diff < -umbralRuido) nuevaTendencia = 'bajando';
+    // si el cambio es más chico que el umbral de ruido, se mantiene la tendencia anterior — no
+    // es que "no pasó nada", es que ese cambio no alcanza para confiar en que sea real
+    const puedeContar = ultimoPico == null || tsMs - ultimoPico >= REFRACTARIO_MS;
+    if (tendencia === 'bajando' && nuevaTendencia === 'subiendo' && puedeContar) {
+      huboPico = true; // mínimo local: acá terminó la recuperación y arrancó el próximo tirón
+      if (ultimoPico != null) {
+        intervalos.push(tsMs - ultimoPico);
+        if (intervalos.length > 5) intervalos.shift();
+      }
+      ultimoPico = tsMs;
+    }
+    tendencia = nuevaTendencia;
+  }
+  const promedioMs = intervalos.length ? intervalos.reduce((a, b) => a + b, 0) / intervalos.length : null;
+  const cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  return { historial, tendencia, valorAnterior: valor, ultimoPico, intervalos, cadencia, huboPico };
+}
+async function conectarSensorCadenciaBLE() {
+  if (!navigator.bluetooth) { toast('Este navegador no soporta Web Bluetooth'); return; }
+  const estadoEl = document.getElementById('estadoBLE');
+  try {
+    estadoEl.textContent = 'Buscando sensor de cadencia...';
+    estadoEl.className = 'estado-conexion';
+    const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['cycling_speed_and_cadence'] }] });
+    dispositivoCadenciaBLE = device;
+    cscUltimaManivela = null; cscUltimaRueda = null; cscEstadoPaladas = {}; cscUltimoRPM = null; cscRPMSuavizado = null;
+    device.addEventListener('gattserverdisconnected', () => {
+      estadoEl.textContent = 'Sensor de cadencia desconectado.';
+      estadoEl.className = 'estado-conexion err';
+    });
+    const server = await device.gatt.connect();
+    const cscService = await server.getPrimaryService('cycling_speed_and_cadence');
+    const cscChar = await cscService.getCharacteristic('csc_measurement');
+    cscChar.addEventListener('characteristicvaluechanged', handleCSC);
+    await cscChar.startNotifications();
+    estadoEl.textContent = 'Sensor de cadencia conectado (' + device.name + ')';
+    estadoEl.className = 'estado-conexion ok';
+  } catch (e) {
+    estadoEl.textContent = 'No se pudo conectar: ' + e.message;
+    estadoEl.className = 'estado-conexion err';
+  }
+}
+// el RPM del eje NO es lo mismo que la cadencia de paladas — Hugo lo notó primero (el eje gira
+// rápido con el tirón y se frena en la recuperación), y después aclaró un detalle físico
+// importante: el volante tiene rodamiento UNIDIRECCIONAL, así que en la recuperación no frena a
+// cero, sigue girando libre y decae de a poco por fricción — es un diente de sierra, no un
+// sube-baja limpio entre dos niveles. Por eso NO se usa el detector de histéresis de la cámara
+// (que asume una caída grande contra un piso), sino procesarMinimoLocal() (ver más arriba), que
+// sigue la tendencia del RPM y cuenta la palada en el instante donde deja de bajar y arranca a
+// subir — el momento exacto donde el tirón vuelve a aplicar torque, sin importar cuánto haya
+// decaído antes.
+let cscRPMSuavizado = null; // ver comentario en handleCSC — RPM instantáneo suavizado
+function handleCSC(event) {
+  const v = event.target.value;
+  const flags = v.getUint8(0);
+  const hayRueda = !!(flags & 0x01), hayManivela = !!(flags & 0x02);
+  let idx = 1;
+  let rpm = null;
+  if (hayRueda) {
+    const revs = v.getUint32(idx, true); idx += 4;
+    const tiempo = v.getUint16(idx, true); idx += 2;
+    const actualEvento = { revs, tiempo };
+    if (!hayManivela) rpm = calcularRPMDesdeEventosCSC(cscUltimaRueda, actualEvento, 4294967296);
+    cscUltimaRueda = actualEvento;
+  }
+  if (hayManivela) {
+    const revs = v.getUint16(idx, true); idx += 2;
+    const tiempo = v.getUint16(idx, true); idx += 2;
+    const actualEvento = { revs, tiempo };
+    rpm = calcularRPMDesdeEventosCSC(cscUltimaManivela, actualEvento, 65536); // manivela preferida sobre rueda
+    cscUltimaManivela = actualEvento;
+  }
+  if (rpm == null) return;
+  cscUltimoRPM = rpm;
+  const rpmEl = document.getElementById('hudRPM');
+  if (rpmEl) rpmEl.textContent = Math.round(rpm);
+  // el sensor solo puede contar revoluciones ENTERAS, así que el RPM "instantáneo" calculado
+  // entre dos revoluciones consecutivas es naturalmente ruidoso (más a cadencias bajas, con pocas
+  // vueltas por segundo) — un suavizado liviano (media móvil exponencial) antes de pasarlo al
+  // detector de mínimo local evita que ese ruido de revolución-a-revolución se confunda con la
+  // tendencia real de sube/baja de la palada. El tile del HUD sigue mostrando el RPM CRUDO sin
+  // tocar (para diagnóstico); esto solo afecta a lo que ve el detector.
+  cscRPMSuavizado = cscRPMSuavizado == null ? rpm : cscRPMSuavizado * 0.6 + rpm * 0.4;
+  cscEstadoPaladas = procesarMinimoLocal(cscEstadoPaladas, cscRPMSuavizado, performance.now(), { minMuestras: 3 });
+  // minMuestras más bajo que el default (5): un sensor de revolución real puede notificar poco
+  // seguido a cadencias bajas (pocas vueltas por segundo) — con el default, el "arranque en frío"
+  // podría no terminar de juntar suficientes muestras dentro de la ventana de 1.2s.
+  // la cadencia de PALADAS (lo que alimenta distancia/animación) viene del detector de mínimo
+  // local, NO del RPM crudo directamente
+  if (cscEstadoPaladas.cadencia != null) establecerCadencia(cscEstadoPaladas.cadencia);
+}
+
+/* ============================================================
    PROBAR BANDA GARMIN HRM-Pro+ (Calibración) — conexión de diagnóstico
    aparte de dispositivoBanda/dispositivoReloj de la Sesión, para poder
    testear qué transmite la banda sin necesidad de tener una sesión
@@ -1392,6 +1685,32 @@ function desenrollarAngulo(actual, anterior) {
   return a;
 }
 
+/* ============================================================
+   MARCADOR DE COLOR — modo más directo que el ángulo, a pedido de Hugo:
+   la pértiga de aluminio tiene poco contraste contra el cielo/fondo (por
+   eso el ángulo venía flojo), así que en vez de perseguir un borde débil,
+   pintar un marcador de color bien distinto (fluo, o blanco/negro) y
+   seguir SU POSICIÓN directamente — si no oscila, es 0 paladas/min.
+   calcularCentroideColor(): busca todos los píxeles del frame parecidos
+   al color de referencia (dentro de un umbral en distancia RGB) y
+   devuelve su centro de masa — la posición del marcador en ese frame.
+   Función PURA, testeada con imágenes sintéticas de un blob de color
+   conocido en una posición conocida.
+   ============================================================ */
+function calcularCentroideColor(frameRGBA, w, h, colorObjetivo, umbral) {
+  let sumX = 0, sumY = 0, n = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const dr = frameRGBA[i] - colorObjetivo.r, dg = frameRGBA[i + 1] - colorObjetivo.g, db = frameRGBA[i + 2] - colorObjetivo.b;
+      const d = Math.sqrt(dr * dr + dg * dg + db * db);
+      if (d < umbral) { sumX += x; sumY += y; n++; }
+    }
+  }
+  if (n === 0) return null; // el marcador no aparece en este cuadro (tapado, fuera de la zona, o el umbral quedó muy exigente)
+  return { x: sumX / n, y: sumY / n, n };
+}
+
 let sensibilidadPico = 1.6;
 function cambiarSensibilidadPico(valorSlider) {
   sensibilidadPico = parseInt(valorSlider, 10) / 100;
@@ -1449,7 +1768,18 @@ function detenerMicCadencia() {
 
 // --- CÁMARA ---
 let camStream = null, camRAF = null, camEstado = {}, camFramePrev = null, camAnguloPrev = null;
+let camEstadoMarcador = {}; // detector de mínimo local para el modo marcador de color
 let camROI = null; // {x0,y0,x1,y1} normalizado 0..1 respecto del video — null = cuadro completo
+const K_CAM_ROI = LS_PREFIX + 'cam_roi';
+const K_CAM_COLOR_MARCADOR = LS_PREFIX + 'cam_color_marcador';
+// zona y color se guardan en localStorage para no tener que rearmarlos cada vez que se abre la
+// app de nuevo (antes solo vivían en memoria — Hugo lo notó al preguntar si el color elegido se
+// mantenía al iniciar una sesión: sí, mientras la página siga abierta, pero se perdía al
+// recargar). Se cargan al conectar la cámara, y se guardan apenas se eligen.
+function guardarROIYColor() {
+  lsSet(K_CAM_ROI, camROI);
+  lsSet(K_CAM_COLOR_MARCADOR, colorMarcador);
+}
 let roiArrastrando = false, roiInicio = null;
 const CAM_ANCHO = 48, CAM_ALTO = 36; // resolución bajita a propósito: no hace falta más para medir movimiento
 async function toggleCamCadencia() {
@@ -1465,9 +1795,13 @@ async function toggleCamCadencia() {
     camFramePrev = null;
     camAnguloPrev = null;
     camEstado = {};
+    camEstadoMarcador = {};
+    camROI = lsGet(K_CAM_ROI, null);
+    colorMarcador = lsGet(K_CAM_COLOR_MARCADOR, null);
     document.getElementById('btnCam').textContent = '📷 Detener';
     inicializarROIListeners();
     mostrarOverlayDesdeROI();
+    actualizarUIColorMarcador();
     loopCamCadencia();
   } catch (e) {
     toast('No se pudo usar la cámara: ' + e.message);
@@ -1509,6 +1843,17 @@ function onROIPointerUp(evt) {
   if (!roiArrastrando) return;
   roiArrastrando = false;
   const fin = coordsRelativasVideo(evt);
+  const dx = fin.x - roiInicio.x, dy = fin.y - roiInicio.y;
+  const distanciaArrastre = Math.hypot(dx, dy);
+  // TOQUE (casi sin arrastre) sobre una zona ya marcada = elegir el color del marcador ahí — a
+  // pedido de Hugo: en vez de seguir el ángulo de un borde de poco contraste (la pértiga de
+  // aluminio se pierde contra el cielo/fondo), pintar un marcador de color bien distinto (fluo,
+  // o blanco/negro) y seguir SU posición directamente. Distingo toque de arrastre por qué tan
+  // lejos se movió el dedo: un arrastre real para marcar zona siempre mueve bastante más que esto.
+  if (distanciaArrastre < 0.02 && camROI) {
+    elegirColorMarcador(fin);
+    return;
+  }
   const x0 = Math.min(roiInicio.x, fin.x), x1 = Math.max(roiInicio.x, fin.x);
   const y0 = Math.min(roiInicio.y, fin.y), y1 = Math.max(roiInicio.y, fin.y);
   // Hugo marcó sin querer una zona minúscula (7% x 4% del video, en el cielo de fondo, apenas
@@ -1519,11 +1864,63 @@ function onROIPointerUp(evt) {
   const MIN_FRACCION = 0.12;
   if (x1 - x0 > MIN_FRACCION && y1 - y0 > MIN_FRACCION) {
     camROI = { x0, y0, x1, y1 };
-    toast('Zona marcada — el análisis ahora mira solo ahí');
+    colorMarcador = null; // cambió la zona: el color elegido antes ya no aplica necesariamente
+    guardarROIYColor();
+    actualizarUIColorMarcador();
+    toast('Zona marcada — ahora tocá el marcador de color, si le pusiste uno');
   } else {
     toast('Esa zona quedó muy chica — arrastrá cubriendo bien todo el recorrido de la pértiga');
     mostrarOverlayDesdeROI(); // vuelvo a mostrar lo que ya había marcado antes (o nada)
   }
+}
+// --- MARCADOR DE COLOR ---
+// color de referencia a seguir (RGB 0-255) — null = no elegido, se sigue usando ángulo/movimiento
+// general como antes. Elegido con un toque sobre el video (no arrastre).
+let colorMarcador = null;
+function elegirColorMarcador(posicionRelativa) {
+  const video = document.getElementById('videoCam');
+  if (!video.videoWidth) return;
+  const cv = document.createElement('canvas');
+  cv.width = video.videoWidth; cv.height = video.videoHeight;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const px = Math.round(posicionRelativa.x * video.videoWidth);
+  const py = Math.round(posicionRelativa.y * video.videoHeight);
+  // promedio de un cuadradito de 5x5 alrededor del toque, no un solo píxel — un solo píxel puede
+  // caer justo en un borde/ruido de compresión y dar un color no representativo
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const x = px + dx, y = py + dy;
+    if (x < 0 || y < 0 || x >= cv.width || y >= cv.height) continue;
+    const d = ctx.getImageData(x, y, 1, 1).data;
+    r += d[0]; g += d[1]; b += d[2]; n++;
+  }
+  if (n === 0) return;
+  colorMarcador = { r: r / n, g: g / n, b: b / n };
+  camEstadoMarcador = {};
+  guardarROIYColor();
+  actualizarUIColorMarcador();
+  toast('Color de referencia elegido — moviendo la pértiga debería seguirlo');
+}
+function actualizarUIColorMarcador() {
+  const swatch = document.getElementById('swatchColorMarcador');
+  const texto = document.getElementById('textoColorMarcador');
+  if (!swatch || !texto) return;
+  if (colorMarcador) {
+    swatch.style.background = 'rgb(' + Math.round(colorMarcador.r) + ',' + Math.round(colorMarcador.g) + ',' + Math.round(colorMarcador.b) + ')';
+    swatch.style.display = 'inline-block';
+    texto.textContent = 'Color elegido — tocá de nuevo el marcador para cambiarlo';
+  } else {
+    swatch.style.display = 'none';
+    texto.textContent = 'Sin color elegido — tocá (sin arrastrar) el marcador dentro de la zona';
+  }
+}
+function reiniciarColorMarcador() {
+  colorMarcador = null;
+  camEstadoMarcador = {};
+  guardarROIYColor();
+  actualizarUIColorMarcador();
+  toast('Color de referencia borrado — vuelve a usar ángulo/movimiento general');
 }
 function actualizarOverlayROI(a, b) {
   const overlay = document.getElementById('camROIOverlay');
@@ -1540,6 +1937,10 @@ function mostrarOverlayDesdeROI() {
 }
 function reiniciarROICamara() {
   camROI = null;
+  colorMarcador = null; // sin zona, tampoco tiene sentido mantener un color elegido dentro de ella
+  camEstadoMarcador = {};
+  guardarROIYColor();
+  actualizarUIColorMarcador();
   document.getElementById('camROIOverlay').style.display = 'none';
   toast('Vuelve a analizar el cuadro completo');
 }
@@ -1563,39 +1964,58 @@ function loopCamCadencia() {
     }
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAM_ANCHO, CAM_ALTO);
     const frame = ctx.getImageData(0, 0, CAM_ANCHO, CAM_ALTO).data;
-    let energia = null;
-    if (camROI) {
-      // con zona marcada: ángulo de la pértiga, no movimiento general (a pedido de Hugo — el
-      // ruido del ergómetro es un chirrido irregular, no sirve, y el movimiento general es una
-      // señal más débil que directamente seguir la inclinación)
-      const anguloCrudo = calcularAnguloDominante(frame, CAM_ANCHO, CAM_ALTO);
-      if (anguloCrudo != null) {
-        const anguloActual = desenrollarAngulo(anguloCrudo, camAnguloPrev);
-        if (camAnguloPrev != null) energia = Math.abs(anguloActual - camAnguloPrev) * (180 / Math.PI); // en grados, más intuitivo si algún día se muestra en debug
-        camAnguloPrev = anguloActual;
+    if (colorMarcador) {
+      // MODO MARCADOR DE COLOR — el más directo, a pedido de Hugo: sigo la posición del centroide
+      // del color elegido, no un borde de bajo contraste. Uso el mismo detector de mínimo local
+      // que el sensor BLE (posición que oscila, como el RPM del volante) — un vaivén completo de
+      // la pértiga son dos mínimos locales (uno por lado), igual que la convención ya establecida.
+      const UMBRAL_COLOR = 45; // distancia RGB máxima para considerar un píxel "del marcador"
+      const centroide = calcularCentroideColor(frame, CAM_ANCHO, CAM_ALTO, colorMarcador, UMBRAL_COLOR);
+      if (centroide) {
+        camEstadoMarcador = procesarMinimoLocal(camEstadoMarcador, centroide.y, performance.now());
+        if (camEstadoMarcador.cadencia != null) {
+          const cad = Math.round(camEstadoMarcador.cadencia);
+          document.getElementById('cadCam').firstChild.textContent = cad;
+          establecerCadencia(cad);
+        }
+        if (camEstadoMarcador.huboPico) destellar('flashCam');
       }
-    } else if (camFramePrev) {
-      // sin zona marcada: respaldo al movimiento general de cuadro completo (peor señal, pero
-      // sirve para tener algo mientras Hugo todavía no marcó dónde pasa la pértiga)
-      let diff = 0;
-      for (let i = 0; i < frame.length; i += 4) diff += Math.abs(frame[i] - camFramePrev[i]); // canal rojo como proxy de luminancia
-      energia = diff / (CAM_ANCHO * CAM_ALTO);
-    }
-    if (energia != null) {
-      // umbrales más separados y refractario más largo que el default, específicamente para
-      // cámara: con el ROI chico y la señal de ángulo con ruido, un "hump" real de velocidad
-      // angular puede bajar un poquito en el medio por ruido y volver a subir, contándose como
-      // dos paladas en vez de una — Hugo reportó justo eso, "aproximadamente el doble" de la
-      // cadencia real. Con más margen entre los umbrales, un dip chico de ruido en el medio de
-      // un hump ya no alcanza para resetear el estado "alto" y volver a contar.
-      camEstado = procesarEnergiaHisteresis(camEstado, energia, performance.now(),
-        { factorAlto: 0.65, factorBajo: 0.20, refractarioMs: 350 });
-      if (camEstado.cadencia != null) {
-        const cad = Math.round(camEstado.cadencia);
-        document.getElementById('cadCam').firstChild.textContent = cad;
-        establecerCadencia(cad); // mismo motivo que en loopMicCadencia — ver comentario ahí
+      // si el centroide da null (el marcador no aparece en este cuadro — tapado, o fuera de la
+      // zona), simplemente no actualizo nada este cuadro; no es un error, puede pasar en el
+      // extremo del recorrido si la zona quedó un poco corta.
+    } else {
+      let energia = null;
+      if (camROI) {
+        // con zona marcada pero sin marcador de color: ángulo de la pértiga como respaldo
+        const anguloCrudo = calcularAnguloDominante(frame, CAM_ANCHO, CAM_ALTO);
+        if (anguloCrudo != null) {
+          const anguloActual = desenrollarAngulo(anguloCrudo, camAnguloPrev);
+          if (camAnguloPrev != null) energia = Math.abs(anguloActual - camAnguloPrev) * (180 / Math.PI);
+          camAnguloPrev = anguloActual;
+        }
+      } else if (camFramePrev) {
+        // sin zona marcada: respaldo al movimiento general de cuadro completo (la señal más débil
+        // de las tres, pero sirve para tener algo mientras Hugo todavía no marcó nada)
+        let diff = 0;
+        for (let i = 0; i < frame.length; i += 4) diff += Math.abs(frame[i] - camFramePrev[i]); // canal rojo como proxy de luminancia
+        energia = diff / (CAM_ANCHO * CAM_ALTO);
       }
-      if (camEstado.huboPico) destellar('flashCam');
+      if (energia != null) {
+        // umbrales más separados y refractario más largo que el default, específicamente para
+        // cámara: con el ROI chico y la señal de ángulo con ruido, un "hump" real de velocidad
+        // angular puede bajar un poquito en el medio por ruido y volver a subir, contándose como
+        // dos paladas en vez de una — Hugo reportó justo eso, "aproximadamente el doble" de la
+        // cadencia real. Con más margen entre los umbrales, un dip chico de ruido en el medio de
+        // un hump ya no alcanza para resetear el estado "alto" y volver a contar.
+        camEstado = procesarEnergiaHisteresis(camEstado, energia, performance.now(),
+          { factorAlto: 0.65, factorBajo: 0.20, refractarioMs: 350 });
+        if (camEstado.cadencia != null) {
+          const cad = Math.round(camEstado.cadencia);
+          document.getElementById('cadCam').firstChild.textContent = cad;
+          establecerCadencia(cad); // mismo motivo que en loopMicCadencia — ver comentario ahí
+        }
+        if (camEstado.huboPico) destellar('flashCam');
+      }
     }
     camFramePrev = frame;
   }
@@ -1608,6 +2028,9 @@ function detenerCamCadencia() {
   camStream = null;
   camFramePrev = null;
   camAnguloPrev = null;
+  colorMarcador = null;
+  camEstadoMarcador = {};
+  actualizarUIColorMarcador();
   const video = document.getElementById('videoCam');
   video.srcObject = null;
   video.style.display = 'none';
@@ -2202,7 +2625,7 @@ function renderHistorial() {
   const sesiones = [...lsGet(K_SESIONES, [])].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const tbody = document.getElementById('tablaSesiones');
   if (!sesiones.length) {
-    tbody.innerHTML = '<tr class="vacia"><td colspan="6">Sin sesiones todavía</td></tr>';
+    tbody.innerHTML = '<tr class="vacia"><td colspan="7">Sin sesiones todavía</td></tr>';
     return;
   }
   tbody.innerHTML = sesiones.map(s => {
@@ -2216,8 +2639,23 @@ function renderHistorial() {
     '<td><button class="btn chico" style="margin:0; padding:4px 8px;" onclick="exportarSesionTCX(\'' + s.id + '\')">TCX</button></td>' +
     '<td>' + (tieneTrack
       ? '<button class="btn chico" style="margin:0; padding:4px 8px;' + (esFantasma ? ' background:var(--ritmo); color:var(--bg);' : '') + '" onclick="seleccionarFantasma(\'' + s.id + '\')">' + (esFantasma ? '✅' : '👻') + '</button>'
-      : '') + '</td></tr>';
+      : '') + '</td>' +
+    '<td><button class="btn chico" style="margin:0; padding:4px 8px; color:var(--pulso);" onclick="eliminarSesion(\'' + s.id + '\')">🗑</button></td></tr>';
   }).join('');
+}
+function eliminarSesion(id) {
+  const sesiones = lsGet(K_SESIONES, []);
+  const sesion = sesiones.find(s => s.id === id);
+  if (!sesion) return;
+  const fecha = new Date(sesion.fecha).toLocaleDateString('es-AR');
+  if (!confirm('¿Eliminar la sesión del ' + fecha + ' (' + sesion.distanciaM + 'm)? Esto no se puede deshacer.')) return;
+  lsSet(K_SESIONES, sesiones.filter(s => s.id !== id));
+  // saca también su aporte a la Forma combinada (si no, quedaría un TSS fantasma sumando aunque
+  // la sesión ya no exista) y la saca de fantasma si era la elegida
+  lsSet(K_FORMA_COMPARTIDA, lsGet(K_FORMA_COMPARTIDA, []).filter(r => r.id !== id));
+  if (lsGet(K_FANTASMA_ID, null) === id) localStorage.removeItem(K_FANTASMA_ID);
+  toast('Sesión eliminada');
+  renderHistorial();
 }
 
 /* ============================================================
