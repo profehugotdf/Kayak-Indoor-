@@ -115,7 +115,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v37</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v38</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -237,6 +237,13 @@
         <p class="nota" id="textoColorMarcador" style="margin:0;">Sin color elegido — tocá (sin arrastrar) el marcador dentro de la zona</p>
       </div>
       <button class="btn chico" onclick="reiniciarColorMarcador()">↺ Olvidar color elegido (volver a ángulo/movimiento)</button>
+      <div id="cardDebugColor" style="display:none; margin-top:8px;">
+        <p class="nota">Lo que está siguiendo la app ahora mismo — en <b style="color:#ff2fd6;">magenta</b>
+          los píxeles que cuentan como el marcador, en gris el resto. Si lo magenta no está SOLO
+          sobre tu marcador (por ejemplo, si prende en tu ropa o el fondo), tocá de nuevo más
+          preciso sobre la banda de color.</p>
+        <canvas id="canvasDebugColor" width="48" height="36" style="width:100%; image-rendering:pixelated; border-radius:8px; border:1px solid var(--borde); background:#000;"></canvas>
+      </div>
       <div class="hud-grid" style="margin-top:10px;">
         <div class="hud-tile"><div class="val" id="cadMic">--<span id="flashMic" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por audio</div></div>
         <div class="hud-tile"><div class="val" id="cadCam">--<span id="flashCam" style="color:var(--z2);"></span></div><div class="lbl">Cadencia por cámara</div></div>
@@ -1068,6 +1075,24 @@
         la cámara, en vez de arrancar siempre en null. Los botones de
         reiniciar (zona, color) también guardan el estado limpio, para
         que un reinicio explícito sí se recuerde como tal la próxima vez.
+   v38: Hugo mandó video con el marcador ya puesto en la pértiga de
+        verdad (banda blanca con negro a los costados), pero "todavía no
+        entiendo bien cómo configurar la imagen que capta el video". Con
+        zoom en la captura encontré la causa: el color elegido (el
+        cuadradito de muestra) salió verde oscuro, no blanco — el toque
+        agarró otra cosa (parece el logo del buzo, no la banda del
+        marcador), y con eso la cadencia detectada era puro ruido (16).
+        El problema de fondo no era el marcador ni el algoritmo, era que
+        Hugo no tenía forma de VER qué había agarrado el toque — solo un
+        número de cadencia rara para deducirlo. Agregada una vista de
+        depuración: canvasDebugColor, un mini-canvas que muestra el mismo
+        recorte de 48×36 que usa el algoritmo, con los píxeles que
+        cuentan como "del marcador" pintados en magenta bien visible y el
+        resto apagado a gris — así Hugo puede confirmar de un vistazo si
+        el magenta prende SOLO sobre el marcador o si agarró otra cosa
+        (ropa, fondo), y volver a tocar más preciso si hace falta. Solo
+        visible cuando hay un color elegido (dibujarDebugColor(), llamada
+        desde loopCamCadencia() cada cuadro en modo marcador de color).
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1905,15 +1930,41 @@ function elegirColorMarcador(posicionRelativa) {
 function actualizarUIColorMarcador() {
   const swatch = document.getElementById('swatchColorMarcador');
   const texto = document.getElementById('textoColorMarcador');
+  const cardDebug = document.getElementById('cardDebugColor');
   if (!swatch || !texto) return;
   if (colorMarcador) {
     swatch.style.background = 'rgb(' + Math.round(colorMarcador.r) + ',' + Math.round(colorMarcador.g) + ',' + Math.round(colorMarcador.b) + ')';
     swatch.style.display = 'inline-block';
     texto.textContent = 'Color elegido — tocá de nuevo el marcador para cambiarlo';
+    if (cardDebug) cardDebug.style.display = 'block';
   } else {
     swatch.style.display = 'none';
     texto.textContent = 'Sin color elegido — tocá (sin arrastrar) el marcador dentro de la zona';
+    if (cardDebug) cardDebug.style.display = 'none';
   }
+}
+// pinta en magenta los píxeles que cuentan como "del marcador" y en gris apagado el resto, sobre
+// el mismo recorte de 48x36 que usa el algoritmo — a pedido indirecto de Hugo: no entendía bien
+// cómo configurar la zona/color, y confirmó con una captura que el color elegido había agarrado
+// otra cosa (el logo del buzo, no la banda blanca). Con esto lo ve al instante, en vez de
+// adivinar por el número de cadencia solo.
+function dibujarDebugColor(frameRGBA, colorObjetivo, umbral) {
+  const canvas = document.getElementById('canvasDebugColor');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const salida = ctx.createImageData(CAM_ANCHO, CAM_ALTO);
+  for (let i = 0; i < frameRGBA.length; i += 4) {
+    const dr = frameRGBA[i] - colorObjetivo.r, dg = frameRGBA[i + 1] - colorObjetivo.g, db = frameRGBA[i + 2] - colorObjetivo.b;
+    const d = Math.sqrt(dr * dr + dg * dg + db * db);
+    if (d < umbral) {
+      salida.data[i] = 255; salida.data[i + 1] = 20; salida.data[i + 2] = 200; // magenta bien visible
+    } else {
+      const gris = (frameRGBA[i] + frameRGBA[i + 1] + frameRGBA[i + 2]) / 3 * 0.5; // apagado, para que el magenta resalte
+      salida.data[i] = gris; salida.data[i + 1] = gris; salida.data[i + 2] = gris;
+    }
+    salida.data[i + 3] = 255;
+  }
+  ctx.putImageData(salida, 0, 0);
 }
 function reiniciarColorMarcador() {
   colorMarcador = null;
@@ -1971,6 +2022,7 @@ function loopCamCadencia() {
       // la pértiga son dos mínimos locales (uno por lado), igual que la convención ya establecida.
       const UMBRAL_COLOR = 45; // distancia RGB máxima para considerar un píxel "del marcador"
       const centroide = calcularCentroideColor(frame, CAM_ANCHO, CAM_ALTO, colorMarcador, UMBRAL_COLOR);
+      dibujarDebugColor(frame, colorMarcador, UMBRAL_COLOR);
       if (centroide) {
         camEstadoMarcador = procesarMinimoLocal(camEstadoMarcador, centroide.y, performance.now());
         if (camEstadoMarcador.cadencia != null) {
