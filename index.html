@@ -115,7 +115,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v38</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v39</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -221,6 +221,7 @@
         <button class="btn" id="btnMic" onclick="toggleMicCadencia()">🎤 Micrófono</button>
         <button class="btn" id="btnCam" onclick="toggleCamCadencia()">📷 Cámara</button>
       </div>
+      <select id="selectCamara" onchange="cambiarCamara(this.value)" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);"></select>
       <div id="camContainer" style="position:relative; margin-top:8px; touch-action:none;">
         <video id="videoCam" autoplay muted playsinline style="width:100%; border-radius:10px; display:none; background:#000; touch-action:none;"></video>
         <div id="camROIOverlay" style="position:absolute; border:2px solid var(--ritmo); background:rgba(79,216,196,0.18); display:none; pointer-events:none;"></div>
@@ -1093,6 +1094,27 @@
         (ropa, fondo), y volver a tocar más preciso si hace falta. Solo
         visible cuando hay un color elegido (dibujarDebugColor(), llamada
         desde loopCamCadencia() cada cuadro en modo marcador de color).
+   v39: con la vista de depuración de v38, Hugo mandó otra captura — el
+        magenta aparecía disperso en varios puntitos chicos en vez de un
+        blob sólido, señal de que el marcador entra y sale de cuadro
+        durante el recorrido. Propuso usar la lente de mayor ángulo de su
+        S26 Ultra para que entre todo el arco de la pértiga. La app
+        siempre pedía la cámara con facingMode:'user' genérico, sin dejar
+        elegir CUÁL cámara (el teléfono puede tener varias lentes
+        frontales/traseras con distinto ángulo). Agregado un selector:
+        toggleCamCadencia() ahora arranca conectando con facingMode
+        genérico (primera vez, antes de tener permiso no se puede saber
+        qué lentes hay ni sus nombres), y una vez conectado
+        actualizarListaCamaras() usa navigator.mediaDevices.enumerateDevices()
+        para armar un <select> con las cámaras disponibles y sus
+        etiquetas reales (recién visibles después de dar permiso, por
+        privacidad del navegador). Elegir una del selector
+        (cambiarCamara()) corta el stream actual y reconecta con esa
+        cámara puntual (deviceId exacto), guardando la elección en
+        localStorage para la próxima vez. conectarCamaraConDispositivo()
+        queda como función compartida entre el primer conectarse y los
+        cambios de cámara posteriores, para no duplicar el reset de
+        estado/listeners.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1807,12 +1829,22 @@ function guardarROIYColor() {
 }
 let roiArrastrando = false, roiInicio = null;
 const CAM_ANCHO = 48, CAM_ALTO = 36; // resolución bajita a propósito: no hace falta más para medir movimiento
+const K_CAM_DEVICE_ID = LS_PREFIX + 'cam_device_id';
 async function toggleCamCadencia() {
   if (camStream) { detenerCamCadencia(); return; }
+  await conectarCamaraConDispositivo(lsGet(K_CAM_DEVICE_ID, null));
+}
+// separado de toggleCamCadencia() para poder reconectar con otra lente sin duplicar todo el
+// resto (reset de estado, listeners, etc.) — a pedido de Hugo: su S26 Ultra tiene varias lentes
+// (frontal normal, frontal gran angular, y las traseras) y antes la app siempre pedía "la
+// frontal por defecto" sin dejarlo elegir. Antes de tener el deviceId elegido, el navegador
+// todavía no reveló las etiquetas de los dispositivos (por privacidad, hasta que no se dio algún
+// permiso de cámara no las muestra) — por eso el primer conectarse siempre es con facingMode
+// genérico, y RECIÉN DESPUÉS se puede armar la lista real con nombres para elegir.
+async function conectarCamaraConDispositivo(deviceId) {
   try {
-    // frontal, no trasera — a pedido de Hugo, así puede ver el HUD en la pantalla mientras la
-    // cámara lo encuadra a él (con la trasera tendría que mirar para otro lado)
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    const constraints = deviceId ? { video: { deviceId: { exact: deviceId } } } : { video: { facingMode: 'user' } };
+    camStream = await navigator.mediaDevices.getUserMedia(constraints);
     const video = document.getElementById('videoCam');
     video.srcObject = camStream;
     video.style.display = 'block';
@@ -1827,10 +1859,30 @@ async function toggleCamCadencia() {
     inicializarROIListeners();
     mostrarOverlayDesdeROI();
     actualizarUIColorMarcador();
+    actualizarListaCamaras();
     loopCamCadencia();
   } catch (e) {
     toast('No se pudo usar la cámara: ' + e.message);
   }
+}
+async function actualizarListaCamaras() {
+  const select = document.getElementById('selectCamara');
+  if (!select || !navigator.mediaDevices.enumerateDevices) return;
+  try {
+    const dispositivos = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    if (!dispositivos.length || !dispositivos[0].label) { select.style.display = 'none'; return; } // sin etiquetas todavía = sin permiso dado, no hay nada útil para mostrar
+    const actual = camStream ? camStream.getVideoTracks()[0].getSettings().deviceId : null;
+    select.innerHTML = dispositivos.map(d =>
+      '<option value="' + d.deviceId + '"' + (d.deviceId === actual ? ' selected' : '') + '>' + (d.label || 'Cámara') + '</option>'
+    ).join('');
+    select.style.display = 'block';
+  } catch (e) { /* enumerar puede fallar en algunos navegadores sin permiso — no rompe nada, el selector simplemente no aparece */ }
+}
+async function cambiarCamara(deviceId) {
+  lsSet(K_CAM_DEVICE_ID, deviceId);
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  toast('Cambiando de cámara...');
+  await conectarCamaraConDispositivo(deviceId);
 }
 // selección de zona (a pedido de Hugo: "quiero que detecte el movimiento de la pértiga", no de
 // todo el cuadro — con la cara/torso/fondo también moviéndose, la pértiga era una fracción chica
