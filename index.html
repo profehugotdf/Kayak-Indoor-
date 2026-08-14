@@ -115,7 +115,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v40</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v42</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1130,6 +1130,26 @@
         si el magenta sigue bien al marcador mientras rema de verdad, sin
         tener que volver a Calibración. Visibilidad de la miniatura
         controlada junto con la tarjeta grande, en actualizarUIColorMarcador().
+   v41: Hugo mandó video: dejó de mover la pértiga, el sensor quedó
+        quieto de verdad, pero la animación del kayakista siguió sola
+        unos 10 segundos más. BUG DE RAÍZ (clásico de JavaScript): en
+        loopSesionVivo(), `actual.cadencia || CADENCIA_BASE_SI_NO_HAY_DATO`
+        — en JS, 0 es "falsy", así que una cadencia REAL de 0 (se dejó de
+        remar) se trataba exactamente igual que "sin sensor conectado
+        todavía", y la animación seguía usando el valor de relleno (70)
+        en vez de pararse. Arreglado con una bandera nueva,
+        cadenciaAlgunaVezReportada — se pone true la primera vez que
+        establecerCadencia() corre (o sea, la primera vez que CUALQUIER
+        sensor reporta algo), y desde ahí en más SIEMPRE se usa
+        actual.cadencia tal cual, incluido un 0 real; el valor de relleno
+        solo se usa antes de que exista cualquier dato, no después.
+        Encontré el mismo patrón (`x || y` con x pudiendo ser 0 de
+        verdad) en otros tres lugares relacionados con cadencia y los
+        corregí igual: el tile del HUD (mostraba "--" en vez de "0"), el
+        punto guardado por segundo en puntosSesion (guardaba null en vez
+        de 0, así que un 0 real se perdía del track), y el filtro que arma
+        cadenciaPromedio/el TCX (excluía los 0 reales del promedio y del
+        archivo exportado, como si esos segundos no hubieran pasado).
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1264,8 +1284,15 @@ const actual = { cadencia: 0, pulso: 0 };
 // CUALQUIER fuente de cadencia (BLE, audio, cámara) pase por acá antes de tocar actual.cadencia,
 // en vez de confiar en que cada detector nunca se vaya a romper de una forma nueva.
 const CADENCIA_MAX_FISICA = 200;
+// distingue "todavía no hay ningún sensor conectado" de "el sensor dice 0 de verdad" (parado).
+// Hugo encontró el bug: la animación en vivo usaba actual.cadencia||CADENCIA_BASE_SI_NO_HAY_DATO,
+// y en JS el 0 es "falsy" — así que un 0 REAL (se dejó de remar) se trataba igual que "sin dato" y
+// la animación seguía sola con el valor de relleno. Con esta bandera, una vez que llegó CUALQUIER
+// dato real (aunque sea 0), ya no se vuelve a usar el valor de relleno nunca más.
+let cadenciaAlgunaVezReportada = false;
 function establecerCadencia(valor) {
   actual.cadencia = Math.max(0, Math.min(CADENCIA_MAX_FISICA, Math.round(valor)));
+  cadenciaAlgunaVezReportada = true;
   return actual.cadencia;
 }
 
@@ -1430,6 +1457,22 @@ function procesarMinimoLocal(estado, valor, tsMs, opts) {
   // "ve" tendencias falsas. No alcanza con exigir un rango RELATIVO grande si el rango absoluto
   // ya es minúsculo de entrada.
   const MIN_MUESTRAS = opts.minMuestras || 5;
+  const VENCIMIENTO_MS = opts.vencimientoMs || 2500; // BUG real que reportó Hugo: dejó de remar,
+  // el sensor quedó quieto, pero la animación (y la distancia) siguieron 10 segundos más con la
+  // última cadencia detectada. Ningún detector tenía forma de decir "dejé de ver paladas" — solo
+  // actualizaban cadencia cuando encontraban una nueva, y si dejaban de encontrar, el último
+  // valor quedaba pegado ahí para siempre. Con esto, si pasa más de este tiempo desde la última
+  // palada real, la cadencia se resetea a 0 EXPLÍCITO (no simplemente "dejar de actualizar",
+  // que es lo que causaba el bug), y se limpia el historial de intervalos — así, cuando vuelva
+  // el movimiento, no arrastra un intervalo gigante de silencio mezclado con paladas reales.
+  let ultimoPico = estado.ultimoPico;
+  let intervalos = estado.intervalos ? estado.intervalos.slice() : [];
+  let vencido = false;
+  if (ultimoPico != null && tsMs - ultimoPico > VENCIMIENTO_MS) {
+    ultimoPico = null;
+    intervalos = [];
+    vencido = true;
+  }
   const historial = (estado.historial || []).concat([{ valor, ts: tsMs }])
     .filter(p => tsMs - p.ts <= VENTANA_MS);
   const valores = historial.map(p => p.valor);
@@ -1438,8 +1481,6 @@ function procesarMinimoLocal(estado, valor, tsMs, opts) {
   const umbralRuido = rango * FRACCION_RUIDO;
   let tendencia = estado.tendencia || null;
   let huboPico = false;
-  let ultimoPico = estado.ultimoPico;
-  const intervalos = estado.intervalos ? estado.intervalos.slice() : [];
   if (historial.length >= MIN_MUESTRAS && estado.valorAnterior != null && rango >= RANGO_MINIMO) {
     const diff = valor - estado.valorAnterior;
     let nuevaTendencia = tendencia;
@@ -1459,7 +1500,8 @@ function procesarMinimoLocal(estado, valor, tsMs, opts) {
     tendencia = nuevaTendencia;
   }
   const promedioMs = intervalos.length ? intervalos.reduce((a, b) => a + b, 0) / intervalos.length : null;
-  const cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  let cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  if (vencido) cadencia = 0;
   return { historial, tendencia, valorAnterior: valor, ultimoPico, intervalos, cadencia, huboPico };
 }
 async function conectarSensorCadenciaBLE() {
@@ -1627,11 +1669,20 @@ function procesarEnergiaPico(estado, energia, tsMs, factorPico) {
   factorPico = factorPico || 1.6;
   const REFRACTARIO_MS = 280; // no cuenta dos picos separados por menos de esto (tope ~214 p/m)
   const ALFA_BASELINE = 0.05; // qué tan rápido se adapta el piso a la energía de fondo
+  const VENCIMIENTO_MS = 2500; // ver el comentario largo en procesarMinimoLocal — mismo bug real
+  // que reportó Hugo (la animación/distancia seguían solas 10s después de dejar de remar),
+  // mismo arreglo: si pasó demasiado desde el último pico real, cadencia se resetea a 0 explícito.
   const baseline = estado.baseline == null ? energia : estado.baseline + ALFA_BASELINE * (energia - estado.baseline);
-  const huboPico = energia > baseline * factorPico &&
-    (estado.ultimoPico == null || tsMs - estado.ultimoPico >= REFRACTARIO_MS);
-  const intervalos = estado.intervalos ? estado.intervalos.slice() : [];
   let ultimoPico = estado.ultimoPico;
+  let intervalos = estado.intervalos ? estado.intervalos.slice() : [];
+  let vencido = false;
+  if (ultimoPico != null && tsMs - ultimoPico > VENCIMIENTO_MS) {
+    ultimoPico = null;
+    intervalos = [];
+    vencido = true;
+  }
+  const huboPico = energia > baseline * factorPico &&
+    (ultimoPico == null || tsMs - ultimoPico >= REFRACTARIO_MS);
   if (huboPico) {
     if (ultimoPico != null) {
       intervalos.push(tsMs - ultimoPico);
@@ -1640,7 +1691,8 @@ function procesarEnergiaPico(estado, energia, tsMs, factorPico) {
     ultimoPico = tsMs;
   }
   const promedioMs = intervalos.length ? intervalos.reduce((a, b) => a + b, 0) / intervalos.length : null;
-  const cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  let cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  if (vencido && !huboPico) cadencia = 0;
   return { baseline, ultimoPico, intervalos, cadencia, huboPico };
 }
 
@@ -1675,15 +1727,25 @@ function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
   // entre paladas, ruido de un par de milisegundos entre frames (a 60fps eso es ~16ms) podía
   // contarse como paladas separadas — es justo lo que dio los números absurdos que mandó Hugo
   // (500, 1657 p/m). Mismo tope que ya usaba el detector de audio (~214 p/m máximo).
+  const VENCIMIENTO_MS = opts.vencimientoMs || 2500; // ver el comentario largo en
+  // procesarMinimoLocal — mismo bug real que reportó Hugo (la animación/distancia seguían solas
+  // 10s después de dejar de remar), mismo arreglo acá.
+  let ultimoPico = estado.ultimoPico;
+  let intervalos = estado.intervalos ? estado.intervalos.slice() : [];
+  let estadoAlto = !!estado.estadoAlto;
+  let vencido = false;
+  if (ultimoPico != null && tsMs - ultimoPico > VENCIMIENTO_MS) {
+    ultimoPico = null;
+    intervalos = [];
+    estadoAlto = false; // también reinicio el latch, para no arrancar "ya en alto" de forma rara
+    vencido = true;
+  }
   const historial = (estado.historial || []).concat([{ energia, ts: tsMs }])
     .filter(p => tsMs - p.ts <= VENTANA_MS);
   const valores = historial.map(p => p.energia);
   const mn = Math.min(...valores), mx = Math.max(...valores);
   const rango = mx - mn;
-  let estadoAlto = !!estado.estadoAlto;
   let huboPico = false;
-  let ultimoPico = estado.ultimoPico;
-  const intervalos = estado.intervalos ? estado.intervalos.slice() : [];
   if (rango > 1e-6 && historial.length >= MIN_MUESTRAS) {
     const uAlto = mn + rango * FACTOR_ALTO, uBajo = mn + rango * FACTOR_BAJO;
     const puedeContar = ultimoPico == null || tsMs - ultimoPico >= REFRACTARIO_MS;
@@ -1700,7 +1762,8 @@ function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
     }
   }
   const promedioMs = intervalos.length ? intervalos.reduce((a, b) => a + b, 0) / intervalos.length : null;
-  const cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  let cadencia = (intervalos.length >= 2 && promedioMs) ? 60000 / promedioMs : null;
+  if (vencido && !huboPico) cadencia = 0;
   return { historial, estadoAlto, ultimoPico, intervalos, cadencia, huboPico };
 }
 
@@ -2563,7 +2626,7 @@ function loopSesionVivo(ts) {
   if (!sesionActiva) { sesionRAF = null; return; }
   const dt = sesionUltimoTS ? Math.min(0.1, (ts - sesionUltimoTS) / 1000) : 0;
   sesionUltimoTS = ts;
-  const cadencia = actual.cadencia || CADENCIA_BASE_SI_NO_HAY_DATO;
+  const cadencia = cadenciaAlgunaVezReportada ? actual.cadencia : CADENCIA_BASE_SI_NO_HAY_DATO;
   tGlobalVivo = (tGlobalVivo + (cadencia / 15) * dt) % 8;
   renderSesionVivo();
   sesionRAF = requestAnimationFrame(loopSesionVivo);
@@ -2634,9 +2697,9 @@ function tick() {
   if (actual.pulso > 0) sesionActiva.pulsos.push(actual.pulso);
   const tSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
   // un punto por segundo, para poder armar un TCX con track real (no solo el resumen del Lap)
-  puntosSesion.push({ t: tSeg, distAcum: sesionActiva.distanciaM, pulso: actual.pulso || null, cadencia: actual.cadencia || null });
+  puntosSesion.push({ t: tSeg, distAcum: sesionActiva.distanciaM, pulso: actual.pulso || null, cadencia: cadenciaAlgunaVezReportada ? actual.cadencia : null });
 
-  document.getElementById('hudCadencia').textContent = actual.cadencia || '--';
+  document.getElementById('hudCadencia').textContent = cadenciaAlgunaVezReportada ? actual.cadencia : '--';
   document.getElementById('hudPulso').textContent = actual.pulso || '--';
   document.getElementById('hudDistancia').textContent = Math.round(sesionActiva.distanciaM);
   document.getElementById('hudTiempo').textContent = segAHMS(tSeg);
@@ -2660,7 +2723,7 @@ function finalizarSesion() {
   const duracionSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
   const pulsoPromedio = promedio(sesionActiva.pulsos);
   const pulsoMax = sesionActiva.pulsos.length ? Math.max(...sesionActiva.pulsos) : null;
-  const cadenciasValidas = puntosSesion.filter(p => p.cadencia).map(p => p.cadencia);
+  const cadenciasValidas = puntosSesion.filter(p => p.cadencia != null).map(p => p.cadencia);
   const cadenciaPromedio = cadenciasValidas.length ? Math.round(promedio(cadenciasValidas)) : null;
   const umbralPulso = lsGet(K_UMBRAL_PULSO, null);
   const tss = calcularTSS(duracionSeg, pulsoPromedio, umbralPulso);
@@ -2714,7 +2777,7 @@ function generarTCX(sesion) {
     const tiempoAbs = new Date(t0.getTime() + p.t * 1000).toISOString();
     let xml = '<Trackpoint><Time>' + tiempoAbs + '</Time><DistanceMeters>' + p.distAcum.toFixed(2) + '</DistanceMeters>';
     if (p.pulso) xml += '<HeartRateBpm><Value>' + Math.round(p.pulso) + '</Value></HeartRateBpm>';
-    if (p.cadencia) xml += '<Extensions><TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2"><RunCadence>' + Math.round(p.cadencia) + '</RunCadence></TPX></Extensions>';
+    if (p.cadencia != null) xml += '<Extensions><TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2"><RunCadence>' + Math.round(p.cadencia) + '</RunCadence></TPX></Extensions>';
     xml += '</Trackpoint>';
     return xml;
   }).join('');
