@@ -115,7 +115,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v39</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v40</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -147,8 +147,10 @@
         sensor que reporte un dato nuevo es el que manda (igual que con el pulso banda/reloj).</p>
     </div>
 
-    <div class="card">
+    <div class="card" style="position:relative;">
       <canvas id="canvasSesionVivo" height="220"></canvas>
+      <canvas id="canvasDebugColorMini" width="48" height="36"
+        style="display:none; position:absolute; right:22px; bottom:22px; width:96px; height:72px; image-rendering:pixelated; border-radius:6px; border:1px solid rgba(255,255,255,0.4); background:#000;"></canvas>
     </div>
 
     <div class="card">
@@ -1115,6 +1117,19 @@
         queda como función compartida entre el primer conectarse y los
         cambios de cámara posteriores, para no duplicar el reset de
         estado/listeners.
+   v40: Hugo pidió tener la vista de depuración también visible durante la
+        sesión, no solo en Calibración — "podría tener una vista del
+        detector de movimiento en la zona inferior derecha de la
+        animación?". Agregado canvasDebugColorMini, un mini-canvas
+        posicionado absoluto en la esquina inferior derecha de
+        canvasSesionVivo (48×36 igual que el original, estirado a 96×72
+        por CSS con image-rendering:pixelated). dibujarDebugColor() ahora
+        arma el buffer de píxeles una sola vez y lo dibuja en las DOS
+        vistas que existan (la grande de Calibración y esta miniatura),
+        en vez de estar atada a un solo canvas — así Hugo puede controlar
+        si el magenta sigue bien al marcador mientras rema de verdad, sin
+        tener que volver a Calibración. Visibilidad de la miniatura
+        controlada junto con la tarjeta grande, en actualizarUIColorMarcador().
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1983,40 +1998,49 @@ function actualizarUIColorMarcador() {
   const swatch = document.getElementById('swatchColorMarcador');
   const texto = document.getElementById('textoColorMarcador');
   const cardDebug = document.getElementById('cardDebugColor');
+  const mini = document.getElementById('canvasDebugColorMini');
   if (!swatch || !texto) return;
   if (colorMarcador) {
     swatch.style.background = 'rgb(' + Math.round(colorMarcador.r) + ',' + Math.round(colorMarcador.g) + ',' + Math.round(colorMarcador.b) + ')';
     swatch.style.display = 'inline-block';
     texto.textContent = 'Color elegido — tocá de nuevo el marcador para cambiarlo';
     if (cardDebug) cardDebug.style.display = 'block';
+    if (mini) mini.style.display = 'block';
   } else {
     swatch.style.display = 'none';
     texto.textContent = 'Sin color elegido — tocá (sin arrastrar) el marcador dentro de la zona';
     if (cardDebug) cardDebug.style.display = 'none';
+    if (mini) mini.style.display = 'none';
   }
 }
 // pinta en magenta los píxeles que cuentan como "del marcador" y en gris apagado el resto, sobre
 // el mismo recorte de 48x36 que usa el algoritmo — a pedido indirecto de Hugo: no entendía bien
 // cómo configurar la zona/color, y confirmó con una captura que el color elegido había agarrado
 // otra cosa (el logo del buzo, no la banda blanca). Con esto lo ve al instante, en vez de
-// adivinar por el número de cadencia solo.
+// adivinar por el número de cadencia solo. Dibuja en LAS DOS vistas que existan (la grande de
+// Calibración, y la miniatura en la esquina de la animación en vivo de Sesión) — a pedido de
+// Hugo, para poder controlar la detección mientras rema, sin tener que volver a Calibración.
 function dibujarDebugColor(frameRGBA, colorObjetivo, umbral) {
-  const canvas = document.getElementById('canvasDebugColor');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const salida = ctx.createImageData(CAM_ANCHO, CAM_ALTO);
+  const salida = new Uint8ClampedArray(CAM_ANCHO * CAM_ALTO * 4);
   for (let i = 0; i < frameRGBA.length; i += 4) {
     const dr = frameRGBA[i] - colorObjetivo.r, dg = frameRGBA[i + 1] - colorObjetivo.g, db = frameRGBA[i + 2] - colorObjetivo.b;
     const d = Math.sqrt(dr * dr + dg * dg + db * db);
     if (d < umbral) {
-      salida.data[i] = 255; salida.data[i + 1] = 20; salida.data[i + 2] = 200; // magenta bien visible
+      salida[i] = 255; salida[i + 1] = 20; salida[i + 2] = 200; // magenta bien visible
     } else {
       const gris = (frameRGBA[i] + frameRGBA[i + 1] + frameRGBA[i + 2]) / 3 * 0.5; // apagado, para que el magenta resalte
-      salida.data[i] = gris; salida.data[i + 1] = gris; salida.data[i + 2] = gris;
+      salida[i] = gris; salida[i + 1] = gris; salida[i + 2] = gris;
     }
-    salida.data[i + 3] = 255;
+    salida[i + 3] = 255;
   }
-  ctx.putImageData(salida, 0, 0);
+  ['canvasDebugColor', 'canvasDebugColorMini'].forEach(id => {
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(CAM_ANCHO, CAM_ALTO);
+    imgData.data.set(salida);
+    ctx.putImageData(imgData, 0, 0);
+  });
 }
 function reiniciarColorMarcador() {
   colorMarcador = null;
