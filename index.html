@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v46</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v47</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1294,6 +1294,22 @@
         uso normal, así que no debería hacer falta más margen, pero es
         fácil de ajustar (WATCHDOG_UMBRAL_MS) si en la práctica da falsos
         positivos con el hardware real.
+   v47: Hugo reportó, con captura real, dos cosas del fantasma. (1) "el
+        fantasma copia la cadencia actual de la sesión" — confirmado,
+        exactamente la simplificación que dejé anotada en v43
+        ("comparte la misma pose/fase que el kayakista principal"). Ahora
+        tiene su PROPIA fase (tGlobalFantasma, separada de tGlobalVivo),
+        que avanza según SU cadencia histórica en cada instante — reusa
+        cadenciaCorredorEnT(), ya armada y probada para la Carrera
+        Virtual de v44, sin escribir nada nuevo para eso. Se reinicia a 0
+        en iniciarBucleVivo() (no arrastra la fase de la sesión anterior
+        si elegís otro fantasma). (2) Repasé la asignación de perspectiva
+        y color (adelante=más chico/arriba/verde, atrás=más
+        grande/abajo/rojo) contra lo que describió, y ya estaba bien
+        direccionada — el problema real ahí era otro: con GAP_MAX_VISIBLE_M
+        en 25, un gap real de +40m (como el de su captura) quedaba
+        clampeado exactamente igual que uno de 25m o de 100m, sin
+        diferenciarse más allá de eso. Subido a 50.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2997,11 +3013,12 @@ function renderCarrera() {
    Además dibuja arriba del canvas el cartel de metros vs. fantasma
    (verde adelante / rojo atrás), calcado del badge de Correr.
    ============================================================ */
-let tGlobalVivo = 0, sesionRAF = null, sesionUltimoTS = 0;
+let tGlobalVivo = 0, tGlobalFantasma = 0, sesionRAF = null, sesionUltimoTS = 0;
 const CADENCIA_BASE_SI_NO_HAY_DATO = 70; // para que la animación no quede congelada sin sensor conectado
 
 function iniciarBucleVivo() {
   sesionUltimoTS = 0;
+  tGlobalFantasma = 0; // arranca de cero cada sesión, no arrastra la fase de la sesión anterior
   if (!sesionRAF) sesionRAF = requestAnimationFrame(loopSesionVivo);
 }
 function pararBucleVivo() {
@@ -3013,6 +3030,16 @@ function loopSesionVivo(ts) {
   sesionUltimoTS = ts;
   const cadencia = cadenciaAlgunaVezReportada ? actual.cadencia : CADENCIA_BASE_SI_NO_HAY_DATO;
   tGlobalVivo = (tGlobalVivo + (cadencia / 15) * dt) % 8;
+  // el fantasma tiene que animarse a SU PROPIO ritmo histórico, no calcado del kayakista
+  // principal — Hugo lo notó: "aparentemente el fantasma copia la cadencia actual de la sesión".
+  // Reuso cadenciaCorredorEnT() (ya armada y probada para la Carrera Virtual de v44) para buscar
+  // la cadencia que esa sesión tenía guardada en el instante correspondiente.
+  const fantasma = obtenerFantasma();
+  if (fantasma && fantasma.puntos && fantasma.puntos.length) {
+    const tSeg = (Date.now() - sesionActiva.inicio) / 1000;
+    const cadenciaFantasma = cadenciaCorredorEnT(fantasma.puntos, tSeg);
+    tGlobalFantasma = (tGlobalFantasma + (cadenciaFantasma / 15) * dt) % 8;
+  }
   renderSesionVivo();
   sesionRAF = requestAnimationFrame(loopSesionVivo);
 }
@@ -3074,9 +3101,9 @@ function dibujarBadgeFantasma(ctx, w, gapM) {
 // respetando la perspectiva de acuerdo a la distancia". Cuanto más lejos (adelante o atrás), más
 // chico/grande y más arriba/abajo en la pantalla, como una embarcación real alejándose o
 // acercándose. Pura, sin canvas — así se puede testear con números conocidos.
-const GAP_MAX_VISIBLE_M = 25; // más allá de esto, se clampea (si no, un fantasma muy lejos daría una escala absurda)
+const GAP_MAX_VISIBLE_M = 50; // más allá de esto, se clampea (si no, un fantasma muy lejos daría una escala absurda). Subido de 25 a 50 — con datos reales de Hugo, gaps de 40m+ son comunes, y con 25 cualquier cosa más allá se veía exactamente igual (sin diferenciar 40m de 60m)
 function calcularPerspectivaFantasma(gapM, w, h) {
-  const t = Math.max(-1, Math.min(1, gapM / GAP_MAX_VISIBLE_M)); // -1 (25m atrás) .. 0 (parejo) .. +1 (25m adelante)
+  const t = Math.max(-1, Math.min(1, gapM / GAP_MAX_VISIBLE_M)); // -1 (atrás, en el límite) .. 0 (parejo) .. +1 (adelante, en el límite)
   return {
     escala: 1 - t * 0.35,       // adelante = más lejos = más chico; atrás = más cerca = más grande
     xOffset: w * 0.24,          // separado a un costado fijo (derecha), como un carril vecino
@@ -3105,9 +3132,12 @@ function renderSesionVivo() {
   // el modelo del usuario quede siempre como el foco principal aunque se solapen un poco
   if (gap != null) {
     const persp = calcularPerspectivaFantasma(gap, w, h);
+    const dDerFantasma = interpolarLadoEnSecuenciaK(tGlobalFantasma, 'der');
+    const dIzqFantasma = interpolarLadoEnSecuenciaK(tGlobalFantasma, 'izq');
+    const rotacionFantasma = interpolarRotacionEnSecuenciaK(tGlobalFantasma);
     ctx.save();
     ctx.globalAlpha = 0.42;
-    dibujarKayakistaDesdeD(ctx, w / 2 + persp.xOffset, h * 0.62 + persp.yOffset, s * persp.escala, dDer, dIzq, rotacion, '#8a94a3', proporciones);
+    dibujarKayakistaDesdeD(ctx, w / 2 + persp.xOffset, h * 0.62 + persp.yOffset, s * persp.escala, dDerFantasma, dIzqFantasma, rotacionFantasma, '#8a94a3', proporciones);
     ctx.restore();
   }
   dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
