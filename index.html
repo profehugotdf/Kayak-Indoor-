@@ -53,6 +53,7 @@
   .btn{display:block; width:100%; padding:12px; border-radius:10px; border:1px solid var(--borde);
     background:var(--panel2); color:var(--texto); font-weight:700; font-size:14px; margin-top:8px;}
   .btn.primario{background:var(--ritmo); color:#04211D; border-color:var(--ritmo);}
+  .btn.sel{border-color:#fff; color:#fff; background:#22303a;}
   .btn.peligro{background:var(--pulso); color:#2A0B06; border-color:var(--pulso);}
   .btn.chico{padding:8px; font-size:12px;}
   .btn:disabled{opacity:0.4;}
@@ -115,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v42</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v44</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -123,6 +124,7 @@
   <button onclick="cambiarTab('entrenos')">🥁 Entrenos</button>
   <button onclick="cambiarTab('editor')">🛠️ Editor</button>
   <button onclick="cambiarTab('historial')">📈 Historial</button>
+  <button onclick="cambiarTab('carrera')">🏁 Carrera</button>
 </nav>
 <main>
 
@@ -166,6 +168,18 @@
     </div>
 
     <div class="card" id="fantasmaInfo"></div>
+
+    <div class="card">
+      <h2>Meta de la sesión (opcional)</h2>
+      <div class="fila">
+        <button class="btn chico" id="btnMetaNinguna" onclick="elegirTipoMeta('ninguna')">Sin meta</button>
+        <button class="btn chico" id="btnMetaTiempo" onclick="elegirTipoMeta('tiempo')">Por tiempo</button>
+        <button class="btn chico" id="btnMetaDistancia" onclick="elegirTipoMeta('distancia')">Por distancia</button>
+      </div>
+      <input type="text" inputmode="decimal" id="inputMetaTiempo" placeholder="mm:ss" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);" oninput="guardarMetaValor()">
+      <input type="number" inputmode="decimal" id="inputMetaDistancia" placeholder="metros" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);" oninput="guardarMetaValor()">
+      <p class="nota" id="notaMeta" style="margin-top:8px;">Al llegar a la meta, la sesión termina y se guarda sola.</p>
+    </div>
 
     <div class="card">
       <button class="btn primario" id="btnIniciar" onclick="iniciarSesion()">Iniciar sesión</button>
@@ -420,9 +434,39 @@
     <div class="card">
       <h2>Sesiones de kayak</h2>
       <table class="lista">
-        <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th><th></th></tr></thead>
-        <tbody id="tablaSesiones"><tr class="vacia"><td colspan="7">Sin sesiones todavía</td></tr></tbody>
+        <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th><th></th><th></th></tr></thead>
+        <tbody id="tablaSesiones"><tr class="vacia"><td colspan="8">Sin sesiones todavía</td></tr></tbody>
       </table>
+    </div>
+    <div class="card" id="cardCarreraSeleccion" style="display:none;">
+      <h2>Carrera virtual — sesiones elegidas (hasta 3, 🏁 en la tabla)</h2>
+      <div id="listaCarreraSeleccion"></div>
+      <button class="btn primario" onclick="verCarreraVirtual()">🏁 Ver carrera</button>
+    </div>
+  </section>
+
+  <!-- ============ CARRERA VIRTUAL (replay de sesiones del Historial) ============ -->
+  <section class="view" id="view-carrera">
+    <div class="card" id="cardCarreraVacia">
+      <p class="nota">Elegí hasta 3 sesiones con el botón 🏁 en Historial, y tocá "Ver carrera" —
+        acá se ven corriendo juntas, cada una a partir de su propio track guardado.</p>
+    </div>
+    <div class="card" id="cardCarreraActiva" style="display:none;">
+      <canvas id="canvasCarrera" height="260"></canvas>
+      <div id="listaPosicionesCarrera" style="margin-top:10px;"></div>
+      <div style="margin-top:10px; font-family:var(--mono); text-align:center;" id="tiempoCarrera">0:00 / 0:00</div>
+      <input type="range" id="sliderCarrera" min="0" max="1000" value="0" style="width:100%;" oninput="scrubCarrera(this.value)">
+      <div class="fila" style="margin-top:8px;">
+        <button class="btn primario" id="btnPlayCarrera" onclick="togglePlayCarrera()">▶ Play</button>
+        <button class="btn" onclick="reiniciarCarrera()">Reiniciar</button>
+      </div>
+      <div class="fila" style="margin-top:8px;" id="filaVelocidadCarrera">
+        <button class="btn chico sel" onclick="cambiarVelocidadCarrera(1)">1x</button>
+        <button class="btn chico" onclick="cambiarVelocidadCarrera(2)">2x</button>
+        <button class="btn chico" onclick="cambiarVelocidadCarrera(5)">5x</button>
+        <button class="btn chico" onclick="cambiarVelocidadCarrera(10)">10x</button>
+      </div>
+      <button class="btn" style="margin-top:8px;" onclick="volverDeCarrera()">Volver</button>
     </div>
   </section>
 
@@ -1150,6 +1194,52 @@
         de 0, así que un 0 real se perdía del track), y el filtro que arma
         cadenciaPromedio/el TCX (excluía los 0 reales del promedio y del
         archivo exportado, como si esos segundos no hubieran pasado).
+   v43: tres pedidos de Hugo en un mismo mensaje. (1) Meta de sesión por
+        tiempo o distancia, con fin automático: tarjeta nueva en Sesión
+        (Sin meta/Por tiempo/Por distancia + el valor), congelada en
+        sesionActiva.metaTipo/metaValor al iniciar (cambiar la meta
+        durante una sesión ya corriendo no la afecta). tick() llama a
+        debeTerminarPorMeta() (función pura) cada segundo, y si se
+        cumplió, finalizarSesion() sola. (2) Fantasma dibujado en la
+        animación en vivo, no solo como número — calcularPerspectivaFantasma()
+        traduce el gap en metros a un desplazamiento visual: más
+        adelante/atrás del gap real, más chico/grande y más arriba/abajo
+        en la pantalla (clampeado a ±25m para no dar una escala absurda
+        con un gap enorme), desplazado a un costado fijo. Se dibuja
+        semitransparente y ANTES que el kayakista principal (por detrás),
+        para que el modelo del usuario siga siendo el foco. Comparte la
+        misma pose/fase que el kayakista principal (simplificación: no
+        anima con su propio ritmo independiente). (3) Boyas de pista de
+        aguas planas para dar sensación de avance — antes la escena era
+        estática, sin ninguna señal visual de que el kayak se estuviera
+        moviendo de verdad. dibujarBoyas() reparte boyas cada 10m en dos
+        carriles (izq/der), con la misma lógica de perspectiva que el
+        fantasma (calcularBoya(), función pura: más lejos = arriba y
+        chica, más cerca = abajo y grande, hasta "pasar" y desaparecer),
+        alternando color cada boya como en una pista real.
+   v44: Hugo mostró el modo Carrera Virtual de Bici Indoor y pidió algo
+        parecido acá — replay de hasta 3 sesiones del Historial corriendo
+        juntas, en carriles (central + 2 laterales si son 3). Pestaña
+        nueva "🏁 Carrera". Desde Historial, botón 🏁 por fila (hasta 3
+        elegidas a la vez) arma la lista en cardCarreraSeleccion; "Ver
+        carrera" arma carreraCorredores y cambia a la pestaña.
+        calcularCarrilesX() (pura) da el offset lateral según cuántos
+        corredores hay (1=centro, 2=uno a cada lado, 3=central+2
+        laterales, como pidió). Cada corredor usa SU PROPIO track
+        (distanciaFantasmaEnT(), ya existía desde el fantasma — no hubo
+        que escribir nada nuevo para la posición) y SU PROPIA cadencia en
+        cada instante (cadenciaCorredorEnT(), nueva: busca el punto
+        guardado más cercano en el tiempo; sin dato, cadencia base 70
+        para que no quede congelado). Controles calcados de Bici Indoor:
+        Play/Pausa, Reiniciar, velocidad 1x/2x/5x/10x, slider de tiempo
+        (scrubCarrera(), mueve carreraT directo sin correr el loop),
+        tabla de posiciones ordenada por distancia en cada instante,
+        "Volver" a Historial. loopCarrera() para solo al llegar al final
+        de la sesión más larga del grupo (no hace loop infinito). Un bug
+        propio encontrado y corregido antes de entregar: el selector CSS
+        para resaltar el botón de velocidad activo (nth-of-type) no
+        matcheaba por cómo quedó armado el HTML — cambiado a un id
+        directo (filaVelocidadCarrera) en vez de depender de la posición.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2602,6 +2692,159 @@ function renderFantasmaEnSesion() {
 }
 
 /* ============================================================
+   CARRERA VIRTUAL — replay de hasta 3 sesiones del Historial corriendo
+   juntas, mismo espíritu que el modo Carrera Virtual de Bici Indoor.
+   Reusa distanciaFantasmaEnT() para la posición de cada corredor en un
+   instante dado — no hay nada nuevo que calcular ahí, cada sesión ya
+   guarda su track por segundo desde el TCX de v13.
+   ============================================================ */
+let carreraSeleccion = []; // ids de sesiones elegidas con 🏁 en Historial, hasta 3
+function toggleCarreraSeleccion(id) {
+  const idx = carreraSeleccion.indexOf(id);
+  if (idx >= 0) { carreraSeleccion.splice(idx, 1); }
+  else {
+    if (carreraSeleccion.length >= 3) { toast('Máximo 3 sesiones por carrera'); return; }
+    carreraSeleccion.push(id);
+  }
+  renderHistorial();
+}
+function actualizarCardCarreraSeleccion() {
+  const card = document.getElementById('cardCarreraSeleccion');
+  const lista = document.getElementById('listaCarreraSeleccion');
+  if (!card || !lista) return;
+  if (!carreraSeleccion.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const sesiones = lsGet(K_SESIONES, []);
+  lista.innerHTML = carreraSeleccion.map(id => {
+    const s = sesiones.find(x => x.id === id);
+    if (!s) return '';
+    return '<p class="nota">• ' + new Date(s.fecha).toLocaleDateString('es-AR') + ' — ' + s.distanciaM + 'm en ' + segAHMS(s.duracionSeg) + '</p>';
+  }).join('');
+}
+
+// posiciones laterales (fracción de w respecto del centro) según cuántos corredores hay — pura,
+// sin canvas, para poder testear el layout de carriles. 1 = centro; 2 = uno a cada lado; 3 =
+// central + dos laterales, como pidió Hugo.
+function calcularCarrilesX(n) {
+  if (n <= 1) return [0];
+  if (n === 2) return [-0.24, 0.24];
+  return [-0.30, 0, 0.30];
+}
+// cadencia de un corredor en el instante t, para animarlo a SU propio ritmo (no todos calcados al
+// mismo). Busca el punto guardado más cercano en el tiempo; si esa muestra no tiene cadencia (por
+// ejemplo, sesiones grabadas antes de tener sensor de cadencia conectado), usa un valor base para
+// que no quede congelado.
+const CARRERA_CADENCIA_BASE = 70;
+function cadenciaCorredorEnT(puntos, tSeg) {
+  if (!puntos || !puntos.length) return CARRERA_CADENCIA_BASE;
+  let masCercano = puntos[0];
+  let mejorDif = Math.abs(puntos[0].t - tSeg);
+  for (let i = 1; i < puntos.length; i++) {
+    const dif = Math.abs(puntos[i].t - tSeg);
+    if (dif < mejorDif) { mejorDif = dif; masCercano = puntos[i]; }
+  }
+  return masCercano.cadencia != null ? masCercano.cadencia : CARRERA_CADENCIA_BASE;
+}
+
+let carreraCorredores = []; // [{sesion, fase, color}], armado al entrar a la vista
+let carreraT = 0, carreraDuracionMax = 0, carreraPlaying = false, carreraVelocidad = 1;
+let carreraRAF = null, carreraUltimoTS = 0;
+const CARRERA_COLORES = ['#4FD8C4', '#E8B84B', '#FF6B57'];
+
+function verCarreraVirtual() {
+  if (!carreraSeleccion.length) return;
+  const sesiones = lsGet(K_SESIONES, []);
+  carreraCorredores = carreraSeleccion
+    .map((id, i) => {
+      const s = sesiones.find(x => x.id === id);
+      return s ? { sesion: s, fase: 0, color: CARRERA_COLORES[i % CARRERA_COLORES.length] } : null;
+    })
+    .filter(Boolean);
+  if (!carreraCorredores.length) return;
+  carreraDuracionMax = Math.max(...carreraCorredores.map(c => c.sesion.duracionSeg));
+  carreraT = 0;
+  carreraPlaying = false;
+  carreraVelocidad = 1;
+  document.getElementById('sliderCarrera').max = carreraDuracionMax;
+  document.getElementById('sliderCarrera').value = 0;
+  cambiarTab('carrera');
+}
+function togglePlayCarrera() {
+  carreraPlaying = !carreraPlaying;
+  document.getElementById('btnPlayCarrera').textContent = carreraPlaying ? '❚❚ Pausa' : '▶ Play';
+  if (carreraPlaying) { carreraUltimoTS = 0; carreraRAF = requestAnimationFrame(loopCarrera); }
+}
+function reiniciarCarrera() {
+  carreraT = 0;
+  carreraPlaying = false;
+  document.getElementById('btnPlayCarrera').textContent = '▶ Play';
+  if (carreraRAF) cancelAnimationFrame(carreraRAF);
+  carreraCorredores.forEach(c => c.fase = 0);
+  renderCarrera();
+}
+function cambiarVelocidadCarrera(v) {
+  carreraVelocidad = v;
+  document.querySelectorAll('#filaVelocidadCarrera .btn').forEach(b => b.classList.remove('sel'));
+  event && event.target && event.target.classList.add('sel');
+}
+function scrubCarrera(valor) {
+  carreraT = parseFloat(valor);
+  renderCarrera();
+}
+function volverDeCarrera() {
+  carreraPlaying = false;
+  if (carreraRAF) cancelAnimationFrame(carreraRAF);
+  cambiarTab('historial');
+}
+function loopCarrera(ts) {
+  if (!carreraPlaying) { carreraRAF = null; return; }
+  const dt = carreraUltimoTS ? Math.min(0.25, (ts - carreraUltimoTS) / 1000) : 0;
+  carreraUltimoTS = ts;
+  carreraT = Math.min(carreraDuracionMax, carreraT + dt * carreraVelocidad);
+  carreraCorredores.forEach(c => {
+    const cadencia = cadenciaCorredorEnT(c.sesion.puntos, carreraT);
+    c.fase = (c.fase + (cadencia / 15) * dt * carreraVelocidad) % 8;
+  });
+  renderCarrera();
+  if (carreraT >= carreraDuracionMax) { carreraPlaying = false; document.getElementById('btnPlayCarrera').textContent = '▶ Play'; return; }
+  carreraRAF = requestAnimationFrame(loopCarrera);
+}
+function renderCarrera() {
+  document.getElementById('sliderCarrera').value = carreraT;
+  document.getElementById('tiempoCarrera').textContent = segAHMS(carreraT) + ' / ' + segAHMS(carreraDuracionMax);
+  const canvas = document.getElementById('canvasCarrera');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth || canvas.width, h = canvas.height;
+  canvas.width = w; canvas.height = h;
+  const horizonY = h * 0.28;
+  dibujarEscenaLago(ctx, w, h, horizonY);
+  const carriles = calcularCarrilesX(carreraCorredores.length);
+  const s = h * 0.24; // un poco más chico que en Sesión, para que entren los 3 carriles
+  const posiciones = carreraCorredores.map((c, i) => {
+    const distancia = distanciaFantasmaEnT(c.sesion.puntos, carreraT);
+    return { corredor: c, distancia, x: w / 2 + carriles[i] * w };
+  });
+  posiciones.forEach(p => {
+    const d = { der: interpolarLadoEnSecuenciaK(p.corredor.fase, 'der'), izq: interpolarLadoEnSecuenciaK(p.corredor.fase, 'izq') };
+    const rotacion = interpolarRotacionEnSecuenciaK(p.corredor.fase);
+    dibujarKayakistaDesdeD(ctx, p.x, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
+  });
+  const lista = document.getElementById('listaPosicionesCarrera');
+  if (lista) {
+    const ordenadas = [...posiciones].sort((a, b) => b.distancia - a.distancia);
+    lista.innerHTML = ordenadas.map((p, i) =>
+      '<div class="fila" style="align-items:center; gap:8px; margin-top:4px;">' +
+      '<span style="font-weight:800; width:20px;">' + (i + 1) + 'º</span>' +
+      '<span style="width:14px; height:14px; border-radius:4px; background:' + p.corredor.color + '; flex:none;"></span>' +
+      '<span class="nota" style="flex:1;">' + new Date(p.corredor.sesion.fecha).toLocaleDateString('es-AR') + '</span>' +
+      '<span style="font-family:var(--mono);">' + Math.round(p.distancia) + 'm</span>' +
+      '</div>'
+    ).join('');
+  }
+}
+
+/* ============================================================
    RENDER EN VIVO durante la sesión — mismo patrón que loopEscena() de
    Correr: la fase de la animación avanza sola con requestAnimationFrame,
    a una velocidad atada a la cadencia REAL (no a un tiempo fijo como la
@@ -2631,6 +2874,45 @@ function loopSesionVivo(ts) {
   renderSesionVivo();
   sesionRAF = requestAnimationFrame(loopSesionVivo);
 }
+// boyas de una pista de aguas planas — a pedido de Hugo, para dar sensación de avance en el agua
+// (antes la escena era estática, sin ninguna referencia de que el kayak se estuviera moviendo de
+// verdad). Se reparten cada INTERVALO_M metros, dos carriles (izquierda/derecha del kayak), y con
+// la MISMA idea de perspectiva que el fantasma: más lejos = más arriba y más chicas, más cerca =
+// más abajo y más grandes, hasta "pasar" al kayakista y desaparecer.
+// calcularBoya() es la parte pura (sin canvas) — a partir de la distancia de ESA boya en particular
+// y la distancia ya recorrida, dice si está visible y con qué escala/altura dibujarla.
+const BOYA_INTERVALO_M = 10;
+const BOYA_TRAMOS_VISIBLES = 6; // cuántos intervalos adelante se alcanzan a ver a la vez
+function calcularBoya(distanciaBoyaM, distanciaRecorridaM) {
+  const distanciaRelativa = distanciaBoyaM - distanciaRecorridaM; // 0 = está justo al lado; negativo = ya la pasó
+  const rangoVisibleM = BOYA_INTERVALO_M * BOYA_TRAMOS_VISIBLES;
+  const profundidad = 1 - Math.min(1, Math.max(0, distanciaRelativa) / rangoVisibleM); // 0=recién aparece en el horizonte, 1=al lado
+  const visible = distanciaRelativa >= -1 && profundidad > 0.03; // ya pasada hace más de ~1m: no dibujarla más
+  return { visible, profundidad };
+}
+function dibujarBoyas(ctx, w, h, horizonY, distanciaRecorridaM) {
+  const primeraBoyaM = Math.floor(distanciaRecorridaM / BOYA_INTERVALO_M) * BOYA_INTERVALO_M;
+  for (let i = -1; i <= BOYA_TRAMOS_VISIBLES; i++) {
+    const distanciaBoyaM = primeraBoyaM + i * BOYA_INTERVALO_M;
+    const { visible, profundidad } = calcularBoya(distanciaBoyaM, distanciaRecorridaM);
+    if (!visible) continue;
+    const y = horizonY + (h - horizonY) * profundidad;
+    const escala = 0.12 + profundidad * 0.88;
+    const numeroBoya = Math.round(distanciaBoyaM / BOYA_INTERVALO_M);
+    const color = numeroBoya % 2 === 0 ? '#ff5a3c' : '#ffd23c'; // alternando color cada boya, como en una pista real
+    [-1, 1].forEach(lado => {
+      const x = w / 2 + lado * w * 0.38 * (0.15 + profundidad * 0.85);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 7 * escala, 5 * escala, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(x, y - 2 * escala, 3 * escala, 1.5 * escala, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+}
 function dibujarBadgeFantasma(ctx, w, gapM) {
   if (gapM == null) return;
   const adelante = gapM >= 0;
@@ -2645,6 +2927,20 @@ function dibujarBadgeFantasma(ctx, w, gapM) {
   ctx.fillText(lbl, w / 2, 28);
   ctx.textAlign = 'start';
 }
+// traduce la diferencia de distancia con el fantasma (metros, +adelante/-atrás) a un desplazamiento
+// visual con perspectiva — a pedido de Hugo: verlo "ligeramente a la derecha o izquierda... 
+// respetando la perspectiva de acuerdo a la distancia". Cuanto más lejos (adelante o atrás), más
+// chico/grande y más arriba/abajo en la pantalla, como una embarcación real alejándose o
+// acercándose. Pura, sin canvas — así se puede testear con números conocidos.
+const GAP_MAX_VISIBLE_M = 25; // más allá de esto, se clampea (si no, un fantasma muy lejos daría una escala absurda)
+function calcularPerspectivaFantasma(gapM, w, h) {
+  const t = Math.max(-1, Math.min(1, gapM / GAP_MAX_VISIBLE_M)); // -1 (25m atrás) .. 0 (parejo) .. +1 (25m adelante)
+  return {
+    escala: 1 - t * 0.35,       // adelante = más lejos = más chico; atrás = más cerca = más grande
+    xOffset: w * 0.24,          // separado a un costado fijo (derecha), como un carril vecino
+    yOffset: -t * h * 0.10,     // adelante sube en la pantalla (se aleja); atrás baja (se acerca)
+  };
+}
 function renderSesionVivo() {
   const canvas = document.getElementById('canvasSesionVivo');
   if (!canvas) return;
@@ -2653,16 +2949,64 @@ function renderSesionVivo() {
   canvas.width = w; canvas.height = h;
   const horizonY = h * 0.28;
   dibujarEscenaLago(ctx, w, h, horizonY);
+  dibujarBoyas(ctx, w, h, horizonY, sesionActiva ? sesionActiva.distanciaM : 0);
   const dDer = interpolarLadoEnSecuenciaK(tGlobalVivo, 'der');
   const dIzq = interpolarLadoEnSecuenciaK(tGlobalVivo, 'izq');
   const rotacion = interpolarRotacionEnSecuenciaK(tGlobalVivo);
   const s = h * 0.30;
-  dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
+  let gap = null;
   if (sesionActiva) {
     const tSeg = (Date.now() - sesionActiva.inicio) / 1000;
-    const gap = calcularGapFantasma(sesionActiva.distanciaM, tSeg);
-    dibujarBadgeFantasma(ctx, w, gap);
+    gap = calcularGapFantasma(sesionActiva.distanciaM, tSeg);
   }
+  // el fantasma se dibuja ANTES que el kayakista principal (detrás), semitransparente, para que
+  // el modelo del usuario quede siempre como el foco principal aunque se solapen un poco
+  if (gap != null) {
+    const persp = calcularPerspectivaFantasma(gap, w, h);
+    ctx.save();
+    ctx.globalAlpha = 0.42;
+    dibujarKayakistaDesdeD(ctx, w / 2 + persp.xOffset, h * 0.62 + persp.yOffset, s * persp.escala, dDer, dIzq, rotacion, '#8a94a3', proporciones);
+    ctx.restore();
+  }
+  dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
+  dibujarBadgeFantasma(ctx, w, gap);
+}
+
+/* ============================================================
+   META DE SESIÓN — a pedido de Hugo: terminar sola por tiempo o distancia
+   ============================================================ */
+const K_META_TIPO = LS_PREFIX + 'meta_tipo';
+const K_META_VALOR = LS_PREFIX + 'meta_valor';
+let metaTipo = lsGet(K_META_TIPO, 'ninguna'); // 'ninguna' | 'tiempo' | 'distancia'
+let metaValor = lsGet(K_META_VALOR, null); // segundos (tiempo) o metros (distancia), según metaTipo
+function elegirTipoMeta(tipo) {
+  metaTipo = tipo;
+  lsSet(K_META_TIPO, tipo);
+  actualizarUIMeta();
+}
+function guardarMetaValor() {
+  if (metaTipo === 'tiempo') metaValor = parseMMSS(document.getElementById('inputMetaTiempo').value);
+  else if (metaTipo === 'distancia') {
+    const m = parseFloat(document.getElementById('inputMetaDistancia').value);
+    metaValor = isNaN(m) ? null : m;
+  }
+  lsSet(K_META_VALOR, metaValor);
+}
+function actualizarUIMeta() {
+  const inputTiempo = document.getElementById('inputMetaTiempo'), inputDistancia = document.getElementById('inputMetaDistancia');
+  if (!inputTiempo) return;
+  inputTiempo.style.display = metaTipo === 'tiempo' ? 'block' : 'none';
+  inputDistancia.style.display = metaTipo === 'distancia' ? 'block' : 'none';
+  ['Ninguna', 'Tiempo', 'Distancia'].forEach(n => document.getElementById('btnMeta' + n).classList.remove('sel'));
+  document.getElementById('btnMeta' + metaTipo.charAt(0).toUpperCase() + metaTipo.slice(1)).classList.add('sel');
+  if (metaTipo === 'tiempo' && metaValor) inputTiempo.value = segAMMSS(metaValor);
+  if (metaTipo === 'distancia' && metaValor) inputDistancia.value = metaValor;
+}
+// pura, sin DOM — decide si YA se cumplió la meta con los datos actuales de la sesión
+function debeTerminarPorMeta(tipoMeta, valorMeta, tSeg, distanciaM) {
+  if (tipoMeta === 'tiempo') return valorMeta != null && tSeg >= valorMeta;
+  if (tipoMeta === 'distancia') return valorMeta != null && distanciaM >= valorMeta;
+  return false;
 }
 
 function iniciarSesion() {
@@ -2672,6 +3016,8 @@ function iniciarSesion() {
     inicio: Date.now(),
     distanciaM: 0,
     pulsos: [],
+    metaTipo, // se congela al iniciar — cambiar la meta después no afecta una sesión ya corriendo
+    metaValor,
   };
   puntosSesion = [];
   document.getElementById('btnIniciar').style.display = 'none';
@@ -2714,6 +3060,11 @@ function tick() {
     } else {
       tileFantasma.textContent = '--';
     }
+  }
+
+  if (debeTerminarPorMeta(sesionActiva.metaTipo, sesionActiva.metaValor, tSeg, sesionActiva.distanciaM)) {
+    toast('Meta cumplida — sesión guardada sola');
+    finalizarSesion();
   }
 }
 function finalizarSesion() {
@@ -2816,13 +3167,15 @@ function renderHistorial() {
   const sesiones = [...lsGet(K_SESIONES, [])].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const tbody = document.getElementById('tablaSesiones');
   if (!sesiones.length) {
-    tbody.innerHTML = '<tr class="vacia"><td colspan="7">Sin sesiones todavía</td></tr>';
+    tbody.innerHTML = '<tr class="vacia"><td colspan="8">Sin sesiones todavía</td></tr>';
+    document.getElementById('cardCarreraSeleccion').style.display = 'none';
     return;
   }
   tbody.innerHTML = sesiones.map(s => {
     const fantasmaActualId = lsGet(K_FANTASMA_ID, null);
     const esFantasma = s.id === fantasmaActualId;
     const tieneTrack = s.puntos && s.puntos.length > 0;
+    const enCarrera = carreraSeleccion.includes(s.id);
     return '<tr><td>' + new Date(s.fecha).toLocaleDateString('es-AR') + '</td>' +
     '<td>' + segAHMS(s.duracionSeg) + '</td>' +
     '<td>' + s.distanciaM + 'm</td>' +
@@ -2831,8 +3184,12 @@ function renderHistorial() {
     '<td>' + (tieneTrack
       ? '<button class="btn chico" style="margin:0; padding:4px 8px;' + (esFantasma ? ' background:var(--ritmo); color:var(--bg);' : '') + '" onclick="seleccionarFantasma(\'' + s.id + '\')">' + (esFantasma ? '✅' : '👻') + '</button>'
       : '') + '</td>' +
+    '<td>' + (tieneTrack
+      ? '<button class="btn chico" style="margin:0; padding:4px 8px;' + (enCarrera ? ' background:var(--pendiente); color:var(--bg);' : '') + '" onclick="toggleCarreraSeleccion(\'' + s.id + '\')">🏁</button>'
+      : '') + '</td>' +
     '<td><button class="btn chico" style="margin:0; padding:4px 8px; color:var(--pulso);" onclick="eliminarSesion(\'' + s.id + '\')">🗑</button></td></tr>';
   }).join('');
+  actualizarCardCarreraSeleccion();
 }
 function eliminarSesion(id) {
   const sesiones = lsGet(K_SESIONES, []);
@@ -3373,6 +3730,11 @@ function cambiarTab(nombre) {
   else pararBucleVivo(); // no seguir dibujando de fondo si salís de la pestaña Sesión
   if (nombre === 'editor') { cargarSlidersDesdeEditorDatos(); cargarSlidersProporciones(); renderEditorPose(); renderEditorPreview(); }
   else pararEditorPreviewLoop(); // no seguir animando de fondo si salís del Editor
+  if (nombre === 'carrera') {
+    document.getElementById('cardCarreraVacia').style.display = carreraCorredores.length ? 'none' : 'block';
+    document.getElementById('cardCarreraActiva').style.display = carreraCorredores.length ? 'block' : 'none';
+    if (carreraCorredores.length) renderCarrera();
+  } else if (carreraRAF) { cancelAnimationFrame(carreraRAF); carreraRAF = null; carreraPlaying = false; }
   // no dejar el metrónomo sonando de fondo si te vas a otra pestaña que no sea Entrenos o
   // Calibración (donde tiene sentido que siga sonando aunque cambies de vista dentro de la
   // misma pestaña, ej. estás viendo el paso 2 de un entreno)
@@ -3388,6 +3750,7 @@ actualizarNotaCalib();
 renderHistorial();
 renderFantasmaEnSesion();
 renderSesionVivo();
+actualizarUIMeta();
 document.querySelector('.editor-momento-btn[data-momento="traccionD"]').classList.add('sel');
 </script>
 </body>
