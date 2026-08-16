@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v44</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v46</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -138,6 +138,7 @@
       <button class="btn chico" onclick="conectarSensorCadenciaBLE()">Conectar sensor de cadencia (BLE)</button>
       <p class="nota" style="margin-top:6px;">RPM crudo del eje (velocidad de rotación, no
         paladas): <span id="hudRPM" style="font-family:var(--mono); color:var(--ritmo);">--</span></p>
+      <p class="nota" style="margin-top:4px;">Vueltas de volante por palada (eficiencia): <span id="hudVueltasPorPalada" style="font-family:var(--mono); color:var(--ritmo);">--</span></p>
       <p class="nota" style="margin-top:8px; font-family:var(--mono); font-size:11px;" id="debugRSC">
         RSC crudo: sin datos todavía. Si esto no cambia al remar, la notificación no está
         llegando (probablemente hay que apretar "Iniciar" la actividad en el reloj, no alcanza
@@ -1240,6 +1241,59 @@
         para resaltar el botón de velocidad activo (nth-of-type) no
         matcheaba por cómo quedó armado el HTML — cambiado a un id
         directo (filaVelocidadCarrera) en vez de depender de la posición.
+   v45: Hugo preguntó si con el sensor BLE en la paleta de resistencia se
+        podría calcular eficiencia por palada, ya que se tiene cadencia y
+        revoluciones del volante del mismo sensor. Sí — es una medición
+        mecánica directa, no una estimación. Cada vez que
+        procesarMinimoLocal() marca una palada (huboPico), handleCSC()
+        ahora guarda cuántas vueltas dio el volante DESDE la palada
+        anterior (calcularRevsPorPalada(), con el mismo manejo de
+        desborde de contador que ya usa calcularRPMDesdeEventosCSC() —
+        cscRevsAlUltimoPico guarda el valor acumulado al momento de cada
+        palada). Vueltas por palada más alto a igual cadencia = cada
+        tirón mueve más el volante = técnica más eficiente.
+        Tile nuevo en el HUD de Sesión ("Vueltas de volante por palada")
+        con el valor de la última palada detectada. Durante la sesión se
+        van juntando en sesionActiva.eficienciaPaladas[]; al finalizar,
+        calcularEficienciaSesion() (promedio + desvío estándar, función
+        pura) queda guardado en la sesión como eficienciaPromedio/
+        eficienciaDesvio — el desvío es la CONSISTENCIA: más bajo, paladas
+        más parecidas entre sí (técnica pareja); más alto, paladas
+        dispares. Por ahora solo queda guardado en los datos de la sesión
+        (disponible para exportar/consultar más adelante) — no agregué
+        columna nueva a la tabla de Historial, que ya tiene 8 columnas en
+        una pantalla de celular; mejor esperar a tener datos reales del
+        sensor antes de decidir cómo mostrarlo ahí.
+   v46: Hugo pasó un arreglo portado de Bici Indoor — watchdog de "canal
+        zombi": una notificación BLE puede dejar de llegar SIN que el
+        navegador dispare gattserverdisconnected, así que la conexión
+        sigue "abierta" a los ojos de la app mientras la pantalla queda
+        con el último número congelado, sin que nadie se entere.
+        Revisé cómo estaba armada la conexión hoy antes de tocar nada:
+        los tres gattserverdisconnected (reloj, banda, sensor de
+        cadencia) solo actualizaban el texto de estado en pantalla — no
+        existía ninguna función de reconexión automática ya armada para
+        reusar (a diferencia de Bici Indoor). Así que "la función que ya
+        tenés para manejar una desconexión explícita" acá es esa
+        actualización de estado — la extraje a manejarDesconexionReloj()
+        y manejarDesconexionCadenciaBLE(), compartidas entre el evento
+        real de desconexión y el watchdog nuevo.
+        Decisión de alcance: se vigila reloj y sensor de cadencia BLE
+        (los dos pueden dar cadencia, de la que depende que la sesión
+        tenga sentido) — NO la banda de pulso aparte, mismo criterio que
+        Hugo usó en Bici Indoor (perder solo el pulso no amerita tratarlo
+        como desconexión).
+        debeDispararWatchdog() es la parte pura (sesión activa, timestamp
+        del último dato, ya manejado o no, umbral) — sin nada de BLE ni
+        DOM, testeada con las combinaciones a mano sin sensor real.
+        relojUltimaRx/cadenciaBLEUltimaRx se resetean al momento de
+        conectar (no en el primer dato — evita un falso positivo si el
+        primer dato tarda) y se refrescan en cada handleRSC()/handleCSC()
+        exitoso. Umbral de 6s, intervalo de chequeo cada 2s — mismos
+        valores que Bici Indoor; ambos dispositivos transmiten seguido en
+        uso normal, así que no debería hacer falta más margen, pero es
+        fácil de ajustar (WATCHDOG_UMBRAL_MS) si en la práctica da falsos
+        positivos con el hardware real.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1286,6 +1340,15 @@ function toast(msg) {
   toast._h = setTimeout(() => t.classList.remove('show'), 2600);
 }
 function promedio(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
+// promedio y desvío estándar de vueltas-de-volante-por-palada en una sesión — el desvío es la
+// medida de CONSISTENCIA: más bajo = paladas parecidas entre sí (técnica pareja), más alto =
+// paladas dispares. null si no hubo ninguna palada con dato (sesión sin sensor BLE conectado).
+function calcularEficienciaSesion(valoresPorPalada) {
+  if (!valoresPorPalada || !valoresPorPalada.length) return null;
+  const prom = promedio(valoresPorPalada);
+  const varianza = promedio(valoresPorPalada.map(v => (v - prom) * (v - prom)));
+  return { promedio: prom, desvioEstandar: Math.sqrt(varianza), n: valoresPorPalada.length };
+}
 
 /* ============================================================
    CALIBRACIÓN cadencia -> velocidad
@@ -1367,6 +1430,52 @@ function renderForma() {
    BLE — reloj (Carrera Virtual) y banda de pulso
    ============================================================ */
 let dispositivoReloj = null, dispositivoBanda = null;
+
+/* ============================================================
+   WATCHDOG DE "CANAL ZOMBI" — arreglo portado de Bici Indoor. El
+   problema: una notificación BLE puede dejar de llegar sin que el
+   navegador dispare gattserverdisconnected — la conexión sigue "abierta"
+   a los ojos de la app, pero no llega dato nuevo, y la pantalla queda
+   mostrando el último número congelado sin que nadie se entere. Se
+   vigilan reloj y sensor de cadencia BLE (los dos pueden dar cadencia,
+   de la que depende que la sesión tenga sentido) — NO la banda de pulso
+   aparte, mismo criterio que en Bici Indoor: perder solo el pulso no
+   amerita tratarlo como una desconexión.
+   ============================================================ */
+const WATCHDOG_UMBRAL_MS = 6000; // el reloj/sensor transmiten varias veces por segundo en uso normal — más de 6s sin nada es señal real de canal zombi, no una notificación tardía
+const WATCHDOG_INTERVALO_MS = 2000;
+let relojUltimaRx = null, cadenciaBLEUltimaRx = null;
+let relojDesconexionManejada = false, cadenciaBLEDesconexionManejada = false;
+// pura, sin BLE ni DOM — decide si TOCA disparar el watchdog para un dispositivo dado, a partir
+// de su estado. Testeable con combinaciones a mano, sin sensor real conectado.
+function debeDispararWatchdog(sesionActivaBool, dispositivoConectado, ultimaRxMs, yaManejada, ahoraMs, umbralMs) {
+  if (!sesionActivaBool) return false; // no disparar fuera de una sesión activa (menú, pausado, configurando)
+  if (!dispositivoConectado) return false;
+  if (yaManejada) return false; // ya se marcó como desconectado — no repetir en cada ciclo del intervalo
+  if (ultimaRxMs == null) return false; // todavía no llegó ningún dato real (recién conectado) — no es zombi, es normal
+  return (ahoraMs - ultimaRxMs) > umbralMs;
+}
+function manejarDesconexionReloj() {
+  if (relojDesconexionManejada) return;
+  relojDesconexionManejada = true;
+  const estadoEl = document.getElementById('estadoBLE');
+  if (estadoEl) { estadoEl.textContent = 'Reloj desconectado.'; estadoEl.className = 'estado-conexion err'; }
+}
+function manejarDesconexionCadenciaBLE() {
+  if (cadenciaBLEDesconexionManejada) return;
+  cadenciaBLEDesconexionManejada = true;
+  const estadoEl = document.getElementById('estadoBLE');
+  if (estadoEl) { estadoEl.textContent = 'Sensor de cadencia desconectado.'; estadoEl.className = 'estado-conexion err'; }
+}
+setInterval(() => {
+  const ahora = Date.now();
+  if (debeDispararWatchdog(!!sesionActiva, !!dispositivoReloj, relojUltimaRx, relojDesconexionManejada, ahora, WATCHDOG_UMBRAL_MS)) {
+    manejarDesconexionReloj();
+  }
+  if (debeDispararWatchdog(!!sesionActiva, !!dispositivoCadenciaBLE, cadenciaBLEUltimaRx, cadenciaBLEDesconexionManejada, ahora, WATCHDOG_UMBRAL_MS)) {
+    manejarDesconexionCadenciaBLE();
+  }
+}, WATCHDOG_INTERVALO_MS);
 const actual = { cadencia: 0, pulso: 0 };
 // tope físico de seguridad: ningún humano rema por encima de esto. Después de ver DOS incidentes
 // separados de cadencias imposibles llegando a la pantalla (500-1819 p/m, por bugs distintos en
@@ -1397,10 +1506,9 @@ async function conectarRelojBLE() {
       optionalServices: ['heart_rate']
     });
     dispositivoReloj = device;
-    device.addEventListener('gattserverdisconnected', () => {
-      estadoEl.textContent = 'Reloj desconectado.';
-      estadoEl.className = 'estado-conexion err';
-    });
+    relojUltimaRx = Date.now(); // arranca la cuenta del watchdog desde acá, no desde el primer dato — si no, un primer dato tardío podría disparar un falso positivo
+    relojDesconexionManejada = false;
+    device.addEventListener('gattserverdisconnected', manejarDesconexionReloj);
     const server = await device.gatt.connect();
     const rscService = await server.getPrimaryService('running_speed_and_cadence');
     const rscChar = await rscService.getCharacteristic('rsc_measurement');
@@ -1423,6 +1531,7 @@ async function conectarRelojBLE() {
   }
 }
 function handleRSC(event) {
+  relojUltimaRx = Date.now(); // watchdog de canal zombi — ver comentario donde se declara
   const v = event.target.value;
   let idx = 1; // salteo flags
   idx += 2; // salteo speed (no se usa, viene calculado para correr, no para paladas)
@@ -1513,6 +1622,7 @@ function calcularRPMDesdeEventosCSC(anterior, actualEvento, modulo) {
   return deltaRevs / deltaTiempoMin;
 }
 let dispositivoCadenciaBLE = null, cscUltimaManivela = null, cscUltimaRueda = null;
+let cscRevsAlUltimoPico = null; // vueltas acumuladas del volante al momento de la última palada detectada
 let cscEstadoPaladas = {}; // detector de picos sobre el RPM del sensor — ver comentario en handleCSC
 let cscUltimoRPM = null; // RPM crudo del eje, para mostrar aparte de la cadencia de paladas real
 
@@ -1602,11 +1712,10 @@ async function conectarSensorCadenciaBLE() {
     estadoEl.className = 'estado-conexion';
     const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['cycling_speed_and_cadence'] }] });
     dispositivoCadenciaBLE = device;
-    cscUltimaManivela = null; cscUltimaRueda = null; cscEstadoPaladas = {}; cscUltimoRPM = null; cscRPMSuavizado = null;
-    device.addEventListener('gattserverdisconnected', () => {
-      estadoEl.textContent = 'Sensor de cadencia desconectado.';
-      estadoEl.className = 'estado-conexion err';
-    });
+    cscUltimaManivela = null; cscUltimaRueda = null; cscEstadoPaladas = {}; cscUltimoRPM = null; cscRPMSuavizado = null; cscRevsAlUltimoPico = null;
+    cadenciaBLEUltimaRx = Date.now();
+    cadenciaBLEDesconexionManejada = false;
+    device.addEventListener('gattserverdisconnected', manejarDesconexionCadenciaBLE);
     const server = await device.gatt.connect();
     const cscService = await server.getPrimaryService('cycling_speed_and_cadence');
     const cscChar = await cscService.getCharacteristic('csc_measurement');
@@ -1629,7 +1738,29 @@ async function conectarSensorCadenciaBLE() {
 // subir — el momento exacto donde el tirón vuelve a aplicar torque, sin importar cuánto haya
 // decaído antes.
 let cscRPMSuavizado = null; // ver comentario en handleCSC — RPM instantáneo suavizado
+
+/* ============================================================
+   EFICIENCIA POR PALADA — a pedido de Hugo: ya que se mide cadencia y
+   revoluciones del volante con el mismo sensor, se puede sacar cuántas
+   vueltas da el volante en CADA palada (no un promedio, palada por
+   palada) — más vueltas por palada a igual cadencia = cada tirón mueve
+   más el volante = técnica más eficiente. Y la CONSISTENCIA entre
+   paladas (cuánto varía) es otro indicador aparte: una técnica pareja da
+   paladas con vueltas parecidas, una irregular da paladas dispares.
+   Es una medición mecánica directa (vueltas reales del volante), no una
+   estimación como cámara/audio — mucho más confiable en principio.
+   ============================================================ */
+// mismo manejo de desborde que calcularRPMDesdeEventosCSC(), pero para revoluciones nada más (acá
+// no hace falta el tiempo, ya sabemos que la palada anterior fue ANTES en el tiempo). Pura.
+function calcularRevsPorPalada(revsAlPicoAnterior, revsAlPicoActual, modulo) {
+  if (revsAlPicoAnterior == null) return null; // primera palada detectada: todavía no hay "palada anterior" con la que restar
+  let delta = revsAlPicoActual - revsAlPicoAnterior;
+  if (delta < 0) delta += modulo; // desbordó el contador de revoluciones entre una palada y la siguiente
+  return delta;
+}
+
 function handleCSC(event) {
+  cadenciaBLEUltimaRx = Date.now(); // watchdog de canal zombi — ver comentario donde se declara
   const v = event.target.value;
   const flags = v.getUint8(0);
   const hayRueda = !!(flags & 0x01), hayManivela = !!(flags & 0x02);
@@ -1667,6 +1798,17 @@ function handleCSC(event) {
   // la cadencia de PALADAS (lo que alimenta distancia/animación) viene del detector de mínimo
   // local, NO del RPM crudo directamente
   if (cscEstadoPaladas.cadencia != null) establecerCadencia(cscEstadoPaladas.cadencia);
+  if (cscEstadoPaladas.huboPico) {
+    const revsActuales = hayManivela ? cscUltimaManivela.revs : cscUltimaRueda.revs;
+    const modulo = hayManivela ? 65536 : 4294967296;
+    const revsPorPalada = calcularRevsPorPalada(cscRevsAlUltimoPico, revsActuales, modulo);
+    cscRevsAlUltimoPico = revsActuales;
+    if (revsPorPalada != null) {
+      const el = document.getElementById('hudVueltasPorPalada');
+      if (el) el.textContent = revsPorPalada;
+      if (sesionActiva) sesionActiva.eficienciaPaladas.push(revsPorPalada);
+    }
+  }
 }
 
 /* ============================================================
@@ -3018,6 +3160,7 @@ function iniciarSesion() {
     pulsos: [],
     metaTipo, // se congela al iniciar — cambiar la meta después no afecta una sesión ya corriendo
     metaValor,
+    eficienciaPaladas: [], // vueltas del volante por cada palada (solo se llena con el sensor BLE conectado)
   };
   puntosSesion = [];
   document.getElementById('btnIniciar').style.display = 'none';
@@ -3078,6 +3221,7 @@ function finalizarSesion() {
   const cadenciaPromedio = cadenciasValidas.length ? Math.round(promedio(cadenciasValidas)) : null;
   const umbralPulso = lsGet(K_UMBRAL_PULSO, null);
   const tss = calcularTSS(duracionSeg, pulsoPromedio, umbralPulso);
+  const eficiencia = calcularEficienciaSesion(sesionActiva.eficienciaPaladas);
 
   const sesion = {
     id: sesionActiva.id,
@@ -3089,6 +3233,8 @@ function finalizarSesion() {
     cadenciaPromedio,
     tss,
     puntos: puntosSesion,
+    eficienciaPromedio: eficiencia ? eficiencia.promedio : null, // vueltas de volante por palada, promedio de la sesión
+    eficienciaDesvio: eficiencia ? eficiencia.desvioEstandar : null, // qué tan parejo — más bajo = técnica más consistente
   };
   const sesiones = lsGet(K_SESIONES, []);
   sesiones.push(sesion);
