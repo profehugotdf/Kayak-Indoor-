@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v50</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v51</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1370,6 +1370,33 @@
         bajado de 10 a 5 — al doble de densidad, cada boya cruza la
         pantalla con la mitad de los metros reales, dando el doble de
         sensación de movimiento para la misma distancia remada.
+   v51: Hugo mandó una captura de Bici Indoor (mostrando cartelitos +9m/
+        +4m/+3m con tamaños bien diferenciados) y una foto real propia de
+        dos kayaks a ~12m y ~45m — pidiendo que el tamaño respete mejor
+        la distancia real, "a más distancia más chico". Reescrita
+        calcularPerspectivaFantasma() de raíz: la versión anterior era
+        una resta LINEAL (escala = 1 - t*0.35, t clampeado a ±50m), que
+        daba como mucho un ±35% de diferencia de tamaño sin importar cuán
+        lejos estuviera — muy por debajo de la perspectiva real (una foto
+        real sigue una relación INVERSA con la distancia: al doble de
+        lejos, la mitad de chico, no un 35% menos).
+        Ahora: escala = REF_DIST / (REF_DIST + |gap|), con REF_DIST=8
+        (metros, ajustable) representando la distancia a la que se ve al
+        propio kayakista — a gap=0 da escala=1 exacto, y se achica de
+        forma inversamente proporcional con la distancia real, con un
+        piso (0.15) para que algo muy lejos no desaparezca del todo.
+        Con los ~12m/~45m de la foto de Hugo, da algo como 0.4 vs 0.15 —
+        una diferencia mucho más marcada, en línea con lo que pidió.
+        De paso: xOffset ahora también se achica con la escala (los
+        carriles convergen hacia el centro cuanto más lejos, como en una
+        foto real, en vez de quedar siempre al mismo ancho fijo), y
+        yOffset se deriva de (1-escala) en vez de una fracción lineal de
+        t — mismo criterio de dirección que antes (adelante sube, atrás
+        baja), pero ahora la magnitud del desplazamiento acompaña a la
+        nueva escala no lineal.
+        GAP_MAX_VISIBLE_M ya no se usa (el piso de escala cumple el mismo
+        propósito de antes — que un gap enorme no dé un resultado
+        absurdo — sin necesitar un clamp aparte sobre el gap en sí).
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3214,17 +3241,27 @@ function dibujarBadgeFantasma(ctx, w, gapM) {
   ctx.textAlign = 'start';
 }
 // traduce la diferencia de distancia con el fantasma (metros, +adelante/-atrás) a un desplazamiento
-// visual con perspectiva — a pedido de Hugo: verlo "ligeramente a la derecha o izquierda... 
+// visual con perspectiva — a pedido de Hugo: verlo "ligeramente a la derecha o izquierda...
 // respetando la perspectiva de acuerdo a la distancia". Cuanto más lejos (adelante o atrás), más
-// chico/grande y más arriba/abajo en la pantalla, como una embarcación real alejándose o
-// acercándose. Pura, sin canvas — así se puede testear con números conocidos.
-const GAP_MAX_VISIBLE_M = 50; // más allá de esto, se clampea (si no, un fantasma muy lejos daría una escala absurda). Subido de 25 a 50 — con datos reales de Hugo, gaps de 40m+ son comunes, y con 25 cualquier cosa más allá se veía exactamente igual (sin diferenciar 40m de 60m)
+// chico/arriba o más grande/abajo, como una embarcación real alejándose o acercándose.
+// REESCRITA: la primera versión usaba una resta lineal (±35% de tamaño como mucho, clampeado a
+// 50m) — Hugo mandó una foto real de dos kayaks a ~12m y ~45m, y la diferencia de tamaño real
+// entre esas dos distancias es mucho más marcada que eso (la perspectiva real es una relación
+// INVERSA con la distancia — al doble de lejos, la mitad de chico, no un 35% menos). Ahora:
+// escala = REF_DIST / (REF_DIST + |gap|) — a gap=0 (mismo lugar que la cámara) da escala=1
+// exacto; a más |gap|, se achica de forma inversamente proporcional, con un piso para que algo
+// MUY lejos no desaparezca del todo (se queda como un puntito visible, no en 0).
+// Pura, sin canvas — así se puede testear con números conocidos.
+const PERSPECTIVA_REF_DIST_M = 8; // "distancia" de referencia a la que la cámara ve su propio kayakista — ajustable si hace falta más o menos drama visual
+const PERSPECTIVA_ESCALA_MIN = 0.15; // piso: más lejos que esto no sigue achicando, para que no desaparezca
 function calcularPerspectivaFantasma(gapM, w, h) {
-  const t = Math.max(-1, Math.min(1, gapM / GAP_MAX_VISIBLE_M)); // -1 (atrás, en el límite) .. 0 (parejo) .. +1 (adelante, en el límite)
+  const distanciaAparente = PERSPECTIVA_REF_DIST_M + Math.abs(gapM);
+  const escala = Math.max(PERSPECTIVA_ESCALA_MIN, PERSPECTIVA_REF_DIST_M / distanciaAparente);
+  const direccion = Math.sign(gapM); // +1 adelante, -1 atrás, 0 si es exactamente el mismo lugar
   return {
-    escala: 1 - t * 0.35,       // adelante = más lejos = más chico; atrás = más cerca = más grande
-    xOffset: w * 0.24,          // separado a un costado fijo (derecha), como un carril vecino
-    yOffset: -t * h * 0.10,     // adelante sube en la pantalla (se aleja); atrás baja (se acerca)
+    escala,
+    xOffset: w * 0.24 * escala, // los carriles converegen hacia el centro con la distancia, como en una foto real — no quedan siempre al mismo ancho fijo
+    yOffset: -direccion * (1 - escala) * h * 0.32, // adelante sube en la pantalla (se aleja); atrás baja (se acerca); a gap=0 no se mueve
   };
 }
 function renderSesionVivo() {
