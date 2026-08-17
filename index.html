@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v48</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v49</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1332,6 +1332,23 @@
         Sacado del flujo el sistema de carriles fijos de v44
         (calcularCarrilesX ya no se llama desde acá) — se deja la función
         definida sin usar, es chica y autocontenida, no molesta.
+   v49: Hugo mandó un video probando v48 — con la cámara en el primer
+        corredor, los otros dos quedaban los dos del mismo lado (derecha),
+        casi pisándose. BUG DE RAÍZ en el lado que asignaba v48:
+        `i < idxCamara ? -1 : 1` compara el ÍNDICE del corredor contra el
+        índice de la cámara — con la cámara en el índice 0, ningún otro
+        índice puede ser menor a 0, así que TODOS caían del lado derecho
+        sin excepción, para cualquier corredor que no fuera la cámara.
+        Arreglado: calcularLadoOtroCorredor() (función pura nueva) cuenta
+        solo los corredores que NO son la cámara, en el orden en que se
+        van dibujando, y alterna lado por ese contador — no por su índice
+        original ni por su relación con la cámara. Con dos corredores
+        además de la cámara, uno queda a la izquierda y el otro a la
+        derecha, sin importar en qué posición esté la cámara.
+        De paso, más separación entre ellos (SEPARACION_EXTRA = 1.5× el
+        desplazamiento lateral que ya usa un solo fantasma en Sesión) —
+        acá puede haber DOS al mismo tiempo compartiendo la pantalla, así
+        que hace falta más aire entre ellos que con uno solo.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3005,6 +3022,14 @@ function loopCarrera(ts) {
   if (carreraT >= carreraDuracionMax) { carreraPlaying = false; document.getElementById('btnPlayCarrera').textContent = '▶ Play'; return; }
   carreraRAF = requestAnimationFrame(loopCarrera);
 }
+// a qué lado va el corredor no-cámara número `contadorOtros` (0-based, en el orden en que se
+// van dibujando) — pura, así se puede confirmar con un test que efectivamente alterna y no repite
+// lado con la cámara en cualquier posición (el bug real: antes comparaba el índice del corredor
+// contra el índice de la cámara, así que con la cámara en el primer corredor, todos los demás
+// quedaban del mismo lado, porque ningún índice es menor que 0).
+function calcularLadoOtroCorredor(contadorOtros) {
+  return contadorOtros % 2 === 0 ? -1 : 1;
+}
 function renderCarrera() {
   document.getElementById('sliderCarrera').value = carreraT;
   document.getElementById('tiempoCarrera').textContent = segAHMS(carreraT) + ' / ' + segAHMS(carreraDuracionMax);
@@ -3025,6 +3050,7 @@ function renderCarrera() {
   // fantasma (más chico/arriba si van adelante de la cámara, más grande/abajo si van atrás),
   // reusando calcularPerspectivaFantasma() tal cual — es exactamente el mismo problema (¿qué tan
   // lejos está este otro kayakista de mí, y para qué lado?), no hacía falta escribir nada nuevo.
+  let contadorOtros = 0; // cuenta solo los que NO son la cámara, para repartirlos alternando lado — el bug real: antes comparaba el índice contra idxCamara, así que con la cámara en el corredor 1 (índice 0), TODOS los demás quedaban del mismo lado (ningún índice es menor a 0)
   posiciones.forEach((p, i) => {
     const d = { der: interpolarLadoEnSecuenciaK(p.corredor.fase, 'der'), izq: interpolarLadoEnSecuenciaK(p.corredor.fase, 'izq') };
     const rotacion = interpolarRotacionEnSecuenciaK(p.corredor.fase);
@@ -3034,10 +3060,13 @@ function renderCarrera() {
     }
     const gap = distanciaCamara - p.distancia; // positivo = la cámara va adelante de este corredor
     const persp = calcularPerspectivaFantasma(gap, w, h);
-    const ladoAlterno = i < idxCamara ? -1 : 1; // reparte a los que no son cámara a un lado u otro, no todos apilados
+    const ladoAlterno = calcularLadoOtroCorredor(contadorOtros); // uno a la izquierda, el siguiente a la derecha, y así alternando
+    contadorOtros++;
+    const SEPARACION_EXTRA = 1.5; // más separados que un solo fantasma en Sesión — a pedido de Hugo, acá puede haber DOS al mismo tiempo compartiendo pantalla
+    const xPos = w / 2 + persp.xOffset * SEPARACION_EXTRA * ladoAlterno;
     ctx.save();
     ctx.globalAlpha = 0.55;
-    dibujarKayakistaDesdeD(ctx, w / 2 + persp.xOffset * ladoAlterno, h * 0.62 + persp.yOffset, s * persp.escala, d.der, d.izq, rotacion, p.corredor.color, proporciones);
+    dibujarKayakistaDesdeD(ctx, xPos, h * 0.62 + persp.yOffset, s * persp.escala, d.der, d.izq, rotacion, p.corredor.color, proporciones);
     ctx.restore();
     // cartelito de metros, calcado del que ya existe para el fantasma en Sesión — mismo signo:
     // negativo (va adelante de la cámara) en rojo, positivo (atrás) en verde... en realidad acá
@@ -3048,7 +3077,7 @@ function renderCarrera() {
     ctx.font = '700 13px system-ui';
     ctx.textAlign = 'center';
     ctx.fillStyle = gap >= 0 ? '#3fb950' : '#ff6b6b';
-    ctx.fillText(lbl, w / 2 + persp.xOffset * ladoAlterno, h * 0.62 + persp.yOffset - s * persp.escala * 1.15);
+    ctx.fillText(lbl, xPos, h * 0.62 + persp.yOffset - s * persp.escala * 1.15);
     ctx.textAlign = 'start';
   });
   const lista = document.getElementById('listaPosicionesCarrera');
