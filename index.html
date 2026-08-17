@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v49</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v50</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1349,6 +1349,27 @@
         desplazamiento lateral que ya usa un solo fantasma en Sesión) —
         acá puede haber DOS al mismo tiempo compartiendo la pantalla, así
         que hace falta más aire entre ellos que con uno solo.
+   v50: Hugo reportó con captura y números reales otro bug de signo: el
+        corredor con MÁS metros totales (196m) se veía más GRANDE en vez
+        de más chico. Causa: usaba el mismo "gap" (distanciaCamara -
+        distanciaOtro) tanto para el cartelito verde/rojo (correcto ahí:
+        "¿le gano a la cámara puntualmente?") como para el tamaño
+        (incorrecto: mezclaba dos preguntas distintas). El tamaño tiene
+        que responder a otra pregunta — "¿quién recorrió más metros en
+        total?", sin importar contra quién se compare — así que ahora se
+        llama calcularPerspectivaFantasma(-gap, ...) para el tamaño
+        (signo invertido respecto del cartelito), dejando gap sin tocar
+        para el cartelito.
+        Repasando el mismo código encontré que la animación en vivo de
+        Sesión (v43/v47) tenía exactamente el mismo problema, sin que
+        Hugo lo hubiera notado todavía — corregido ahí también
+        (renderSesionVivo, mismo cambio de signo), para que las dos
+        pantallas usen el mismo criterio y no genere confusión tener el
+        mismo color/función significando cosas distintas en cada lado.
+        Además, boyas más rápidas a pedido de Hugo: BOYA_INTERVALO_M
+        bajado de 10 a 5 — al doble de densidad, cada boya cruza la
+        pantalla con la mitad de los metros reales, dando el doble de
+        sensación de movimiento para la misma distancia remada.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3058,8 +3079,13 @@ function renderCarrera() {
       dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
       return;
     }
-    const gap = distanciaCamara - p.distancia; // positivo = la cámara va adelante de este corredor
-    const persp = calcularPerspectivaFantasma(gap, w, h);
+    const gap = distanciaCamara - p.distancia; // positivo = la cámara va adelante de este corredor — esto es para el CARTELITO (verde/rojo), no para el tamaño
+    // para el tamaño/posición uso el signo CONTRARIO: el que recorrió MÁS metros en total (venga
+    // de donde venga respecto de la cámara) tiene que verse más chico y más adelante, no el que
+    // le gana a la cámara puntualmente. Hugo lo notó con datos reales: el corredor con más
+    // metros (196m) se veía más grande en vez de más chico — confundí las dos cosas usando el
+    // mismo signo para ambas.
+    const persp = calcularPerspectivaFantasma(-gap, w, h);
     const ladoAlterno = calcularLadoOtroCorredor(contadorOtros); // uno a la izquierda, el siguiente a la derecha, y así alternando
     contadorOtros++;
     const SEPARACION_EXTRA = 1.5; // más separados que un solo fantasma en Sesión — a pedido de Hugo, acá puede haber DOS al mismo tiempo compartiendo pantalla
@@ -3068,11 +3094,10 @@ function renderCarrera() {
     ctx.globalAlpha = 0.55;
     dibujarKayakistaDesdeD(ctx, xPos, h * 0.62 + persp.yOffset, s * persp.escala, d.der, d.izq, rotacion, p.corredor.color, proporciones);
     ctx.restore();
-    // cartelito de metros, calcado del que ya existe para el fantasma en Sesión — mismo signo:
-    // negativo (va adelante de la cámara) en rojo, positivo (atrás) en verde... en realidad acá
-    // se invierte respecto de Sesión: lo que importa es la diferencia CONTRA la cámara elegida,
-    // así que un gap negativo (el otro va adelante de la cámara) se marca en rojo (te lleva
-    // ventaja), y positivo en verde (le llevás ventaja) — mismo criterio que el badge de Sesión.
+    // cartelito de metros: cuánto le gana/pierde ESTE corredor a la CÁMARA puntualmente — sigue
+    // el mismo signo/color que el badge de Sesión (verde = la cámara va adelante, rojo = este
+    // corredor le gana a la cámara). Es una idea distinta del tamaño de arriba (que compara
+    // contra el total de metros, no contra la cámara).
     const lbl = (gap >= 0 ? '+' : '') + Math.round(gap) + 'm';
     ctx.font = '700 13px system-ui';
     ctx.textAlign = 'center';
@@ -3142,7 +3167,7 @@ function loopSesionVivo(ts) {
 // más abajo y más grandes, hasta "pasar" al kayakista y desaparecer.
 // calcularBoya() es la parte pura (sin canvas) — a partir de la distancia de ESA boya en particular
 // y la distancia ya recorrida, dice si está visible y con qué escala/altura dibujarla.
-const BOYA_INTERVALO_M = 10;
+const BOYA_INTERVALO_M = 5; // bajado de 10 a 5 (Hugo pidió más sensación de avance) — al doble de densidad, cada boya recorre la pantalla con la mitad de los metros reales, dando el doble de movimiento percibido para la misma distancia remada
 const BOYA_TRAMOS_VISIBLES = 6; // cuántos intervalos adelante se alcanzan a ver a la vez
 function calcularBoya(distanciaBoyaM, distanciaRecorridaM) {
   const distanciaRelativa = distanciaBoyaM - distanciaRecorridaM; // 0 = está justo al lado; negativo = ya la pasó
@@ -3223,7 +3248,11 @@ function renderSesionVivo() {
   // el fantasma se dibuja ANTES que el kayakista principal (detrás), semitransparente, para que
   // el modelo del usuario quede siempre como el foco principal aunque se solapen un poco
   if (gap != null) {
-    const persp = calcularPerspectivaFantasma(gap, w, h);
+    const persp = calcularPerspectivaFantasma(-gap, w, h);
+    // el signo se invierte a propósito: "gap" (distanciaPropia - distanciaFantasma) es para el
+    // cartelito de color (verde si voy ganando), pero el TAMAÑO tiene que seguir el total de
+    // metros, no quién le gana a quién — el que recorrió más metros se ve más chico/lejos, sea
+    // el jugador o el fantasma. Mismo criterio que en Carrera Virtual (mismo bug encontrado ahí).
     const dDerFantasma = interpolarLadoEnSecuenciaK(tGlobalFantasma, 'der');
     const dIzqFantasma = interpolarLadoEnSecuenciaK(tGlobalFantasma, 'izq');
     const rotacionFantasma = interpolarRotacionEnSecuenciaK(tGlobalFantasma);
