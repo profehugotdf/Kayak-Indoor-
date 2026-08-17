@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v47</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v48</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -453,6 +453,7 @@
         acá se ven corriendo juntas, cada una a partir de su propio track guardado.</p>
     </div>
     <div class="card" id="cardCarreraActiva" style="display:none;">
+      <div id="selectorCamaraCarrera" class="fila" style="flex-wrap:wrap;"></div>
       <canvas id="canvasCarrera" height="260"></canvas>
       <div id="listaPosicionesCarrera" style="margin-top:10px;"></div>
       <div style="margin-top:10px; font-family:var(--mono); text-align:center;" id="tiempoCarrera">0:00 / 0:00</div>
@@ -1310,6 +1311,27 @@
         en 25, un gap real de +40m (como el de su captura) quedaba
         clampeado exactamente igual que uno de 25m o de 100m, sin
         diferenciarse más allá de eso. Subido a 50.
+   v48: Hugo mandó dos videos comparando contra Bici Indoor: en Kayak, la
+        Carrera Virtual (replay, v44) no tenía sensación de avance ni
+        perspectiva — todos los corredores en carriles fijos, mismo
+        tamaño, sin boyas, solo la tabla de texto abajo decía quién iba
+        ganando. La causa: boyas y perspectiva se armaron SOLO para la
+        animación en vivo de Sesión (v43/v47), nunca se llevaron al
+        replay, que quedó con un render aparte y más simple.
+        Reescrito renderCarrera() para que funcione como la referencia de
+        Bici Indoor: selector nuevo "Cámara: corredor N" arriba del
+        canvas (renderSelectorCamaraCarrera(), botones con el color de
+        cada uno) — el corredor elegido se dibuja al centro, de frente,
+        sin transparencia; los demás usan calcularPerspectivaFantasma()
+        tal cual (mismo problema que el fantasma de Sesión: qué tan lejos
+        está este otro kayakista y para qué lado — no hizo falta escribir
+        nada nuevo), semitransparentes, con su cartelito de metros en
+        verde/rojo arriba (mismo criterio de signo que el badge de
+        Sesión). dibujarBoyas() agregado a la escena, calculado sobre la
+        distancia del corredor que sigue la cámara.
+        Sacado del flujo el sistema de carriles fijos de v44
+        (calcularCarrilesX ya no se llama desde acá) — se deja la función
+        definida sin usar, es chica y autocontenida, no molesta.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2905,6 +2927,7 @@ function cadenciaCorredorEnT(puntos, tSeg) {
 }
 
 let carreraCorredores = []; // [{sesion, fase, color}], armado al entrar a la vista
+let carreraCamaraIdx = 0; // qué corredor sigue la "cámara" — los demás se ven con perspectiva relativa a este, igual que Bici Indoor
 let carreraT = 0, carreraDuracionMax = 0, carreraPlaying = false, carreraVelocidad = 1;
 let carreraRAF = null, carreraUltimoTS = 0;
 const CARRERA_COLORES = ['#4FD8C4', '#E8B84B', '#FF6B57'];
@@ -2923,9 +2946,24 @@ function verCarreraVirtual() {
   carreraT = 0;
   carreraPlaying = false;
   carreraVelocidad = 1;
+  carreraCamaraIdx = 0; // arranca siguiendo al primero — elegible con el selector nuevo
   document.getElementById('sliderCarrera').max = carreraDuracionMax;
   document.getElementById('sliderCarrera').value = 0;
+  renderSelectorCamaraCarrera();
   cambiarTab('carrera');
+}
+function elegirCamaraCarrera(idx) {
+  carreraCamaraIdx = idx;
+  renderSelectorCamaraCarrera();
+  renderCarrera();
+}
+function renderSelectorCamaraCarrera() {
+  const cont = document.getElementById('selectorCamaraCarrera');
+  if (!cont) return;
+  cont.innerHTML = '<span class="nota" style="flex:none; align-self:center;">Cámara:</span>' + carreraCorredores.map((c, i) =>
+    '<button class="btn chico' + (i === carreraCamaraIdx ? ' sel' : '') + '" style="width:auto;" onclick="elegirCamaraCarrera(' + i + ')">' +
+    '<span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:' + c.color + '; margin-right:4px;"></span>corredor ' + (i + 1) + '</button>'
+  ).join('');
 }
 function togglePlayCarrera() {
   carreraPlaying = !carreraPlaying;
@@ -2976,17 +3014,42 @@ function renderCarrera() {
   const w = canvas.clientWidth || canvas.width, h = canvas.height;
   canvas.width = w; canvas.height = h;
   const horizonY = h * 0.28;
+  const posiciones = carreraCorredores.map(c => ({ corredor: c, distancia: distanciaFantasmaEnT(c.sesion.puntos, carreraT) }));
+  const idxCamara = Math.min(carreraCamaraIdx, posiciones.length - 1);
+  const distanciaCamara = posiciones[idxCamara] ? posiciones[idxCamara].distancia : 0;
   dibujarEscenaLago(ctx, w, h, horizonY);
-  const carriles = calcularCarrilesX(carreraCorredores.length);
-  const s = h * 0.24; // un poco más chico que en Sesión, para que entren los 3 carriles
-  const posiciones = carreraCorredores.map((c, i) => {
-    const distancia = distanciaFantasmaEnT(c.sesion.puntos, carreraT);
-    return { corredor: c, distancia, x: w / 2 + carriles[i] * w };
-  });
-  posiciones.forEach(p => {
+  dibujarBoyas(ctx, w, h, horizonY, distanciaCamara); // sensación de avance — a pedido de Hugo, calcado de la sesión en vivo
+  const s = h * 0.30;
+  // el corredor "cámara" se dibuja al centro, de frente, sin transparencia — mismo lugar que el
+  // kayakista principal en Sesión. Los demás se ven con la MISMA perspectiva que ya usa el
+  // fantasma (más chico/arriba si van adelante de la cámara, más grande/abajo si van atrás),
+  // reusando calcularPerspectivaFantasma() tal cual — es exactamente el mismo problema (¿qué tan
+  // lejos está este otro kayakista de mí, y para qué lado?), no hacía falta escribir nada nuevo.
+  posiciones.forEach((p, i) => {
     const d = { der: interpolarLadoEnSecuenciaK(p.corredor.fase, 'der'), izq: interpolarLadoEnSecuenciaK(p.corredor.fase, 'izq') };
     const rotacion = interpolarRotacionEnSecuenciaK(p.corredor.fase);
-    dibujarKayakistaDesdeD(ctx, p.x, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
+    if (i === idxCamara) {
+      dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
+      return;
+    }
+    const gap = distanciaCamara - p.distancia; // positivo = la cámara va adelante de este corredor
+    const persp = calcularPerspectivaFantasma(gap, w, h);
+    const ladoAlterno = i < idxCamara ? -1 : 1; // reparte a los que no son cámara a un lado u otro, no todos apilados
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    dibujarKayakistaDesdeD(ctx, w / 2 + persp.xOffset * ladoAlterno, h * 0.62 + persp.yOffset, s * persp.escala, d.der, d.izq, rotacion, p.corredor.color, proporciones);
+    ctx.restore();
+    // cartelito de metros, calcado del que ya existe para el fantasma en Sesión — mismo signo:
+    // negativo (va adelante de la cámara) en rojo, positivo (atrás) en verde... en realidad acá
+    // se invierte respecto de Sesión: lo que importa es la diferencia CONTRA la cámara elegida,
+    // así que un gap negativo (el otro va adelante de la cámara) se marca en rojo (te lleva
+    // ventaja), y positivo en verde (le llevás ventaja) — mismo criterio que el badge de Sesión.
+    const lbl = (gap >= 0 ? '+' : '') + Math.round(gap) + 'm';
+    ctx.font = '700 13px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = gap >= 0 ? '#3fb950' : '#ff6b6b';
+    ctx.fillText(lbl, w / 2 + persp.xOffset * ladoAlterno, h * 0.62 + persp.yOffset - s * persp.escala * 1.15);
+    ctx.textAlign = 'start';
   });
   const lista = document.getElementById('listaPosicionesCarrera');
   if (lista) {
