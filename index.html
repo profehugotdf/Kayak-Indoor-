@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v51</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v53</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1397,6 +1397,35 @@
         GAP_MAX_VISIBLE_M ya no se usa (el piso de escala cumple el mismo
         propósito de antes — que un gap enorme no dé un resultado
         absurdo — sin necesitar un clamp aparte sobre el gap en sí).
+   v52: Hugo mandó otra captura: con la cámara en corredor 1, corredor 2
+        (atrás de la cámara en distancia real) aparecía igual en pantalla
+        — "si está seleccionado el corredor 1, el 2 no debería aparecer".
+        Mismo principio que la foto real que ya había mandado: desde tu
+        propio kayak solo se ve lo que tenés ADELANTE, no hay vista
+        trasera. Agregado el filtro correspondiente: en renderCarrera(),
+        un corredor con gap>=0 (la cámara va igual o adelante de él, o
+        sea que él quedó atrás) ya no se dibuja — return temprano antes
+        de calcular perspectiva/carril/cartelito, así tampoco cuenta para
+        alternar de lado a los que sí se ven. Solo se dibujan los que
+        están genuinamente adelante (gap<0).
+        Mismo criterio aplicado en renderSesionVivo() con el fantasma,
+        por consistencia — antes se dibujaba siempre (con perspectiva),
+        ahora solo si va adelante del jugador (gap<0); el cartelito de
+        metros arriba del canvas sigue mostrando el dato siempre, esté o
+        no el modelo dibujado (dibujarBadgeFantasma() se llama aparte,
+        no depende de esta condición).
+   v53: charlando sobre por qué la calibración de 90-100 ppm (cargada con
+        distancias cortas, 400m y 100m) le podía dar más variabilidad que
+        60-80 ppm (500m): un error de cronómetro de 1-2s pesa mucho más
+        sobre un tiempo corto (100m a 100ppm = 54s, un error de 1s ya es
+        ~1.85%) que sobre uno largo (500m a 60ppm = 380s, el mismo error
+        es ~0.26% — siete veces menos sensible). Hugo pidió una marca
+        visual para esas filas. Agregado esDistanciaPocoConfiable()
+        (pura: distancia < 400m) y un aviso en amarillo debajo de cada
+        fila de Calibración cuando corresponde — marcarConfiabilidadCalib()
+        se llama al renderizar Y cada vez que se cambia el selector de
+        distancia de esa fila (onchange), así el aviso reacciona en vivo
+        sin tener que guardar primero para verlo.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1408,6 +1437,14 @@ const K_FORMA_COMPARTIDA = 'entrenamiento_forma_registro';
 const CALIB_CADENCIAS = [60, 70, 80, 90, 100, 110, 120];
 const CALIB_DISTANCIAS_DISPONIBLES = [100, 200, 300, 400, 500];
 const CALIB_DISTANCIA_DEFAULT = 500;
+const CALIB_DISTANCIA_CONFIABLE_MIN_M = 400; // por debajo de esto, un error de un par de segundos al cronometrar a mano pesa demasiado — ver comentario en marcarConfiabilidadCalib()
+// pura, sin DOM — a qué distancia un error de cronómetro de ~1s deja de ser insignificante. A
+// modo de referencia: 1s sobre 500m (6:20 a 60ppm) es ~0.26% de error; 1s sobre 100m (0:54 a
+// 100ppm) es ~1.85% — siete veces más sensible. Hugo lo notó mirando su propia calibración
+// (90-100ppm cargados con distancias cortas) y pidió una señal visual para las filas así.
+function esDistanciaPocoConfiable(distanciaM) {
+  return distanciaM < CALIB_DISTANCIA_CONFIABLE_MIN_M;
+}
 
 function lsGet(key, def) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; }
@@ -2845,12 +2882,26 @@ function renderCalibracion() {
       '<div class="estado">' + (previo ? '✅' : '') + '</div>' +
       '</div>' +
       '<div class="calib-fila-bottom">' +
-      '<select id="calibDist' + c + '">' + opcionesDistancia + '</select>' +
+      '<select id="calibDist' + c + '" onchange="marcarConfiabilidadCalib(' + c + ')">' + opcionesDistancia + '</select>' +
       '<input type="text" inputmode="decimal" placeholder="mm:ss (o mm.ss)" id="calibIn' + c + '"' +
         (previo ? ' value="' + segAMMSS(previo.tiempoSeg) + '"' : '') + '>' +
       '</div>' +
+      '<div class="nota" id="avisoConfiabilidad' + c + '" style="color:#e8b84b; margin-top:2px;"></div>' +
       '</div>';
   }).join('');
+  CALIB_CADENCIAS.forEach(c => marcarConfiabilidadCalib(c));
+}
+// muestra/oculta el aviso de "poco confiable" para una fila, según la distancia elegida ahí AHORA
+// MISMO (no la que tenía guardada) — se llama al renderizar y también cada vez que se cambia el
+// selector de distancia de esa fila, para que el aviso reaccione en vivo sin tener que guardar.
+function marcarConfiabilidadCalib(cadencia) {
+  const select = document.getElementById('calibDist' + cadencia);
+  const aviso = document.getElementById('avisoConfiabilidad' + cadencia);
+  if (!select || !aviso) return;
+  const distanciaM = parseInt(select.value, 10);
+  aviso.textContent = esDistanciaPocoConfiable(distanciaM)
+    ? '⚠️ Distancia corta — un error de 1-2s al cronometrar pesa mucho más acá que en 500m. Preferible una distancia más larga si el estado físico da.'
+    : '';
 }
 function guardarCalibracion() {
   const puntos = [];
@@ -3107,6 +3158,11 @@ function renderCarrera() {
       return;
     }
     const gap = distanciaCamara - p.distancia; // positivo = la cámara va adelante de este corredor — esto es para el CARTELITO (verde/rojo), no para el tamaño
+    // a pedido de Hugo, mirando su propia foto real: desde tu kayak solo ves lo que tenés
+    // ADELANTE, no lo que quedó atrás tuyo (no hay vista trasera). Un corredor con gap>=0 (la
+    // cámara va igual o adelante de él) está detrás de la cámara — no se dibuja. Solo se ve a
+    // los que están realmente adelante (gap<0, o sea, recorrieron más que la cámara).
+    if (gap >= 0) return;
     // para el tamaño/posición uso el signo CONTRARIO: el que recorrió MÁS metros en total (venga
     // de donde venga respecto de la cámara) tiene que verse más chico y más adelante, no el que
     // le gana a la cámara puntualmente. Hugo lo notó con datos reales: el corredor con más
@@ -3283,13 +3339,13 @@ function renderSesionVivo() {
     gap = calcularGapFantasma(sesionActiva.distanciaM, tSeg);
   }
   // el fantasma se dibuja ANTES que el kayakista principal (detrás), semitransparente, para que
-  // el modelo del usuario quede siempre como el foco principal aunque se solapen un poco
-  if (gap != null) {
+  // el modelo del usuario quede siempre como el foco principal aunque se solapen un poco.
+  // A pedido de Hugo (mismo criterio que en Carrera Virtual): solo se dibuja si el fantasma va
+  // REALMENTE adelante (gap<0) — si el jugador le lleva ventaja, el fantasma quedó atrás y no se
+  // vería desde el propio kayak (no hay vista trasera), así que no se dibuja el modelo. El
+  // cartelito de metros sigue mostrando el dato igual, aunque el modelo no esté en pantalla.
+  if (gap != null && gap < 0) {
     const persp = calcularPerspectivaFantasma(-gap, w, h);
-    // el signo se invierte a propósito: "gap" (distanciaPropia - distanciaFantasma) es para el
-    // cartelito de color (verde si voy ganando), pero el TAMAÑO tiene que seguir el total de
-    // metros, no quién le gana a quién — el que recorrió más metros se ve más chico/lejos, sea
-    // el jugador o el fantasma. Mismo criterio que en Carrera Virtual (mismo bug encontrado ahí).
     const dDerFantasma = interpolarLadoEnSecuenciaK(tGlobalFantasma, 'der');
     const dIzqFantasma = interpolarLadoEnSecuenciaK(tGlobalFantasma, 'izq');
     const rotacionFantasma = interpolarRotacionEnSecuenciaK(tGlobalFantasma);
