@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v53</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v54</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1426,6 +1426,16 @@
         se llama al renderizar Y cada vez que se cambia el selector de
         distancia de esa fila (onchange), así el aviso reacciona en vivo
         sin tener que guardar primero para verlo.
+   v54: Hugo pidió que la tabla de posiciones de Carrera Virtual muestre
+        cadencia y pulsaciones de cada fantasma, además de la fecha (que
+        ya se mostraba) y los metros. Agregada pulsoCorredorEnT()
+        (misma idea que cadenciaCorredorEnT() de v44: busca el punto
+        guardado más cercano en el tiempo — pero sin valor de relleno,
+        porque acá es solo un dato para mostrar, no algo que anime nada;
+        sin dato muestra "--" en vez de inventar un pulso). Los dos
+        valores son del INSTANTE actual de reproducción (carreraT), no
+        el promedio de toda la sesión — para que se vea la cadencia/pulso
+        real de cada corredor en ese punto de la carrera, como pidió.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3041,6 +3051,22 @@ function cadenciaCorredorEnT(puntos, tSeg) {
   }
   return masCercano.cadencia != null ? masCercano.cadencia : CARRERA_CADENCIA_BASE;
 }
+// pulso de un corredor en el instante t — a pedido de Hugo, para verlo en vivo en la tabla de
+// posiciones de la Carrera Virtual (junto con la cadencia y la fecha), no solo el promedio de
+// toda la sesión. Mismo criterio que cadenciaCorredorEnT (punto guardado más cercano en el
+// tiempo), pero sin valor base de relleno — a diferencia de la cadencia, que hace falta para que
+// la animación no quede congelada, el pulso es solo un dato para mostrar: si no hay, se muestra
+// "--" en vez de inventar un número.
+function pulsoCorredorEnT(puntos, tSeg) {
+  if (!puntos || !puntos.length) return null;
+  let masCercano = puntos[0];
+  let mejorDif = Math.abs(puntos[0].t - tSeg);
+  for (let i = 1; i < puntos.length; i++) {
+    const dif = Math.abs(puntos[i].t - tSeg);
+    if (dif < mejorDif) { mejorDif = dif; masCercano = puntos[i]; }
+  }
+  return masCercano.pulso != null ? masCercano.pulso : null;
+}
 
 let carreraCorredores = []; // [{sesion, fase, color}], armado al entrar a la vista
 let carreraCamaraIdx = 0; // qué corredor sigue la "cámara" — los demás se ven con perspectiva relativa a este, igual que Bici Indoor
@@ -3191,14 +3217,18 @@ function renderCarrera() {
   const lista = document.getElementById('listaPosicionesCarrera');
   if (lista) {
     const ordenadas = [...posiciones].sort((a, b) => b.distancia - a.distancia);
-    lista.innerHTML = ordenadas.map((p, i) =>
-      '<div class="fila" style="align-items:center; gap:8px; margin-top:4px;">' +
+    lista.innerHTML = ordenadas.map((p, i) => {
+      const cad = cadenciaCorredorEnT(p.corredor.sesion.puntos, carreraT);
+      const pul = pulsoCorredorEnT(p.corredor.sesion.puntos, carreraT);
+      return '<div class="fila" style="align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">' +
       '<span style="font-weight:800; width:20px;">' + (i + 1) + 'º</span>' +
       '<span style="width:14px; height:14px; border-radius:4px; background:' + p.corredor.color + '; flex:none;"></span>' +
-      '<span class="nota" style="flex:1;">' + new Date(p.corredor.sesion.fecha).toLocaleDateString('es-AR') + '</span>' +
-      '<span style="font-family:var(--mono);">' + Math.round(p.distancia) + 'm</span>' +
-      '</div>'
-    ).join('');
+      '<span class="nota" style="flex:1; min-width:60px;">' + new Date(p.corredor.sesion.fecha).toLocaleDateString('es-AR') + '</span>' +
+      '<span style="font-family:var(--mono);" title="cadencia">' + Math.round(cad) + 'p/m</span>' +
+      '<span style="font-family:var(--mono); color:var(--pulso);" title="pulso">' + (pul != null ? pul : '--') + '♥</span>' +
+      '<span style="font-family:var(--mono); font-weight:700;">' + Math.round(p.distancia) + 'm</span>' +
+      '</div>';
+    }).join('');
   }
 }
 
