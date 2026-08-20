@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v55</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v56</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1452,6 +1452,24 @@
         BOYA_TRAMOS_VISIBLES ahora se DERIVA de esas dos (cuántos
         intervalos hacen falta generar para cubrir el rango visible, con
         margen), en vez de ser la que definía el rango visible como antes.
+   v56: Hugo reportó: "arrancó la sesión con el modelo moviéndose cuando
+        yo no había empezado a palear". Bug hermano del que se arregló en
+        v41/v42 — actual.cadencia y cadenciaAlgunaVezReportada nunca se
+        reseteaban entre sesiones. Si en algún momento anterior de la
+        misma pestaña (una prueba en Calibración, o una sesión previa) la
+        cámara había reportado algo, ese valor quedaba pegado para
+        siempre, y una sesión nueva arrancaba usando ese dato viejo en
+        vez de partir de cero. Arreglado: iniciarBucleVivo() ahora
+        resetea actual.cadencia=0, cadenciaAlgunaVezReportada=false Y
+        tGlobalVivo=0 (esta última tampoco se reseteaba, aunque era un
+        problema más cosmético) al arrancar cada sesión.
+        De paso, saqué el "relleno" CADENCIA_BASE_SI_NO_HAY_DATO (70 p/m)
+        que loopSesionVivo() usaba mientras no hubiera dato — tenía
+        sentido en otro contexto para que una previsualización no se vea
+        congelada, pero durante una SESIÓN real es directamente engañoso:
+        mostraría al kayakista remando sin que hubiera pasado nada de
+        verdad. Ahora, sin dato todavía en la sesión actual, el modelo se
+        queda quieto (cadencia 0) hasta la primera detección real.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3260,11 +3278,18 @@ function renderCarrera() {
    (verde adelante / rojo atrás), calcado del badge de Correr.
    ============================================================ */
 let tGlobalVivo = 0, tGlobalFantasma = 0, sesionRAF = null, sesionUltimoTS = 0;
-const CADENCIA_BASE_SI_NO_HAY_DATO = 70; // para que la animación no quede congelada sin sensor conectado
 
 function iniciarBucleVivo() {
   sesionUltimoTS = 0;
-  tGlobalFantasma = 0; // arranca de cero cada sesión, no arrastra la fase de la sesión anterior
+  tGlobalVivo = 0; // arranca de cero cada sesión, no arrastra la fase de una sesión anterior
+  tGlobalFantasma = 0; // ídem con el fantasma
+  // Hugo reportó: "arrancó la sesión con el modelo moviéndose cuando yo no había empezado a
+  // palear". Causa: actual.cadencia y cadenciaAlgunaVezReportada (v42) NUNCA se reseteaban entre
+  // sesiones — si en algún momento anterior de la misma pestaña (una prueba en Calibración, o una
+  // sesión previa) la cámara había reportado algo, esos valores quedaban pegados para siempre, y
+  // la sesión nueva arrancaba usando ese dato viejo en vez de partir de cero.
+  actual.cadencia = 0;
+  cadenciaAlgunaVezReportada = false;
   if (!sesionRAF) sesionRAF = requestAnimationFrame(loopSesionVivo);
 }
 function pararBucleVivo() {
@@ -3274,7 +3299,13 @@ function loopSesionVivo(ts) {
   if (!sesionActiva) { sesionRAF = null; return; }
   const dt = sesionUltimoTS ? Math.min(0.1, (ts - sesionUltimoTS) / 1000) : 0;
   sesionUltimoTS = ts;
-  const cadencia = cadenciaAlgunaVezReportada ? actual.cadencia : CADENCIA_BASE_SI_NO_HAY_DATO;
+  // sin ningún dato TODAVÍA en esta sesión, el modelo se queda quieto (cadencia 0) — no se
+  // rellena con un valor de relleno como antes (CADENCIA_BASE_SI_NO_HAY_DATO=70), porque
+  // durante una sesión real eso es directamente engañoso: mostraría al kayakista remando sin
+  // que hubiera pasado nada de verdad. Ese relleno tenía sentido para no ver la previsualización
+  // congelada en otro contexto, pero acá, en una sesión de entrenamiento, quieto-hasta-que-haya-
+  // dato-real es lo correcto.
+  const cadencia = cadenciaAlgunaVezReportada ? actual.cadencia : 0;
   tGlobalVivo = (tGlobalVivo + (cadencia / 15) * dt) % 8;
   // el fantasma tiene que animarse a SU PROPIO ritmo histórico, no calcado del kayakista
   // principal — Hugo lo notó: "aparentemente el fantasma copia la cadencia actual de la sesión".
