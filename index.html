@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v54</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v55</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1436,6 +1436,22 @@
         valores son del INSTANTE actual de reproducción (carreraT), no
         el promedio de toda la sesión — para que se vea la cadencia/pulso
         real de cada corredor en ese punto de la carrera, como pidió.
+   v55: Hugo pidió el doble de espaciado Y el doble de velocidad para las
+        boyas. Mi primer intento (BOYA_INTERVALO_M duplicado a 10 +
+        BOYA_VELOCIDAD_MULT=2 aplicado como factor sobre la distancia de
+        entrada) tenía un error de matemática que encontré antes de
+        entregar: los dos efectos se CANCELABAN — duplicar el espaciado
+        Y duplicar la velocidad con ese mismo truco daban, en términos
+        reales, exactamente el mismo resultado que antes (espaciado real
+        efectivo de 5m, igual que v50). Rehecho con dos constantes
+        independientes, las dos en metros reales, sin derivar una de la
+        otra: BOYA_ESPACIADO_M=10 (cuánto separa boya de boya, doble de
+        los 5m efectivos de antes) y BOYA_RANGO_VISIBLE_M=15 (cuántos
+        metros tarda una boya en cruzar la pantalla, mitad de los 30m
+        efectivos de antes — cruza el doble de rápido por metro remado).
+        BOYA_TRAMOS_VISIBLES ahora se DERIVA de esas dos (cuántos
+        intervalos hacen falta generar para cubrir el rango visible, con
+        margen), en vez de ser la que definía el rango visible como antes.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3275,29 +3291,36 @@ function loopSesionVivo(ts) {
 }
 // boyas de una pista de aguas planas — a pedido de Hugo, para dar sensación de avance en el agua
 // (antes la escena era estática, sin ninguna referencia de que el kayak se estuviera moviendo de
-// verdad). Se reparten cada INTERVALO_M metros, dos carriles (izquierda/derecha del kayak), y con
+// verdad). Se reparten cada ESPACIADO_M metros, dos carriles (izquierda/derecha del kayak), y con
 // la MISMA idea de perspectiva que el fantasma: más lejos = más arriba y más chicas, más cerca =
 // más abajo y más grandes, hasta "pasar" al kayakista y desaparecer.
 // calcularBoya() es la parte pura (sin canvas) — a partir de la distancia de ESA boya en particular
 // y la distancia ya recorrida, dice si está visible y con qué escala/altura dibujarla.
-const BOYA_INTERVALO_M = 5; // bajado de 10 a 5 (Hugo pidió más sensación de avance) — al doble de densidad, cada boya recorre la pantalla con la mitad de los metros reales, dando el doble de movimiento percibido para la misma distancia remada
-const BOYA_TRAMOS_VISIBLES = 6; // cuántos intervalos adelante se alcanzan a ver a la vez
+// A pedido de Hugo: espaciado y velocidad son dos ejes DISTINTOS, cada uno con su propia
+// constante en metros reales, sin acoplarse entre sí. ESPACIADO_M es cuántos metros reales
+// separan boya de boya. RANGO_VISIBLE_M es cuántos metros reales tarda una boya en cruzar la
+// pantalla (del horizonte hasta al lado) — más chico = cruza más rápido. Ojo: mi primer intento
+// (un "multiplicador de velocidad" sobre la distancia de entrada) se CANCELABA matemáticamente
+// con duplicar el espaciado a la vez, dando el mismo resultado real que antes — por eso ahora son
+// dos constantes independientes, no una derivada de la otra.
+const BOYA_ESPACIADO_M = 10; // duplicado de 5 (espaciado real efectivo anterior) a 10
+const BOYA_RANGO_VISIBLE_M = 15; // reducido a la mitad de los 30m efectivos anteriores — cruza la pantalla el doble de rápido por cada metro remado
+const BOYA_TRAMOS_VISIBLES = Math.ceil(BOYA_RANGO_VISIBLE_M / BOYA_ESPACIADO_M) + 1; // cuántos intervalos hay que generar para cubrir el rango visible, con uno de margen
 function calcularBoya(distanciaBoyaM, distanciaRecorridaM) {
   const distanciaRelativa = distanciaBoyaM - distanciaRecorridaM; // 0 = está justo al lado; negativo = ya la pasó
-  const rangoVisibleM = BOYA_INTERVALO_M * BOYA_TRAMOS_VISIBLES;
-  const profundidad = 1 - Math.min(1, Math.max(0, distanciaRelativa) / rangoVisibleM); // 0=recién aparece en el horizonte, 1=al lado
+  const profundidad = 1 - Math.min(1, Math.max(0, distanciaRelativa) / BOYA_RANGO_VISIBLE_M); // 0=recién aparece en el horizonte, 1=al lado
   const visible = distanciaRelativa >= -1 && profundidad > 0.03; // ya pasada hace más de ~1m: no dibujarla más
   return { visible, profundidad };
 }
 function dibujarBoyas(ctx, w, h, horizonY, distanciaRecorridaM) {
-  const primeraBoyaM = Math.floor(distanciaRecorridaM / BOYA_INTERVALO_M) * BOYA_INTERVALO_M;
+  const primeraBoyaM = Math.floor(distanciaRecorridaM / BOYA_ESPACIADO_M) * BOYA_ESPACIADO_M;
   for (let i = -1; i <= BOYA_TRAMOS_VISIBLES; i++) {
-    const distanciaBoyaM = primeraBoyaM + i * BOYA_INTERVALO_M;
+    const distanciaBoyaM = primeraBoyaM + i * BOYA_ESPACIADO_M;
     const { visible, profundidad } = calcularBoya(distanciaBoyaM, distanciaRecorridaM);
     if (!visible) continue;
     const y = horizonY + (h - horizonY) * profundidad;
     const escala = 0.12 + profundidad * 0.88;
-    const numeroBoya = Math.round(distanciaBoyaM / BOYA_INTERVALO_M);
+    const numeroBoya = Math.round(distanciaBoyaM / BOYA_ESPACIADO_M);
     const color = numeroBoya % 2 === 0 ? '#ff5a3c' : '#ffd23c'; // alternando color cada boya, como en una pista real
     [-1, 1].forEach(lado => {
       const x = w / 2 + lado * w * 0.38 * (0.15 + profundidad * 0.85);
