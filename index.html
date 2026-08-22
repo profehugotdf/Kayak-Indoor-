@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v56</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v58</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -438,6 +438,37 @@
         <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th><th></th><th></th></tr></thead>
         <tbody id="tablaSesiones"><tr class="vacia"><td colspan="8">Sin sesiones todavía</td></tr></tbody>
       </table>
+      <button class="btn chico" style="margin-top:8px;" onclick="toggleEvolucionSesiones()">📈 Ver evolución entre sesiones</button>
+    </div>
+    <div class="card" id="cardEvolucionSesiones" style="display:none;">
+      <div class="fila" style="justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;">Evolución entre sesiones</h2>
+        <button class="btn chico" style="width:auto;" onclick="toggleEvolucionSesiones()">✕ Cerrar</button>
+      </div>
+      <p class="nota">Un punto por sesión, en orden cronológico — no por segundo dentro de una
+        sesión, como el detalle de arriba.</p>
+      <p class="nota" style="margin-top:8px;">Velocidad media</p><canvas id="graficaEvolVelocidad" height="70" style="width:100%;"></canvas>
+      <p class="nota" style="margin-top:8px;">Pulso medio</p><canvas id="graficaEvolPulso" height="70" style="width:100%;"></canvas>
+      <p class="nota" style="margin-top:8px;">Cadencia media</p><canvas id="graficaEvolCadencia" height="70" style="width:100%;"></canvas>
+      <p class="nota" style="margin-top:8px;">Eficiencia aeróbica (m/min)/bpm</p><canvas id="graficaEvolEficiencia" height="70" style="width:100%;"></canvas>
+    </div>
+    <div class="card" id="cardDetalleSesion" style="display:none;">
+      <div class="fila" style="justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;" id="detalleFecha"></h2>
+        <button class="btn chico" style="width:auto;" onclick="cerrarDetalleSesion()">✕ Cerrar</button>
+      </div>
+      <div class="hud-grid" style="margin-top:8px;">
+        <div class="hud-tile"><div class="val" id="detalleRitmo">--</div><div class="lbl">Ritmo medio /500m</div></div>
+        <div class="hud-tile"><div class="val" id="detallePulsoProm">--</div><div class="lbl">Pulso medio bpm</div></div>
+        <div class="hud-tile"><div class="val" id="detallePulsoMax">--</div><div class="lbl">Pulso máx bpm</div></div>
+        <div class="hud-tile"><div class="val" id="detalleCadencia">--</div><div class="lbl">Cadencia media p/m</div></div>
+        <div class="hud-tile"><div class="val" id="detalleTSS">--</div><div class="lbl">TSS</div></div>
+        <div class="hud-tile"><div class="val" id="detalleEficienciaPalada">--</div><div class="lbl">Vueltas/palada (± desvío)</div></div>
+      </div>
+      <p class="nota" style="margin-top:8px;" id="detalleDesacople"></p>
+      <p class="nota" id="detalleEficienciaAerobica"></p>
+      <p class="nota" id="detalleVsFantasma"></p>
+      <div id="graficasDetalleSesion" style="margin-top:10px;"></div>
     </div>
     <div class="card" id="cardCarreraSeleccion" style="display:none;">
       <h2>Carrera virtual — sesiones elegidas (hasta 3, 🏁 en la tabla)</h2>
@@ -1470,6 +1501,41 @@
         mostraría al kayakista remando sin que hubiera pasado nada de
         verdad. Ahora, sin dato todavía en la sesión actual, el modelo se
         queda quieto (cadencia 0) hasta la primera detección real.
+   v57: Hugo mostró el nivel de detalle que ya tiene por sesión en
+        Correr/Bici Indoor (ritmo, pulso, cadencia, TSS, desacople
+        ritmo:pulso, eficiencia aeróbica, vs. fantasma, gráficas) y pidió
+        lo mismo acá. Separé el pedido en dos: esto (detalle por sesión,
+        con lo que ya se guarda) y una posible "Evolución entre sesiones"
+        aparte (curvas cruzando varias sesiones, como el otro panel de su
+        captura) — mucho más grande, quedó pendiente de confirmar si la
+        quiere también.
+        Agregadas funciones puras: segundosPor500m() (ritmo en el mismo
+        formato "mm:ss/500m" que ya usa la calibración, no min/km);
+        eficienciaDeSegmento() y calcularDesacoplePulso() (compara la
+        eficiencia velocidad/pulso de la primera mitad de la sesión
+        contra la segunda — si cae mucho, hay fatiga/deriva aeróbica);
+        calcularEficienciaAerobica() (velocidad/pulso de toda la sesión,
+        mismo cociente (m/min)/bpm que Correr); velocidadSuavizadaEnPuntos()
+        (ventana de 10s hacia atrás en cada punto, para que la gráfica de
+        ritmo no salga puro ruido de un delta de 1 segundo).
+        finalizarSesion() ahora también guarda gapFantasmaFinalM (el gap
+        contra el fantasma activo al momento de terminar, si había uno).
+        Nueva vista de detalle en Historial: tocar la fecha de una fila
+        abre una tarjeta con todas las métricas + tres gráficas de línea
+        (ritmo/pulso/cadencia) dibujadas a mano en canvas, sin librería.
+   v58: confirmó que quería también la "Evolución entre sesiones" del
+        panel que había quedado pendiente en v57. calcularEvolucionSesiones()
+        (pura): arma 4 series ordenadas cronológicamente (velocidad
+        media, pulso medio, cadencia media, eficiencia aeróbica), un
+        punto por sesión completa — no por segundo como el detalle de
+        v57. Cada sesión entra en una serie solo si tiene esa métrica
+        disponible (por ejemplo, sin pulso guardado no entra en pulso ni
+        en eficiencia aeróbica, pero sí en velocidad). Nueva tarjeta
+        "Evolución entre sesiones" en Historial (botón para abrir/cerrar,
+        toggleEvolucionSesiones()), con las 4 gráficas reusando
+        dibujarGraficoLinea() de v57 tal cual — no hizo falta escribir
+        nada nuevo para el dibujo en sí, solo alimentarlo con los
+        valores por sesión en vez de por segundo.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3538,6 +3604,93 @@ function tick() {
     finalizarSesion();
   }
 }
+/* ============================================================
+   MÉTRICAS DE DETALLE POR SESIÓN — a pedido de Hugo, viendo el nivel de
+   detalle que ya tiene en Correr/Bici Indoor: desacople ritmo:pulso,
+   eficiencia aeróbica, ritmo tipo "split" (mm:ss/500m, el mismo formato
+   que ya usa la calibración) y gráficas de la sesión.
+   ============================================================ */
+// ritmo tipo "split", igual formato que ya usa la calibración (5:07/500m) — no min/km como en
+// Correr, porque acá la unidad natural es la misma que la calibración: tiempo por cada 500m.
+function segundosPor500m(duracionSeg, distanciaM) {
+  if (!distanciaM) return null;
+  return (duracionSeg / distanciaM) * 500;
+}
+// eficiencia de un TRAMO de la sesión (no de toda la sesión) — velocidad media del tramo dividida
+// por el pulso medio del tramo. Es la pieza que arma el desacople (se calcula una vez para la
+// primera mitad y otra para la segunda).
+function eficienciaDeSegmento(puntosSegmento) {
+  if (!puntosSegmento || puntosSegmento.length < 2) return null;
+  const primero = puntosSegmento[0], ultimo = puntosSegmento[puntosSegmento.length - 1];
+  const deltaDist = ultimo.distAcum - primero.distAcum;
+  const deltaT = ultimo.t - primero.t;
+  if (deltaT <= 0) return null;
+  const velocidad = deltaDist / deltaT; // m/s
+  const pulsos = puntosSegmento.filter(p => p.pulso != null).map(p => p.pulso);
+  if (!pulsos.length) return null;
+  const pulsoProm = promedio(pulsos);
+  if (pulsoProm === 0) return null;
+  return velocidad / pulsoProm;
+}
+// desacople ritmo:pulso — cuánto cae la eficiencia (velocidad/pulso) entre la primera y la
+// segunda mitad de la sesión, en %. Un desacople alto significa que, para el mismo pulso, ibas
+// más lento al final que al principio (fatiga/deriva aeróbica); uno bajo significa que sostuviste
+// el ritmo de verdad. Null si no hay suficientes datos de pulso como para calcularlo con sentido.
+function calcularDesacoplePulso(puntos) {
+  if (!puntos || puntos.length < 4) return null;
+  const tInicio = puntos[0].t, tFin = puntos[puntos.length - 1].t;
+  const tMedio = (tInicio + tFin) / 2;
+  const primeraMitad = puntos.filter(p => p.t <= tMedio);
+  const segundaMitad = puntos.filter(p => p.t > tMedio);
+  const efic1 = eficienciaDeSegmento(primeraMitad);
+  const efic2 = eficienciaDeSegmento(segundaMitad);
+  if (efic1 == null || efic2 == null || efic1 === 0) return null;
+  return ((efic1 - efic2) / efic1) * 100;
+}
+// eficiencia aeróbica de TODA la sesión — mismo cociente que en Correr/Bici Indoor, (m/min)/bpm
+function calcularEficienciaAerobica(velocidadMPorSeg, pulsoMedio) {
+  if (velocidadMPorSeg == null || pulsoMedio == null || pulsoMedio === 0) return null;
+  return (velocidadMPorSeg * 60) / pulsoMedio;
+}
+/* ============================================================
+   EVOLUCIÓN ENTRE SESIONES — a pedido de Hugo, calcado del panel que ya
+   tiene en Bici Indoor/Correr. Un resumen (velocidad media, pulso medio,
+   cadencia media, eficiencia aeróbica) por sesión, en orden cronológico
+   — no por segundo dentro de una sesión, como el detalle de v57, sino
+   un punto por sesión completa.
+   ============================================================ */
+// pura, sin DOM — arma la serie ordenada por fecha. Sesiones sin duración o sin la métrica en
+// cuestión quedan afuera de ESA serie puntual (por ejemplo, sin pulso guardado, no entra en la
+// serie de pulso ni en la de eficiencia aeróbica, pero sí puede entrar en la de velocidad).
+function calcularEvolucionSesiones(sesiones) {
+  const ordenadas = [...(sesiones || [])].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  const resultado = { velocidad: [], pulso: [], cadencia: [], eficienciaAerobica: [] };
+  ordenadas.forEach(s => {
+    if (!s.duracionSeg) return;
+    const fecha = s.fecha;
+    const velocidadMS = s.distanciaM / s.duracionSeg;
+    resultado.velocidad.push({ fecha, valor: velocidadMS });
+    if (s.pulsoPromedio != null) resultado.pulso.push({ fecha, valor: s.pulsoPromedio });
+    if (s.cadenciaPromedio != null) resultado.cadencia.push({ fecha, valor: s.cadenciaPromedio });
+    const efAerobica = calcularEficienciaAerobica(velocidadMS, s.pulsoPromedio);
+    if (efAerobica != null) resultado.eficienciaAerobica.push({ fecha, valor: efAerobica });
+  });
+  return resultado;
+}
+// velocidad instantánea SUAVIZADA en cada punto (ventana de VENTANA_SEG hacia atrás) — para la
+// gráfica de ritmo. Un delta de 1 segundo solo (punto a punto) sería demasiado ruidoso para
+// graficar; una ventana de varios segundos da una curva legible sin perder la forma real.
+function velocidadSuavizadaEnPuntos(puntos, ventanaSeg) {
+  ventanaSeg = ventanaSeg || 10;
+  if (!puntos || !puntos.length) return [];
+  return puntos.map((p, i) => {
+    let j = i;
+    while (j > 0 && (p.t - puntos[j - 1].t) < ventanaSeg) j--;
+    const deltaT = p.t - puntos[j].t;
+    const deltaD = p.distAcum - puntos[j].distAcum;
+    return { t: p.t, velocidad: deltaT > 0 ? deltaD / deltaT : 0 };
+  });
+}
 function finalizarSesion() {
   if (!sesionActiva) return;
   clearInterval(tickInterval);
@@ -3550,6 +3703,11 @@ function finalizarSesion() {
   const umbralPulso = lsGet(K_UMBRAL_PULSO, null);
   const tss = calcularTSS(duracionSeg, pulsoPromedio, umbralPulso);
   const eficiencia = calcularEficienciaSesion(sesionActiva.eficienciaPaladas);
+  // gap final contra el fantasma que estuviera activo, si había uno — se guarda en la sesión
+  // para poder mostrarlo después en el detalle, sin depender de que el fantasma siga siendo el
+  // mismo elegido más adelante
+  const fantasmaActivo = obtenerFantasma();
+  const gapFantasmaFinal = fantasmaActivo ? calcularGapFantasma(sesionActiva.distanciaM, duracionSeg) : null;
 
   const sesion = {
     id: sesionActiva.id,
@@ -3563,6 +3721,7 @@ function finalizarSesion() {
     puntos: puntosSesion,
     eficienciaPromedio: eficiencia ? eficiencia.promedio : null, // vueltas de volante por palada, promedio de la sesión
     eficienciaDesvio: eficiencia ? eficiencia.desvioEstandar : null, // qué tan parejo — más bajo = técnica más consistente
+    gapFantasmaFinalM: gapFantasmaFinal, // metros de diferencia contra el fantasma al terminar (positivo = ganaste), null si no había fantasma activo
   };
   const sesiones = lsGet(K_SESIONES, []);
   sesiones.push(sesion);
@@ -3650,7 +3809,7 @@ function renderHistorial() {
     const esFantasma = s.id === fantasmaActualId;
     const tieneTrack = s.puntos && s.puntos.length > 0;
     const enCarrera = carreraSeleccion.includes(s.id);
-    return '<tr><td>' + new Date(s.fecha).toLocaleDateString('es-AR') + '</td>' +
+    return '<tr><td><a href="javascript:void(0)" onclick="mostrarDetalleSesion(\'' + s.id + '\')" style="color:var(--ritmo); text-decoration:underline;">' + new Date(s.fecha).toLocaleDateString('es-AR') + '</a></td>' +
     '<td>' + segAHMS(s.duracionSeg) + '</td>' +
     '<td>' + s.distanciaM + 'm</td>' +
     '<td>' + s.tss + '</td>' +
@@ -3664,6 +3823,105 @@ function renderHistorial() {
     '<td><button class="btn chico" style="margin:0; padding:4px 8px; color:var(--pulso);" onclick="eliminarSesion(\'' + s.id + '\')">🗑</button></td></tr>';
   }).join('');
   actualizarCardCarreraSeleccion();
+}
+function mostrarDetalleSesion(id) {
+  const sesion = lsGet(K_SESIONES, []).find(s => s.id === id);
+  if (!sesion) return;
+  const card = document.getElementById('cardDetalleSesion');
+  document.getElementById('detalleFecha').textContent = new Date(sesion.fecha).toLocaleDateString('es-AR') + ' · ' + segAHMS(sesion.duracionSeg) + ' · ' + sesion.distanciaM + 'm';
+  const ritmoSeg = segundosPor500m(sesion.duracionSeg, sesion.distanciaM);
+  document.getElementById('detalleRitmo').textContent = ritmoSeg != null ? segAMMSS(ritmoSeg) : '--';
+  document.getElementById('detallePulsoProm').textContent = sesion.pulsoPromedio != null ? sesion.pulsoPromedio : '--';
+  document.getElementById('detallePulsoMax').textContent = sesion.pulsoMax != null ? sesion.pulsoMax : '--';
+  document.getElementById('detalleCadencia').textContent = sesion.cadenciaPromedio != null ? sesion.cadenciaPromedio : '--';
+  document.getElementById('detalleTSS').textContent = sesion.tss != null ? sesion.tss : '--';
+  document.getElementById('detalleEficienciaPalada').textContent = sesion.eficienciaPromedio != null
+    ? sesion.eficienciaPromedio.toFixed(1) + (sesion.eficienciaDesvio != null ? ' ± ' + sesion.eficienciaDesvio.toFixed(1) : '')
+    : '--';
+
+  const puntos = sesion.puntos || [];
+  const desacople = calcularDesacoplePulso(puntos);
+  const elDesacople = document.getElementById('detalleDesacople');
+  if (desacople != null) {
+    const calificacion = desacople < 5 ? 'muy bueno' : desacople < 10 ? 'aceptable, al límite' : 'alto — señal de fatiga o esfuerzo mal repartido';
+    elDesacople.textContent = 'Desacople ritmo:pulso: ' + desacople.toFixed(1) + '% — ' + calificacion;
+  } else {
+    elDesacople.textContent = 'Desacople ritmo:pulso: sin datos suficientes de pulso para calcularlo.';
+  }
+
+  const distanciaTotalSeg = sesion.duracionSeg;
+  const velocidadMedia = distanciaTotalSeg ? sesion.distanciaM / distanciaTotalSeg : null;
+  const eficienciaAerobica = calcularEficienciaAerobica(velocidadMedia, sesion.pulsoPromedio);
+  document.getElementById('detalleEficienciaAerobica').textContent = eficienciaAerobica != null
+    ? 'Eficiencia aeróbica: ' + eficienciaAerobica.toFixed(2) + ' (m/min)/bpm'
+    : 'Eficiencia aeróbica: sin datos suficientes de pulso.';
+
+  const elVsFantasma = document.getElementById('detalleVsFantasma');
+  elVsFantasma.textContent = sesion.gapFantasmaFinalM != null
+    ? 'vs Fantasma (final): ' + (sesion.gapFantasmaFinalM >= 0 ? '+' : '') + Math.round(sesion.gapFantasmaFinalM) + 'm'
+    : '';
+
+  dibujarGraficasDetalleSesion(puntos);
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function cerrarDetalleSesion() {
+  document.getElementById('cardDetalleSesion').style.display = 'none';
+}
+// gráficas simples de línea (velocidad suavizada, pulso, cadencia) a lo largo de la sesión — sin
+// librería externa, un canvas por serie, escalado a su propio mín/máx.
+function dibujarGraficasDetalleSesion(puntos) {
+  const cont = document.getElementById('graficasDetalleSesion');
+  if (!cont) return;
+  cont.innerHTML =
+    '<p class="nota">Ritmo</p><canvas id="graficaRitmo" height="70" style="width:100%;"></canvas>' +
+    '<p class="nota" style="margin-top:8px;">Pulso</p><canvas id="graficaPulso" height="70" style="width:100%;"></canvas>' +
+    '<p class="nota" style="margin-top:8px;">Cadencia</p><canvas id="graficaCadencia" height="70" style="width:100%;"></canvas>';
+  const velocidades = velocidadSuavizadaEnPuntos(puntos, 10).map(v => v.velocidad);
+  dibujarGraficoLinea('graficaRitmo', velocidades, '#4FD8C4');
+  dibujarGraficoLinea('graficaPulso', puntos.map(p => p.pulso), '#ff6b6b');
+  dibujarGraficoLinea('graficaCadencia', puntos.map(p => p.cadencia), '#e8b84b');
+}
+function dibujarGraficoLinea(canvasId, valores, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth || canvas.width, h = canvas.height;
+  canvas.width = w; canvas.height = h;
+  ctx.clearRect(0, 0, w, h);
+  const validos = valores.map((v, i) => ({ v, i })).filter(p => p.v != null && !isNaN(p.v));
+  if (validos.length < 2) {
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '12px system-ui';
+    ctx.fillText('Sin datos suficientes', 8, h / 2);
+    return;
+  }
+  const mn = Math.min(...validos.map(p => p.v)), mx = Math.max(...validos.map(p => p.v));
+  const rango = mx - mn || 1;
+  const margen = 6;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  validos.forEach((p, idx) => {
+    const x = (p.i / (valores.length - 1)) * w;
+    const y = h - margen - ((p.v - mn) / rango) * (h - margen * 2);
+    if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+let evolucionSesionesAbierta = false;
+function toggleEvolucionSesiones() {
+  evolucionSesionesAbierta = !evolucionSesionesAbierta;
+  const card = document.getElementById('cardEvolucionSesiones');
+  card.style.display = evolucionSesionesAbierta ? 'block' : 'none';
+  if (evolucionSesionesAbierta) {
+    const evolucion = calcularEvolucionSesiones(lsGet(K_SESIONES, []));
+    dibujarGraficoLinea('graficaEvolVelocidad', evolucion.velocidad.map(p => p.valor), '#4FD8C4');
+    dibujarGraficoLinea('graficaEvolPulso', evolucion.pulso.map(p => p.valor), '#ff6b6b');
+    dibujarGraficoLinea('graficaEvolCadencia', evolucion.cadencia.map(p => p.valor), '#e8b84b');
+    dibujarGraficoLinea('graficaEvolEficiencia', evolucion.eficienciaAerobica.map(p => p.valor), '#a78bfa');
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 function eliminarSesion(id) {
   const sesiones = lsGet(K_SESIONES, []);
