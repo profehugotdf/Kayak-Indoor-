@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v58</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v60</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -205,6 +205,15 @@
       <div id="listaCalib"></div>
       <button class="btn primario" onclick="guardarCalibracion()">Guardar calibración</button>
       <div class="estado-conexion" id="estadoCalib"></div>
+    </div>
+
+    <div class="card">
+      <h2>Umbral de pulso (para el TSS)</h2>
+      <p class="nota">El TSS de cada sesión se calcula comparando tu pulso medio contra este
+        umbral (tu FTHR aproximado — el pulso que podrías sostener durante ~1 hora a fondo). Sin
+        cargar esto, el TSS siempre va a dar 0, no porque la sesión no haya tenido esfuerzo.</p>
+      <input type="number" inputmode="numeric" id="inputUmbralPulso" placeholder="ej. 165" style="width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);">
+      <button class="btn primario" style="margin-top:8px;" onclick="guardarUmbralPulso()">Guardar umbral</button>
     </div>
 
     <div class="card">
@@ -462,6 +471,7 @@
         <div class="hud-tile"><div class="val" id="detallePulsoProm">--</div><div class="lbl">Pulso medio bpm</div></div>
         <div class="hud-tile"><div class="val" id="detallePulsoMax">--</div><div class="lbl">Pulso máx bpm</div></div>
         <div class="hud-tile"><div class="val" id="detalleCadencia">--</div><div class="lbl">Cadencia media p/m</div></div>
+        <div class="hud-tile"><div class="val" id="detallePaladas">--</div><div class="lbl">Paladas detectadas</div></div>
         <div class="hud-tile"><div class="val" id="detalleTSS">--</div><div class="lbl">TSS</div></div>
         <div class="hud-tile"><div class="val" id="detalleEficienciaPalada">--</div><div class="lbl">Vueltas/palada (± desvío)</div></div>
       </div>
@@ -1536,6 +1546,65 @@
         dibujarGraficoLinea() de v57 tal cual — no hizo falta escribir
         nada nuevo para el dibujo en sí, solo alimentarlo con los
         valores por sesión en vez de por segundo.
+   v59: Hugo mandó una captura real del detalle de sesión (v58) con tres
+        preguntas puntuales. (1) TSS en 0: no era un bug de cálculo — la
+        fórmula necesita un umbral de pulso (K_UMBRAL_PULSO) para
+        comparar, y esa config se LEÍA en calcularTSS() pero nunca se
+        podía ESCRIBIR desde ningún lugar de la app — no existía ningún
+        input para cargarla. Agregada tarjeta nueva en Calibración
+        ("Umbral de pulso (para el TSS)") con su input y
+        guardarUmbralPulso(). Ojo: esto solo afecta sesiones GUARDADAS DE
+        ACÁ EN MÁS — las ya guardadas con TSS=0 no se recalculan solas.
+        (2) Sin registro de cantidad de paladas: la app solo guardaba el
+        PROMEDIO de cadencia, nunca un conteo real de paladas. Agregado
+        registrarPaladaDetectada() — un solo punto central (mismo
+        criterio que establecerCadencia()) que suma
+        sesionActiva.paladasDetectadas cada vez que CUALQUIER detector
+        marca huboPico (cámara con marcador de color, cámara con
+        ángulo/movimiento, micrófono, o el sensor BLE el día que llegue)
+        — así no hay que tocar cuatro lugares distintos si el criterio
+        cambia. Se guarda en la sesión y se muestra en el detalle; las
+        sesiones viejas (guardadas antes de v59) van a mostrar "--" ahí,
+        honestamente, porque ese dato no se venía juntando.
+        (3) Tocar el gráfico para ver el dato: habilitarTooltipGrafico(),
+        enganchada a las tres gráficas del detalle — toca o arrastrá
+        sobre cualquiera y aparece el segundo exacto y el valor en ese
+        punto, al lado del título de la gráfica.
+   v60: llegó por fin el sensor de velocidad/cadencia (Cyclami C1) y
+        Hugo mandó CUATRO videos reales probándolo en el volante — con
+        eso pude diagnosticar en serio en vez de ajustar a ciegas, cosa
+        que veníamos evitando durante todo el desarrollo del detector de
+        cámara y que acá pagó igual de bien.
+        Video 1-2 (modo Cadencia, después modo Speed, parando a cero al
+        final): confirmé con OCR cuadro a cuadro que el RPM crudo se
+        queda pegado en un valor y deja de actualizarse después de un
+        rato — en ambos modos, no es un tema Cadencia-vs-Speed como
+        sospeché al principio. Sospecha: el sensor deja de notificar
+        cuando detecta muy poco movimiento (probablemente ahorro de
+        batería pensado para cuando una bici se detiene del todo), no
+        reporta 0 limpio.
+        Video 3 (remando acelerando todo el tiempo): RPM fluyó sin
+        trabarse, pero "vueltas de volante por palada" nunca apareció.
+        Video 4 (remando a ritmo PAREJO, sin acelerar): mismo resultado,
+        cero paladas detectadas en toda la prueba.
+        Extraje la secuencia real de RPM del video 4 por OCR y la corrí
+        por procesarMinimoLocal() tal cual está en producción, con
+        debug agregado en cada condición — encontré DOS bugs reales,
+        ninguno relacionado con Cadencia-vs-Speed:
+        (1) El suavizado EMA (cscRPMSuavizado, 60/40) aplanaba una
+        oscilación que ya es chica en su volante (~20 RPM de pico a
+        pico) — la tendencia quedaba "subiendo" casi todo el tiempo sin
+        ver nunca el valle. Sacado: ahora se pasa el RPM crudo directo.
+        (2) VENCIMIENTO_MS (2500ms, agregado para el bug de "la animación
+        seguía sola" tras dejar de remar) se disparaba de más: el hueco
+        real entre paladas detectadas en los datos de Hugo llegó a 2.83s
+        remando SIN PARAR, superando ese umbral y borrando el progreso
+        antes de poder armar un intervalo. Ensanchado a 6000ms (junto con
+        ventanaMs, también a 6000ms) — con esa combinación, simulando los
+        datos reales del video 4, pasó de 0 paladas detectadas a 4.
+        Saqué cscRPMSuavizado del todo (variable y su reset), ya no se
+        usa para nada — el HUD de RPM crudo siempre mostró el valor sin
+        tocar, eso no cambió.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1743,6 +1812,15 @@ function establecerCadencia(valor) {
   actual.cadencia = Math.max(0, Math.min(CADENCIA_MAX_FISICA, Math.round(valor)));
   cadenciaAlgunaVezReportada = true;
   return actual.cadencia;
+}
+// contador de paladas detectadas EN LA SESIÓN ACTIVA — a pedido de Hugo, que notó que la app
+// nunca guardaba "cuántas paladas hubo", solo el promedio de cadencia. Un solo punto central,
+// llamado desde cada detector que marca huboPico (cámara con marcador de color, cámara con
+// ángulo/movimiento general, micrófono, y el sensor BLE cuando llegue) — así no hay que tocar
+// cuatro lugares distintos si el criterio de conteo cambia en el futuro. No hace nada si no hay
+// sesión activa (por ejemplo, mientras se está probando el detector en Calibración).
+function registrarPaladaDetectada() {
+  if (sesionActiva) sesionActiva.paladasDetectadas = (sesionActiva.paladasDetectadas || 0) + 1;
 }
 
 async function conectarRelojBLE() {
@@ -1962,7 +2040,7 @@ async function conectarSensorCadenciaBLE() {
     estadoEl.className = 'estado-conexion';
     const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['cycling_speed_and_cadence'] }] });
     dispositivoCadenciaBLE = device;
-    cscUltimaManivela = null; cscUltimaRueda = null; cscEstadoPaladas = {}; cscUltimoRPM = null; cscRPMSuavizado = null; cscRevsAlUltimoPico = null;
+    cscUltimaManivela = null; cscUltimaRueda = null; cscEstadoPaladas = {}; cscUltimoRPM = null; cscRevsAlUltimoPico = null;
     cadenciaBLEUltimaRx = Date.now();
     cadenciaBLEDesconexionManejada = false;
     device.addEventListener('gattserverdisconnected', manejarDesconexionCadenciaBLE);
@@ -1987,7 +2065,6 @@ async function conectarSensorCadenciaBLE() {
 // sigue la tendencia del RPM y cuenta la palada en el instante donde deja de bajar y arranca a
 // subir — el momento exacto donde el tirón vuelve a aplicar torque, sin importar cuánto haya
 // decaído antes.
-let cscRPMSuavizado = null; // ver comentario en handleCSC — RPM instantáneo suavizado
 
 /* ============================================================
    EFICIENCIA POR PALADA — a pedido de Hugo: ya que se mide cadencia y
@@ -2034,21 +2111,24 @@ function handleCSC(event) {
   cscUltimoRPM = rpm;
   const rpmEl = document.getElementById('hudRPM');
   if (rpmEl) rpmEl.textContent = Math.round(rpm);
-  // el sensor solo puede contar revoluciones ENTERAS, así que el RPM "instantáneo" calculado
-  // entre dos revoluciones consecutivas es naturalmente ruidoso (más a cadencias bajas, con pocas
-  // vueltas por segundo) — un suavizado liviano (media móvil exponencial) antes de pasarlo al
-  // detector de mínimo local evita que ese ruido de revolución-a-revolución se confunda con la
-  // tendencia real de sube/baja de la palada. El tile del HUD sigue mostrando el RPM CRUDO sin
-  // tocar (para diagnóstico); esto solo afecta a lo que ve el detector.
-  cscRPMSuavizado = cscRPMSuavizado == null ? rpm : cscRPMSuavizado * 0.6 + rpm * 0.4;
-  cscEstadoPaladas = procesarMinimoLocal(cscEstadoPaladas, cscRPMSuavizado, performance.now(), { minMuestras: 3 });
-  // minMuestras más bajo que el default (5): un sensor de revolución real puede notificar poco
-  // seguido a cadencias bajas (pocas vueltas por segundo) — con el default, el "arranque en frío"
-  // podría no terminar de juntar suficientes muestras dentro de la ventana de 1.2s.
+  // v60 — Hugo mandó tres videos reales remando con el sensor puesto, y "vueltas de volante por
+  // palada" nunca mostró nada en ninguno. Simulé la secuencia EXACTA de esos videos (extraída
+  // cuadro a cuadro) por esta misma función y encontré DOS problemas reales:
+  // (1) el suavizado (EMA) aplanaba demasiado una oscilación que ya es chica de por sí (~20 RPM
+  //     de pico a pico en su volante) — la tendencia quedaba "subiendo" casi todo el tiempo, sin
+  //     llegar a ver el valle. Sacado: ahora se pasa el RPM crudo directo al detector.
+  // (2) VENCIMIENTO_MS (2500ms por defecto, agregado para el bug de "la animación seguía sola")
+  //     se disparaba de más: el sensor real notifica más espaciado de lo que asumí (huecos de
+  //     hasta ~2.8s entre paladas detectadas, incluso remando sin parar), superando ese umbral y
+  //     borrando el progreso antes de poder armar un intervalo. Ensanchado a 6000ms acá, igual que
+  //     la ventana — con los datos reales de Hugo, esta combinación fue la que finalmente detectó
+  //     las 4 paladas de la prueba en vez de ninguna.
+  cscEstadoPaladas = procesarMinimoLocal(cscEstadoPaladas, rpm, performance.now(), { minMuestras: 3, ventanaMs: 6000, vencimientoMs: 6000 });
   // la cadencia de PALADAS (lo que alimenta distancia/animación) viene del detector de mínimo
   // local, NO del RPM crudo directamente
   if (cscEstadoPaladas.cadencia != null) establecerCadencia(cscEstadoPaladas.cadencia);
   if (cscEstadoPaladas.huboPico) {
+    registrarPaladaDetectada();
     const revsActuales = hayManivela ? cscUltimaManivela.revs : cscUltimaRueda.revs;
     const modulo = hayManivela ? 65536 : 4294967296;
     const revsPorPalada = calcularRevsPorPalada(cscRevsAlUltimoPico, revsActuales, modulo);
@@ -2359,7 +2439,7 @@ function loopMicCadencia() {
     // criterio de "el último que escribe manda" que ya se usa para el pulso banda/reloj.
     establecerCadencia(cad);
   }
-  if (micEstado.huboPico) destellar('flashMic');
+  if (micEstado.huboPico) { registrarPaladaDetectada(); destellar('flashMic'); }
   micRAF = requestAnimationFrame(loopMicCadencia);
 }
 function detenerMicCadencia() {
@@ -2651,7 +2731,7 @@ function loopCamCadencia() {
           document.getElementById('cadCam').firstChild.textContent = cad;
           establecerCadencia(cad);
         }
-        if (camEstadoMarcador.huboPico) destellar('flashCam');
+        if (camEstadoMarcador.huboPico) { registrarPaladaDetectada(); destellar('flashCam'); }
       }
       // si el centroide da null (el marcador no aparece en este cuadro — tapado, o fuera de la
       // zona), simplemente no actualizo nada este cuadro; no es un error, puede pasar en el
@@ -2687,7 +2767,7 @@ function loopCamCadencia() {
           document.getElementById('cadCam').firstChild.textContent = cad;
           establecerCadencia(cad); // mismo motivo que en loopMicCadencia — ver comentario ahí
         }
-        if (camEstado.huboPico) destellar('flashCam');
+        if (camEstado.huboPico) { registrarPaladaDetectada(); destellar('flashCam'); }
       }
     }
     camFramePrev = frame;
@@ -3000,6 +3080,15 @@ function renderCalibracion() {
       '</div>';
   }).join('');
   CALIB_CADENCIAS.forEach(c => marcarConfiabilidadCalib(c));
+  const inputUmbral = document.getElementById('inputUmbralPulso');
+  const umbralGuardado = lsGet(K_UMBRAL_PULSO, null);
+  if (inputUmbral && umbralGuardado) inputUmbral.value = umbralGuardado;
+}
+function guardarUmbralPulso() {
+  const valor = parseInt(document.getElementById('inputUmbralPulso').value, 10);
+  if (!valor || valor <= 0) { toast('Ingresá un número de pulso válido'); return; }
+  lsSet(K_UMBRAL_PULSO, valor);
+  toast('Umbral de pulso guardado (' + valor + ' bpm) — se va a usar en las próximas sesiones que guardes');
 }
 // muestra/oculta el aviso de "poco confiable" para una fila, según la distancia elegida ahí AHORA
 // MISMO (no la que tenía guardada) — se llama al renderizar y también cada vez que se cambia el
@@ -3555,6 +3644,7 @@ function iniciarSesion() {
     metaTipo, // se congela al iniciar — cambiar la meta después no afecta una sesión ya corriendo
     metaValor,
     eficienciaPaladas: [], // vueltas del volante por cada palada (solo se llena con el sensor BLE conectado)
+    paladasDetectadas: 0, // contador de paladas — ver registrarPaladaDetectada()
   };
   puntosSesion = [];
   document.getElementById('btnIniciar').style.display = 'none';
@@ -3722,6 +3812,7 @@ function finalizarSesion() {
     eficienciaPromedio: eficiencia ? eficiencia.promedio : null, // vueltas de volante por palada, promedio de la sesión
     eficienciaDesvio: eficiencia ? eficiencia.desvioEstandar : null, // qué tan parejo — más bajo = técnica más consistente
     gapFantasmaFinalM: gapFantasmaFinal, // metros de diferencia contra el fantasma al terminar (positivo = ganaste), null si no había fantasma activo
+    paladasDetectadas: sesionActiva.paladasDetectadas || 0,
   };
   const sesiones = lsGet(K_SESIONES, []);
   sesiones.push(sesion);
@@ -3834,6 +3925,7 @@ function mostrarDetalleSesion(id) {
   document.getElementById('detallePulsoProm').textContent = sesion.pulsoPromedio != null ? sesion.pulsoPromedio : '--';
   document.getElementById('detallePulsoMax').textContent = sesion.pulsoMax != null ? sesion.pulsoMax : '--';
   document.getElementById('detalleCadencia').textContent = sesion.cadenciaPromedio != null ? sesion.cadenciaPromedio : '--';
+  document.getElementById('detallePaladas').textContent = sesion.paladasDetectadas != null ? sesion.paladasDetectadas : '--';
   document.getElementById('detalleTSS').textContent = sesion.tss != null ? sesion.tss : '--';
   document.getElementById('detalleEficienciaPalada').textContent = sesion.eficienciaPromedio != null
     ? sesion.eficienciaPromedio.toFixed(1) + (sesion.eficienciaDesvio != null ? ' ± ' + sesion.eficienciaDesvio.toFixed(1) : '')
@@ -3874,13 +3966,38 @@ function dibujarGraficasDetalleSesion(puntos) {
   const cont = document.getElementById('graficasDetalleSesion');
   if (!cont) return;
   cont.innerHTML =
-    '<p class="nota">Ritmo</p><canvas id="graficaRitmo" height="70" style="width:100%;"></canvas>' +
-    '<p class="nota" style="margin-top:8px;">Pulso</p><canvas id="graficaPulso" height="70" style="width:100%;"></canvas>' +
-    '<p class="nota" style="margin-top:8px;">Cadencia</p><canvas id="graficaCadencia" height="70" style="width:100%;"></canvas>';
+    '<p class="nota">Ritmo <span class="nota" id="tooltipRitmo" style="color:var(--ritmo); font-family:var(--mono);"></span></p><canvas id="graficaRitmo" height="70" style="width:100%; touch-action:none;"></canvas>' +
+    '<p class="nota" style="margin-top:8px;">Pulso <span class="nota" id="tooltipPulso" style="color:var(--pulso); font-family:var(--mono);"></span></p><canvas id="graficaPulso" height="70" style="width:100%; touch-action:none;"></canvas>' +
+    '<p class="nota" style="margin-top:8px;">Cadencia <span class="nota" id="tooltipCadencia" style="color:#e8b84b; font-family:var(--mono);"></span></p><canvas id="graficaCadencia" height="70" style="width:100%; touch-action:none;"></canvas>';
+  const tiempos = puntos.map(p => p.t);
   const velocidades = velocidadSuavizadaEnPuntos(puntos, 10).map(v => v.velocidad);
   dibujarGraficoLinea('graficaRitmo', velocidades, '#4FD8C4');
   dibujarGraficoLinea('graficaPulso', puntos.map(p => p.pulso), '#ff6b6b');
   dibujarGraficoLinea('graficaCadencia', puntos.map(p => p.cadencia), '#e8b84b');
+  // a pedido de Hugo: tocar cualquier punto de estas gráficas para ver el valor exacto ahí, no
+  // solo la forma general de la curva
+  habilitarTooltipGrafico('graficaRitmo', 'tooltipRitmo', tiempos, velocidades, v => (v * 60).toFixed(0) + ' m/min');
+  habilitarTooltipGrafico('graficaPulso', 'tooltipPulso', tiempos, puntos.map(p => p.pulso), v => Math.round(v) + ' bpm');
+  habilitarTooltipGrafico('graficaCadencia', 'tooltipCadencia', tiempos, puntos.map(p => p.cadencia), v => Math.round(v) + ' p/m');
+}
+// tocar/arrastrar sobre una gráfica de línea muestra el valor y el segundo exacto de ese punto —
+// busca el índice más cercano a la posición horizontal del toque (no hace falta que caiga
+// justo en un punto real) y lo escribe en el <span> de al lado del título de la gráfica.
+function habilitarTooltipGrafico(canvasId, tooltipId, tiempos, valores, formatoValor) {
+  const canvas = document.getElementById(canvasId);
+  const tooltipEl = document.getElementById(tooltipId);
+  if (!canvas || !tooltipEl) return;
+  function mostrar(evt) {
+    evt.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const fraccion = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const idx = Math.round(fraccion * (valores.length - 1));
+    const v = valores[idx], t = tiempos[idx];
+    tooltipEl.textContent = (v == null || isNaN(v)) ? '(sin dato ahí)' : '— ' + segAHMS(Math.round(t)) + ': ' + formatoValor(v);
+  }
+  canvas.addEventListener('pointerdown', mostrar);
+  canvas.addEventListener('pointermove', mostrar);
 }
 function dibujarGraficoLinea(canvasId, valores, color) {
   const canvas = document.getElementById(canvasId);
