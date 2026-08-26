@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v60</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v61</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -139,6 +139,9 @@
       <p class="nota" style="margin-top:6px;">RPM crudo del eje (velocidad de rotación, no
         paladas): <span id="hudRPM" style="font-family:var(--mono); color:var(--ritmo);">--</span></p>
       <p class="nota" style="margin-top:4px;">Vueltas de volante por palada (eficiencia): <span id="hudVueltasPorPalada" style="font-family:var(--mono); color:var(--ritmo);">--</span></p>
+      <p class="nota" style="margin-top:8px; font-weight:700;">Para comparar las dos fuentes de cadencia sin scrollear:</p>
+      <p class="nota" style="margin-top:2px;">Cámara (paladas/min): <span id="hudCadenciaCamara" style="font-family:var(--mono); color:#4FD8C4;">--</span></p>
+      <p class="nota" style="margin-top:2px;">Sensor BLE (paladas/min): <span id="hudCadenciaBLE" style="font-family:var(--mono); color:#E8B84B;">--</span></p>
       <p class="nota" style="margin-top:8px; font-family:var(--mono); font-size:11px;" id="debugRSC">
         RSC crudo: sin datos todavía. Si esto no cambia al remar, la notificación no está
         llegando (probablemente hay que apretar "Iniciar" la actividad en el reloj, no alcanza
@@ -1605,6 +1608,23 @@
         Saqué cscRPMSuavizado del todo (variable y su reset), ya no se
         usa para nada — el HUD de RPM crudo siempre mostró el valor sin
         tocar, eso no cambió.
+   v61: Hugo quería comparar la cadencia detectada por cámara contra la
+        del sensor BLE, y notó que no se pueden ver los dos datos en
+        pantalla a la vez — el HUD "En vivo" (donde vive "Paladas/min")
+        queda mucho más abajo que la tarjeta de Sensores, que es larga
+        por todo el texto de ayuda. En vez de pedirle scrollear con
+        cuidado, agregué las dos cadencias por separado DENTRO de la
+        misma tarjeta de Sensores, al lado de RPM crudo: "Cámara
+        (paladas/min)" y "Sensor BLE (paladas/min)", cada una alimentada
+        por su propia fuente sin pisarse — a diferencia de
+        actual.cadencia (que es "el último que reportó gana", pensado
+        para animar un solo kayakista, no para comparar dos fuentes
+        entre sí). El sensor BLE escribe en hudCadenciaBLE desde
+        cscEstadoPaladas.cadencia; los dos caminos de cámara (marcador de
+        color y ángulo/movimiento) escriben en hudCadenciaCamara además
+        de seguir actualizando el cadCam que ya existía en Calibración —
+        no se tocó nada de la lógica de detección en sí, solo se agregó
+        un lugar más visible para leer el resultado de cada una.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2126,7 +2146,11 @@ function handleCSC(event) {
   cscEstadoPaladas = procesarMinimoLocal(cscEstadoPaladas, rpm, performance.now(), { minMuestras: 3, ventanaMs: 6000, vencimientoMs: 6000 });
   // la cadencia de PALADAS (lo que alimenta distancia/animación) viene del detector de mínimo
   // local, NO del RPM crudo directamente
-  if (cscEstadoPaladas.cadencia != null) establecerCadencia(cscEstadoPaladas.cadencia);
+  if (cscEstadoPaladas.cadencia != null) {
+    establecerCadencia(cscEstadoPaladas.cadencia);
+    const elCadBLE = document.getElementById('hudCadenciaBLE');
+    if (elCadBLE) elCadBLE.textContent = Math.round(cscEstadoPaladas.cadencia);
+  }
   if (cscEstadoPaladas.huboPico) {
     registrarPaladaDetectada();
     const revsActuales = hayManivela ? cscUltimaManivela.revs : cscUltimaRueda.revs;
@@ -2729,6 +2753,8 @@ function loopCamCadencia() {
         if (camEstadoMarcador.cadencia != null) {
           const cad = Math.round(camEstadoMarcador.cadencia);
           document.getElementById('cadCam').firstChild.textContent = cad;
+          const elCadCamara = document.getElementById('hudCadenciaCamara');
+          if (elCadCamara) elCadCamara.textContent = cad;
           establecerCadencia(cad);
         }
         if (camEstadoMarcador.huboPico) { registrarPaladaDetectada(); destellar('flashCam'); }
@@ -2765,6 +2791,8 @@ function loopCamCadencia() {
         if (camEstado.cadencia != null) {
           const cad = Math.round(camEstado.cadencia);
           document.getElementById('cadCam').firstChild.textContent = cad;
+          const elCadCamara = document.getElementById('hudCadenciaCamara');
+          if (elCadCamara) elCadCamara.textContent = cad;
           establecerCadencia(cad); // mismo motivo que en loopMicCadencia — ver comentario ahí
         }
         if (camEstado.huboPico) { registrarPaladaDetectada(); destellar('flashCam'); }
