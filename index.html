@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v62</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v63</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1640,6 +1640,23 @@
         width:auto a mano, porque .btn es bloque por defecto (100% de
         ancho) y los dos botones se hubieran apilado en vez de quedar
         lado a lado.
+   v63: Hugo preguntó si con el JSON se va a poder ver qué hizo el
+        sensor BLE nuevo durante la sesión — la respuesta honesta era
+        que no del todo: puntosSesion solo guardaba "cadencia" (la
+        MEZCLADA, último que reportó gana, cámara o BLE indistinto), sin
+        ninguna traza separada por fuente. Como esto sirve justo para lo
+        que va a necesitar mañana (comparar cámara vs. BLE a lo largo de
+        toda la sesión de 10 min, no solo mirando dos números en vivo un
+        par de veces), agregué tres campos nuevos a cada punto de
+        tick(), sin tocar "cadencia" (la mezclada, la sigue usando el
+        resto de la app tal cual): rpmCrudo (RPM crudo del sensor BLE),
+        cadenciaBLE (paladas/min que calculó el detector sobre esa
+        señal), y cadenciaCamara (paladas/min de cualquiera de los dos
+        modos de cámara activo). null en la que no esté conectada/activa
+        en ese segundo. Viajan automático en el JSON (que vuelca la
+        sesión completa); no toqué el TCX, que sigue exportando solo lo
+        de siempre — es un formato estándar, agregar campos que ningún
+        otro programa entiende no tiene sentido ahí.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3712,8 +3729,20 @@ function tick() {
   sesionActiva.distanciaM += vel; // 1 tick = 1 segundo
   if (actual.pulso > 0) sesionActiva.pulsos.push(actual.pulso);
   const tSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
-  // un punto por segundo, para poder armar un TCX con track real (no solo el resumen del Lap)
-  puntosSesion.push({ t: tSeg, distAcum: sesionActiva.distanciaM, pulso: actual.pulso || null, cadencia: cadenciaAlgunaVezReportada ? actual.cadencia : null });
+  // un punto por segundo, para poder armar un TCX con track real (no solo el resumen del Lap).
+  // A pedido de Hugo (quería poder analizar qué hizo el sensor BLE nuevo por separado, no solo
+  // el número mezclado): además de "cadencia" (la mezclada, último que reportó gana — sigue
+  // igual, la usa el resto de la app), se guardan las tres fuentes por separado sin mezclarse:
+  // rpmCrudo (velocidad de rotación cruda del sensor BLE, no paladas), cadenciaBLE (paladas/min
+  // que calculó el detector sobre esa señal), y cadenciaCamara (paladas/min de cualquiera de los
+  // dos modos de cámara, el que esté activo). null si esa fuente no está conectada/activa.
+  puntosSesion.push({
+    t: tSeg, distAcum: sesionActiva.distanciaM, pulso: actual.pulso || null,
+    cadencia: cadenciaAlgunaVezReportada ? actual.cadencia : null,
+    rpmCrudo: cscUltimoRPM,
+    cadenciaBLE: cscEstadoPaladas.cadencia != null ? cscEstadoPaladas.cadencia : null,
+    cadenciaCamara: camEstadoMarcador.cadencia != null ? camEstadoMarcador.cadencia : (camEstado.cadencia != null ? camEstado.cadencia : null),
+  });
 
   document.getElementById('hudCadencia').textContent = cadenciaAlgunaVezReportada ? actual.cadencia : '--';
   document.getElementById('hudPulso').textContent = actual.pulso || '--';
