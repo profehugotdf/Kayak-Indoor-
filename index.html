@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v64</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v66</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -217,6 +217,23 @@
         cargar esto, el TSS siempre va a dar 0, no porque la sesión no haya tenido esfuerzo.</p>
       <input type="number" inputmode="numeric" id="inputUmbralPulso" placeholder="ej. 165" style="width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);">
       <button class="btn primario" style="margin-top:8px;" onclick="guardarUmbralPulso()">Guardar umbral</button>
+    </div>
+
+    <div class="card">
+      <h2>Calibración por velocímetro (RPM del sensor BLE)</h2>
+      <p class="nota">Más directa que la calibración por cadencia — el RPM responde a tu esfuerzo
+        real instante a instante, no solo al ritmo. No hace falta sostener un ppm exacto con
+        metrónomo: remá un tramo parejo a cualquier pace, anotá cuántos metros hiciste de verdad,
+        y la app calcula sola el RPM promedio de ese tramo y la velocidad real. Hacé 3-4 tramos a
+        paces distintos (suave, medio, fuerte) para armar una curva — con al menos un punto ya se
+        usa esto en vez de la cadencia; cuantos más puntos, mejor interpola en el medio.</p>
+      <button class="btn primario" id="btnIniciarTramoRPM" style="margin-top:8px;" onclick="iniciarTramoCalibRPM()">▶ Iniciar tramo</button>
+      <div id="cardTramoEnCurso" style="display:none; margin-top:8px;">
+        <p class="nota">Tramo en curso — remá parejo. Cuando llegues a tu marca, anotá los metros reales y tocá "Terminar tramo".</p>
+        <input type="number" inputmode="decimal" id="inputDistanciaTramoRPM" placeholder="metros reales remados" style="width:100%; margin-top:6px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);">
+        <button class="btn peligro" style="margin-top:8px;" onclick="terminarTramoCalibRPM()">■ Terminar tramo</button>
+      </div>
+      <div id="listaCalibRPM" style="margin-top:10px;"></div>
     </div>
 
     <div class="card">
@@ -1684,11 +1701,70 @@
         poder re-simular el diagnóstico completo la próxima vez sin este
         mismo problema de muestreo. Viaja en el JSON (no en el TCX, mismo
         criterio que v63).
+   v65: Hugo mandó una segunda sesión de 10 minutos, ya con logCSC real
+        activado — y avisó algo clave: mantuvo la cadencia PAREJA todo
+        el tiempo (~70-75, tal vez bajando un poco al final), nunca de
+        75 a 17 como parecía sugerir el resultado. Con logCSC pude
+        re-simular contra los timestamps REALES de cada notificación
+        (598 en 10 min — mediana ~730ms entre una y la siguiente).
+        (1) Primera hipótesis: la ventana de tiempo (VENTANA_MS) mezcla
+        varias paladas reales en una sola evaluación. Agregado
+        opts.ventanaMuestras a procesarMinimoLocal() (ventana por
+        CANTIDAD de muestras en vez de por milisegundos) para probarlo.
+        Resultado: no mejoró gran cosa (16.3 p/m con ventana en tiempo,
+        14.5-16.3 p/m con ventana en muestras, todas lejísimos de 75).
+        (2) Mirando el logCSC crudo sin promediar encontré la causa de
+        fondo: a 350-370 RPM el volante da ~6 vueltas por segundo, pero
+        el sensor notifica una vez por segundo SIEMPRE, sin importar la
+        velocidad — cada "RPM" que manda ya es un promedio sobre ~1s,
+        que es más o menos lo que dura una palada entera. La oscilación
+        de tirón/recuperación que hace falta para separar una palada de
+        otra queda borrada por el propio muestreo del sensor, ANTES de
+        llegar a la app — no es algo que ninguna ventana ni umbral de
+        software pueda recuperar, la información ya no está.
+        Esto reabre la decisión pendiente que había quedado anotada
+        desde después de v45: la eficiencia por palada tiene que
+        dispararse desde un detector que SÍ ubique bien el instante de
+        cada palada (cámara o micrófono, ya validados con datos reales),
+        no desde la oscilación del propio sensor BLE. Implementado:
+        registrarVueltasPorPalada() (nueva, reemplaza la lógica que
+        vivía adentro del huboPico del BLE) se llama ahora desde los
+        huboPico de cámara Y de micrófono — el sensor BLE solo aporta
+        las vueltas ACUMULADAS (dato exacto, no depende de detectar
+        ninguna oscilación) al momento exacto que cámara/micrófono dicen
+        "acá pasó una palada". cadenciaBLE queda como dato de
+        diagnóstico en pantalla nada más, ya no dispara nada.
+   v66: Hugo preguntó por qué la distancia seguía estimándose solo por
+        cadencia calibrada, si "para eso es el velocímetro, no?" — tenía
+        razón: la calibración por cadencia trata igual una palada floja
+        y una fuerte con tal de que tengan el mismo ritmo, mientras que
+        el RPM del volante responde al esfuerzo real instante a
+        instante. Agregada una calibración PARALELA por RPM (nueva
+        tarjeta en Calibración), sin tocar velocidadEstimada() (la de
+        cadencia, que sigue igual como respaldo).
+        velocidadEstimadaDesdeRPM() — misma interpolación lineal que la
+        de cadencia, pero devuelve null (no 0) cuando falta calibración
+        O cuando no hay lectura de RPM en ese instante — para que el
+        que llama sepa que tiene que caer al respaldo de cadencia, en
+        vez de mostrar velocidad 0 y congelar la distancia si el sensor
+        se desconecta a mitad de sesión.
+        Protocolo de calibración MÁS SIMPLE que el de cadencia: no hace
+        falta sostener un ppm exacto con metrónomo — botón "Iniciar
+        tramo", remar parejo a cualquier pace, anotar los metros reales,
+        "Terminar tramo" — la app arma sola el punto (RPM promedio de
+        ese tramo vía promedioRPM(), tiempo real, velocidad =
+        distancia/tiempo). Con 3-4 tramos a paces distintos ya arma una
+        curva. tramoCalibRPM (nuevo) junta las muestras crudas de RPM
+        mientras el tramo está en curso, alimentado desde handleCSC().
+        elegirVelocidadEstimada() (pura) decide entre las dos fuentes en
+        cada tick(): RPM si hay al menos un punto calibrado Y lectura
+        válida en ese instante, cadencia si no.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
 const K_SESIONES = LS_PREFIX + 'sesiones';
 const K_CALIBRACION = LS_PREFIX + 'calibracion';
+const K_CALIBRACION_RPM = LS_PREFIX + 'calibracion_rpm';
 const K_UMBRAL_PULSO = LS_PREFIX + 'umbral_pulso';
 const K_FORMA_COMPARTIDA = 'entrenamiento_forma_registro';
 
@@ -1775,6 +1851,100 @@ function velocidadEstimada(cadencia, puntosCalib) {
     }
   }
   return vel(pts[pts.length - 1]);
+}
+
+/* ============================================================
+   CALIBRACIÓN velocímetro (RPM) -> velocidad — a pedido de Hugo: "para
+   eso es el velocímetro, no?". La calibración por cadencia trata igual
+   una palada floja y una fuerte con tal de que tengan el mismo ritmo —
+   el RPM del volante responde al esfuerzo real instante a instante, es
+   una medición más directa. Mismo tipo de interpolación que
+   velocidadEstimada() (función hermana, sin tocar esa para no arriesgar
+   nada de lo que ya funciona), pero con un protocolo de calibración
+   MÁS SIMPLE: no hace falta sostener un ppm exacto con metrónomo — se
+   rema un tramo a cualquier ritmo parejo, se anota la distancia real, y
+   la app arma el punto (RPM promedio de ese tramo, velocidad real =
+   distancia/tiempo) sola. Con 3-4 tramos a paces distintos (suave,
+   medio, fuerte) ya se arma una curva razonable.
+   ============================================================ */
+// puntos: [{rpmPromedio, distanciaM, tiempoSeg}]. Misma interpolación lineal que la de cadencia,
+// clampeada por fuera del rango conocido.
+function velocidadEstimadaDesdeRPM(rpm, puntosCalibRPM) {
+  if (!puntosCalibRPM || !puntosCalibRPM.length) return null; // null, no 0 — distinto de "sin velocidad", es "no hay con qué calcular esto todavía", para que el que llama sepa que tiene que usar el fallback de cadencia
+  if (rpm == null) return null; // sin lectura del sensor en este instante (desconectado, o todavía sin datos) — también fallback, no 0. Distinto de rpm=0 real (sensor confirma que está quieto), que sí es una velocidad válida de 0.
+  if (rpm <= 0) return 0;
+  const pts = [...puntosCalibRPM].sort((a, b) => a.rpmPromedio - b.rpmPromedio);
+  const vel = p => p.distanciaM / p.tiempoSeg;
+  if (rpm <= pts[0].rpmPromedio) return vel(pts[0]);
+  if (rpm >= pts[pts.length - 1].rpmPromedio) return vel(pts[pts.length - 1]);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (rpm >= a.rpmPromedio && rpm <= b.rpmPromedio) {
+      const t = (rpm - a.rpmPromedio) / (b.rpmPromedio - a.rpmPromedio);
+      return vel(a) + t * (vel(b) - vel(a));
+    }
+  }
+  return vel(pts[pts.length - 1]);
+}
+// promedio simple de un array de RPM — separado en su propia función solo para poder testearlo
+// aislado del resto (junta las muestras crudas de un tramo y las reduce a un solo número).
+function promedioRPM(muestras) {
+  if (!muestras || !muestras.length) return null;
+  return muestras.reduce((a, b) => a + b, 0) / muestras.length;
+}
+let tramoCalibRPM = null; // { inicio: Date.now(), muestras: [] } mientras hay un tramo en curso; null si no
+function iniciarTramoCalibRPM() {
+  if (!cscUltimaManivela && !cscUltimaRueda) { toast('Conectá el sensor de cadencia/velocidad (BLE) primero'); return; }
+  tramoCalibRPM = { inicio: Date.now(), muestras: [] };
+  document.getElementById('btnIniciarTramoRPM').style.display = 'none';
+  document.getElementById('cardTramoEnCurso').style.display = 'block';
+  toast('Tramo iniciado — remá parejo y tocá "Terminar tramo" al llegar a la distancia elegida');
+}
+function terminarTramoCalibRPM() {
+  if (!tramoCalibRPM) return;
+  const tiempoSeg = (Date.now() - tramoCalibRPM.inicio) / 1000;
+  const distanciaM = parseFloat(document.getElementById('inputDistanciaTramoRPM').value);
+  const rpmProm = promedioRPM(tramoCalibRPM.muestras);
+  if (!distanciaM || distanciaM <= 0) { toast('Ingresá la distancia real que remaste en este tramo'); return; }
+  if (rpmProm == null) { toast('No se juntó ninguna muestra de RPM en este tramo — ¿estaba conectado el sensor?'); tramoCalibRPM = null; document.getElementById('btnIniciarTramoRPM').style.display = 'block'; document.getElementById('cardTramoEnCurso').style.display = 'none'; return; }
+  const puntos = lsGet(K_CALIBRACION_RPM, []);
+  puntos.push({ rpmPromedio: rpmProm, distanciaM, tiempoSeg });
+  lsSet(K_CALIBRACION_RPM, puntos);
+  tramoCalibRPM = null;
+  document.getElementById('btnIniciarTramoRPM').style.display = 'block';
+  document.getElementById('cardTramoEnCurso').style.display = 'none';
+  document.getElementById('inputDistanciaTramoRPM').value = '';
+  toast('Punto agregado: ' + Math.round(rpmProm) + ' RPM ≈ ' + (distanciaM / tiempoSeg).toFixed(2) + ' m/s');
+  renderCalibRPM();
+}
+function renderCalibRPM() {
+  const cont = document.getElementById('listaCalibRPM');
+  if (!cont) return;
+  const puntos = [...lsGet(K_CALIBRACION_RPM, [])].sort((a, b) => a.rpmPromedio - b.rpmPromedio);
+  if (!puntos.length) { cont.innerHTML = '<p class="nota">Sin puntos todavía — remá 3-4 tramos a paces distintos para armar la curva.</p>'; return; }
+  cont.innerHTML = puntos.map((p, i) => {
+    return '<div class="fila" style="align-items:center; gap:8px; margin-top:4px;">' +
+      '<span class="nota" style="flex:1;">' + Math.round(p.rpmPromedio) + ' RPM ≈ ' + (p.distanciaM / p.tiempoSeg).toFixed(2) + ' m/s (' + p.distanciaM + 'm en ' + segAHMS(Math.round(p.tiempoSeg)) + ')</span>' +
+      '<button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 8px; color:var(--pulso);" onclick="eliminarPuntoCalibRPMPorRPM(' + p.rpmPromedio + ')">🗑</button>' +
+      '</div>';
+  }).join('');
+}
+// elimina por valor de rpmPromedio en vez de índice — más simple que rastrear el índice real
+// después de ordenar para mostrar, sin tener que duplicar el orden en dos lugares
+function eliminarPuntoCalibRPMPorRPM(rpmPromedio) {
+  const puntos = lsGet(K_CALIBRACION_RPM, []);
+  const idx = puntos.findIndex(p => p.rpmPromedio === rpmPromedio);
+  if (idx >= 0) { puntos.splice(idx, 1); lsSet(K_CALIBRACION_RPM, puntos); renderCalibRPM(); }
+}
+// decide qué fuente de velocidad usar en cada tick — pura, sin tocar localStorage ni DOM, para
+// poder testearla con combinaciones a mano. Preferencia: RPM del velocímetro si hay al menos un
+// punto de calibración cargado (más directo, responde al esfuerzo real); si no hay ningún punto
+// todavía, cae de vuelta a la cadencia (lo que ya usaba la app antes de esto, sigue funcionando
+// igual para quien no tenga el sensor conectado o no haya calibrado por RPM todavía).
+function elegirVelocidadEstimada(rpmActual, puntosCalibRPM, cadencia, puntosCalibCadencia) {
+  const velRPM = velocidadEstimadaDesdeRPM(rpmActual, puntosCalibRPM);
+  if (velRPM != null) return { velocidad: velRPM, fuente: 'rpm' };
+  return { velocidad: velocidadEstimada(cadencia, puntosCalibCadencia), fuente: 'cadencia' };
 }
 
 function calcularTSS(duracionSeg, pulsoPromedio, umbralPulso) {
@@ -2080,8 +2250,21 @@ function procesarMinimoLocal(estado, valor, tsMs, opts) {
     intervalos = [];
     vencido = true;
   }
-  const historial = (estado.historial || []).concat([{ valor, ts: tsMs }])
-    .filter(p => tsMs - p.ts <= VENTANA_MS);
+  // v64b — primera hipótesis al ver el logCSC real: VENTANA_MS (basada en TIEMPO) sería la
+  // pieza equivocada para el sensor BLE, porque notifica espaciado (mediana ~730ms) y cualquier
+  // ventana de tiempo que junte las MIN_MUESTRAS necesarias terminaría abarcando varias paladas
+  // reales de una. Agregado opts.ventanaMuestras como alternativa (filtro por CANTIDAD fija de
+  // muestras más recientes, en vez de por milisegundos) — cámara/mic no lo usan, siguen con
+  // ventanaMs de siempre. Resultado real: NO mejoró gran cosa (ver v64c) — la causa de fondo
+  // resultó ser otra (el propio sensor promedia ~1s antes de notificar, así que la oscilación
+  // que hace falta para separar paladas ya viene borrada, no importa cómo se agrupe después). Se
+  // deja la capacidad igual, por si sirve en otro contexto — pero no es lo que terminó
+  // resolviendo el problema real; eso fue mover el disparador entero a la cámara/mic (ver
+  // registrarVueltasPorPalada()).
+  const historialPrevio = (estado.historial || []).concat([{ valor, ts: tsMs }]);
+  const historial = opts.ventanaMuestras
+    ? historialPrevio.slice(-opts.ventanaMuestras)
+    : historialPrevio.filter(p => tsMs - p.ts <= VENTANA_MS);
   const valores = historial.map(p => p.valor);
   const mn = Math.min(...valores), mx = Math.max(...valores);
   const rango = mx - mn;
@@ -2164,6 +2347,25 @@ function calcularRevsPorPalada(revsAlPicoAnterior, revsAlPicoActual, modulo) {
   if (delta < 0) delta += modulo; // desbordó el contador de revoluciones entre una palada y la siguiente
   return delta;
 }
+// dispara el conteo de vueltas por palada — llamado desde el huboPico de la CÁMARA o el
+// MICRÓFONO (detectores confiables de cuándo pasa una palada), NO desde el del sensor BLE (ver
+// el comentario largo en handleCSC de por qué se sacó de ahí).
+// No hace nada si no hay un sensor BLE conectado (cscUltimaManivela/cscUltimaRueda ambos null) —
+// la cámara puede estar detectando paladas perfectamente sin que haya ningún dato de vueltas que
+// cruzar contra eso.
+function registrarVueltasPorPalada() {
+  if (!cscUltimaManivela && !cscUltimaRueda) return;
+  const hayManivela = !!cscUltimaManivela;
+  const revsActuales = hayManivela ? cscUltimaManivela.revs : cscUltimaRueda.revs;
+  const modulo = hayManivela ? 65536 : 4294967296;
+  const revsPorPalada = calcularRevsPorPalada(cscRevsAlUltimoPico, revsActuales, modulo);
+  cscRevsAlUltimoPico = revsActuales;
+  if (revsPorPalada != null) {
+    const el = document.getElementById('hudVueltasPorPalada');
+    if (el) el.textContent = revsPorPalada;
+    if (sesionActiva) sesionActiva.eficienciaPaladas.push(revsPorPalada);
+  }
+}
 
 function handleCSC(event) {
   cadenciaBLEUltimaRx = Date.now(); // watchdog de canal zombi — ver comentario donde se declara
@@ -2190,6 +2392,7 @@ function handleCSC(event) {
   cscUltimoRPM = rpm;
   const rpmEl = document.getElementById('hudRPM');
   if (rpmEl) rpmEl.textContent = Math.round(rpm);
+  if (tramoCalibRPM) tramoCalibRPM.muestras.push(rpm); // recolecta muestras para el tramo de calibración por velocímetro, si hay uno activo
   // v60 — Hugo mandó tres videos reales remando con el sensor puesto, y "vueltas de volante por
   // palada" nunca mostró nada en ninguno. Simulé la secuencia EXACTA de esos videos (extraída
   // cuadro a cuadro) por esta misma función y encontré DOS problemas reales:
@@ -2227,15 +2430,18 @@ function handleCSC(event) {
   }
   if (cscEstadoPaladas.huboPico) {
     registrarPaladaDetectada();
-    const revsActuales = hayManivela ? cscUltimaManivela.revs : cscUltimaRueda.revs;
-    const modulo = hayManivela ? 65536 : 4294967296;
-    const revsPorPalada = calcularRevsPorPalada(cscRevsAlUltimoPico, revsActuales, modulo);
-    cscRevsAlUltimoPico = revsActuales;
-    if (revsPorPalada != null) {
-      const el = document.getElementById('hudVueltasPorPalada');
-      if (el) el.textContent = revsPorPalada;
-      if (sesionActiva) sesionActiva.eficienciaPaladas.push(revsPorPalada);
-    }
+    // v64c — con el logCSC real de 10 minutos, encontré la causa de fondo de por qué la cadencia
+    // del BLE daba tan baja (16-19 p/m contra ~75 reales): el sensor no notifica por revolución
+    // (a 350-370 RPM, eso serían ~6 veces por segundo) — notifica más o menos una vez por
+    // segundo SIEMPRE, sea cual sea la velocidad. Cada "RPM" que manda ya es un promedio sobre
+    // ~1 segundo — que es más o menos lo que dura una palada entera. La oscilación de tirón y
+    // recuperación que hace falta para separar una palada de otra queda borrada por el propio
+    // muestreo del sensor, antes de llegar acá — no es algo que se arregle ajustando ventanas ni
+    // umbrales de software (probé achicar/agrandar la ventana en tiempo y en cantidad de
+    // muestras contra los mismos datos reales, ninguna combinación se acercó a la cadencia real).
+    // Por eso el conteo de vueltas por palada AHORA se dispara desde la cámara o el micrófono
+    // (registrarVueltasPorPalada(), llamada en sus propios huboPico) — esta cadencia del BLE
+    // queda solo como dato de diagnóstico en pantalla, ya no dispara nada más.
   }
 }
 
@@ -2537,7 +2743,7 @@ function loopMicCadencia() {
     // criterio de "el último que escribe manda" que ya se usa para el pulso banda/reloj.
     establecerCadencia(cad);
   }
-  if (micEstado.huboPico) { registrarPaladaDetectada(); destellar('flashMic'); }
+  if (micEstado.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); destellar('flashMic'); }
   micRAF = requestAnimationFrame(loopMicCadencia);
 }
 function detenerMicCadencia() {
@@ -2831,7 +3037,7 @@ function loopCamCadencia() {
           if (elCadCamara) elCadCamara.textContent = cad;
           establecerCadencia(cad);
         }
-        if (camEstadoMarcador.huboPico) { registrarPaladaDetectada(); destellar('flashCam'); }
+        if (camEstadoMarcador.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); destellar('flashCam'); }
       }
       // si el centroide da null (el marcador no aparece en este cuadro — tapado, o fuera de la
       // zona), simplemente no actualizo nada este cuadro; no es un error, puede pasar en el
@@ -2869,7 +3075,7 @@ function loopCamCadencia() {
           if (elCadCamara) elCadCamara.textContent = cad;
           establecerCadencia(cad); // mismo motivo que en loopMicCadencia — ver comentario ahí
         }
-        if (camEstado.huboPico) { registrarPaladaDetectada(); destellar('flashCam'); }
+        if (camEstado.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); destellar('flashCam'); }
       }
     }
     camFramePrev = frame;
@@ -3769,7 +3975,8 @@ function calcularGapFantasma(distanciaPropiaM, tSeg) {
 function tick() {
   if (!sesionActiva) return;
   const puntosCalib = lsGet(K_CALIBRACION, []);
-  const vel = velocidadEstimada(actual.cadencia, puntosCalib);
+  const puntosCalibRPM = lsGet(K_CALIBRACION_RPM, []);
+  const { velocidad: vel } = elegirVelocidadEstimada(cscUltimoRPM, puntosCalibRPM, actual.cadencia, puntosCalib);
   sesionActiva.distanciaM += vel; // 1 tick = 1 segundo
   if (actual.pulso > 0) sesionActiva.pulsos.push(actual.pulso);
   const tSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
@@ -4729,6 +4936,7 @@ function cambiarTab(nombre) {
 }
 
 renderCalibracion();
+renderCalibRPM();
 actualizarNotaCalib();
 renderHistorial();
 renderFantasmaEnSesion();
