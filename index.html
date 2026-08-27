@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v63</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v64</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1657,6 +1657,33 @@
         sesión completa); no toqué el TCX, que sigue exportando solo lo
         de siempre — es un formato estándar, agregar campos que ningún
         otro programa entiende no tiene sentido ahí.
+   v64: Hugo mandó su primera sesión real de 10 minutos contra un
+        fantasma, con cámara y BLE conectados a la vez. La analicé a
+        fondo con el JSON de v63: cámara excelente (99% de cobertura,
+        ~75 p/m, cifra creíble), ganó al fantasma por 7.7m, RPM crudo
+        llegó continuo sin trabarse ni un tramo (el "canal zombi" de las
+        pruebas cortas no apareció en una sesión real y sostenida). PERO
+        la cadencia que calculó el detector del BLE dio un promedio de
+        ~18 p/m — muy por debajo de los ~75 reales.
+        Intenté re-simular el detector contra el rpmCrudo guardado en
+        puntosSesion (v63) para encontrar la causa, con resultados
+        contradictorios entre sí — hasta que caí en la razón: ese campo
+        se guarda UNA VEZ POR SEGUNDO (en tick()), pero a ~75 p/m cada
+        palada dura ~0.8s — la foto de 1/segundo queda bajo-muestreada
+        respecto de la señal real que el detector procesó en vivo (que
+        recibe notificaciones más seguido que eso). Estaba probando el
+        algoritmo contra una versión más pobre de la señal real, no
+        contra lo que realmente vio — por eso los resultados no cerraban.
+        Elegida la opción 2 que le ofrecí a Hugo: en vez de una foto por
+        segundo, ahora se guarda CADA notificación real del sensor BLE
+        tal cual llega (sesionActiva.logCSC[], con tMs preciso desde
+        performance.now() — reloj distinto de "inicio", que usa
+        Date.now(), así que se agregó inicioPerf como referencia propia
+        para este log), incluyendo el resultado completo del detector en
+        ese instante (rpm, huboPico, cadencia) — no solo el número, para
+        poder re-simular el diagnóstico completo la próxima vez sin este
+        mismo problema de muestreo. Viaja en el JSON (no en el TCX, mismo
+        criterio que v63).
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2176,6 +2203,21 @@ function handleCSC(event) {
   //     la ventana — con los datos reales de Hugo, esta combinación fue la que finalmente detectó
   //     las 4 paladas de la prueba en vez de ninguna.
   cscEstadoPaladas = procesarMinimoLocal(cscEstadoPaladas, rpm, performance.now(), { minMuestras: 3, ventanaMs: 6000, vencimientoMs: 6000 });
+  // v63b (opción 2, tras analizar un JSON real de 10 minutos): la sesión solo guardaba una FOTO
+  // del RPM una vez por segundo (en tick()), pero el sensor notifica varias veces por segundo —
+  // con una palada real cada ~0.8s, esa foto de 1/segundo queda bajo-muestreada respecto de la
+  // señal real que ve este mismo detector en vivo, e impedía diagnosticar bien qué pasaba adentro.
+  // Ahora se guarda cada notificación real tal cual llega, con su timestamp preciso y el resultado
+  // completo del detector en ese instante (no solo el RPM) — así si hace falta re-simular esto
+  // después, se puede hacer contra la señal REAL que vio el detector, no una versión pobre de ella.
+  if (sesionActiva) {
+    sesionActiva.logCSC.push({
+      tMs: Math.round(performance.now() - sesionActiva.inicioPerf),
+      rpm,
+      huboPico: cscEstadoPaladas.huboPico,
+      cadencia: cscEstadoPaladas.cadencia,
+    });
+  }
   // la cadencia de PALADAS (lo que alimenta distancia/animación) viene del detector de mínimo
   // local, NO del RPM crudo directamente
   if (cscEstadoPaladas.cadencia != null) {
@@ -3699,12 +3741,14 @@ function iniciarSesion() {
     id: 'k_' + Date.now(),
     fecha: new Date().toISOString(),
     inicio: Date.now(),
+    inicioPerf: performance.now(), // reloj distinto de "inicio" (Date.now()) — lo usa logCSC() para timestamps precisos de cada notificación real del sensor BLE
     distanciaM: 0,
     pulsos: [],
     metaTipo, // se congela al iniciar — cambiar la meta después no afecta una sesión ya corriendo
     metaValor,
     eficienciaPaladas: [], // vueltas del volante por cada palada (solo se llena con el sensor BLE conectado)
     paladasDetectadas: 0, // contador de paladas — ver registrarPaladaDetectada()
+    logCSC: [], // notificación real del sensor BLE, cada vez que llega — ver handleCSC()
   };
   puntosSesion = [];
   document.getElementById('btnIniciar').style.display = 'none';
@@ -3885,6 +3929,7 @@ function finalizarSesion() {
     eficienciaDesvio: eficiencia ? eficiencia.desvioEstandar : null, // qué tan parejo — más bajo = técnica más consistente
     gapFantasmaFinalM: gapFantasmaFinal, // metros de diferencia contra el fantasma al terminar (positivo = ganaste), null si no había fantasma activo
     paladasDetectadas: sesionActiva.paladasDetectadas || 0,
+    logCSC: sesionActiva.logCSC || [], // notificaciones reales del sensor BLE, una por una (no una foto por segundo) — ver handleCSC()
   };
   const sesiones = lsGet(K_SESIONES, []);
   sesiones.push(sesion);
