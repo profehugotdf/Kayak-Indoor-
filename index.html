@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v61</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v62</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1625,6 +1625,21 @@
         de seguir actualizando el cadCam que ya existía en Calibración —
         no se tocó nada de la lógica de detección en sí, solo se agregó
         un lugar más visible para leer el resultado de cada una.
+   v62: Hugo preguntó por exportar la sesión como JSON en vez de (o
+        además de) TCX, para poder mandarme una sesión completa a
+        analizar sin perder nada — el TCX es un formato estándar pensado
+        para otros programas, así que no lleva vueltas de volante por
+        palada, el resultado final contra el fantasma, ni la cantidad de
+        paladas detectadas (campos que ese formato no entiende).
+        Agregada exportarSesionJSON(), calcada del mismo patrón que ya
+        usaba exportarSesionTCX() (Blob + link de descarga) — descarga
+        el objeto de la sesión completo tal cual está guardado, sin
+        recortar nada. Botón "JSON" agregado al lado del de "TCX" en la
+        misma celda de la tabla de Historial (no una columna aparte, que
+        ya estaba apretada) — hubo que agregar display:inline-block más
+        width:auto a mano, porque .btn es bloque por defecto (100% de
+        ancho) y los dos botones se hubieran apilado en vez de quedar
+        lado a lado.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3910,6 +3925,23 @@ function exportarSesionTCX(id) {
   URL.revokeObjectURL(url);
   toast('TCX descargado');
 }
+// export completo, a diferencia del TCX (formato estándar, pensado para otros programas): acá va
+// TODO lo que la sesión tiene guardado tal cual, sin recortar nada — vueltas de volante por
+// palada, el resultado final contra el fantasma, la cantidad de paladas detectadas, etc. — que el
+// TCX no lleva porque no son campos que ese formato entienda. Pensado para mandarme una sesión
+// completa a analizar, no para importar en otra app.
+function exportarSesionJSON(id) {
+  const sesion = lsGet(K_SESIONES, []).find(x => x.id === id);
+  if (!sesion) { toast('No encontré esa sesión'); return; }
+  const blob = new Blob([JSON.stringify(sesion, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const fecha = new Date(sesion.fecha).toISOString().slice(0, 10);
+  a.href = url; a.download = 'kayak_' + fecha + '.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('JSON descargado');
+}
 
 /* ============================================================
    HISTORIAL
@@ -3932,7 +3964,7 @@ function renderHistorial() {
     '<td>' + segAHMS(s.duracionSeg) + '</td>' +
     '<td>' + s.distanciaM + 'm</td>' +
     '<td>' + s.tss + '</td>' +
-    '<td><button class="btn chico" style="margin:0; padding:4px 8px;" onclick="exportarSesionTCX(\'' + s.id + '\')">TCX</button></td>' +
+    '<td style="white-space:nowrap;"><button class="btn chico" style="display:inline-block; width:auto; margin:0 2px 0 0; padding:4px 6px;" onclick="exportarSesionTCX(\'' + s.id + '\')">TCX</button><button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 6px;" onclick="exportarSesionJSON(\'' + s.id + '\')">JSON</button></td>' +
     '<td>' + (tieneTrack
       ? '<button class="btn chico" style="margin:0; padding:4px 8px;' + (esFantasma ? ' background:var(--ritmo); color:var(--bg);' : '') + '" onclick="seleccionarFantasma(\'' + s.id + '\')">' + (esFantasma ? '✅' : '👻') + '</button>'
       : '') + '</td>' +
