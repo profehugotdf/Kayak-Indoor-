@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v68</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v69</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -1813,6 +1813,23 @@
         entrenamiento_forma_registro) leyendo el objeto completo y
         tocando SOLO pulsoUmbralKayak y
         actualizado, sin pisar ftpBici/ritmoUmbralCarreraSegKm/etc.
+   v69: Hugo probó su primera sesión de 20 minutos (justo lo que le
+        había pedido) y "Finalizar sesión" se quedó trabado, sin avisar
+        nada. Encontré CINCO lugares en todo el archivo usando
+        `Math.min(...array)`/`Math.max(...array)` — ese operador de
+        "spread" adentro de una llamada a función tiene un límite de
+        tamaño de pila que varía según navegador/dispositivo, y puede
+        fallar en algunos celulares con arrays de un par de miles de
+        elementos. El más importante de los cinco (pulsoMax en
+        finalizarSesion(), sobre sesionActiva.pulsos) corre ANTES de
+        guardar la sesión — una sesión de 20' tiene ~1200 muestras de
+        pulso, tamaño justo para disparar esto. Corregidos los cinco con
+        minSeguro()/maxSeguro() nuevas (reduce(), sin límite de tamaño).
+        Además, recalcularUmbralAutomatico() (la parte nueva de v68, que
+        corre DESPUÉS de guardar) quedó envuelta en try/catch — es una
+        comodidad, no algo crítico, y un error inesperado ahí nunca más
+        debería poder trabar el guardado de una sesión ni dejar la
+        pantalla pegada sin avisar, pase lo que pase adentro.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -1836,6 +1853,14 @@ const K_UMBRAL_COMPARTIDO = 'entrenamiento_umbrales'; // clave compartida con Co
 // tiene que ser un tramo limpio, no promediado sobre agujeros). Devuelve
 // {pulsoPromedio, sesionId, tInicio} del mejor tramo encontrado, o null si ninguna sesión llega a
 // tener ventanaMin minutos de largo, o ninguna tiene un tramo tan largo sin huecos de pulso.
+// mín/máx de un array SIN el operador de "spread" (Math.min(...array)) — ese operador tiene un
+// límite de tamaño de pila que varía según el navegador/dispositivo; en algunos celulares puede
+// fallar con arrays de solo un par de miles de elementos (una sesión de 20 minutos ya tiene 1200
+// puntos). reduce() no tiene ese límite, sea cual sea el tamaño del array. Encontrado el 29/8:
+// Hugo hizo su primera sesión de 20', "Finalizar sesión" se quedó trabado sin avisar nada — el
+// array de pulsos de esa sesión (1200 elementos) es del tamaño justo para disparar esto.
+function minSeguro(arr) { return arr.reduce((a, b) => Math.min(a, b), arr[0]); }
+function maxSeguro(arr) { return arr.reduce((a, b) => Math.max(a, b), arr[0]); }
 function calcularMejorEsfuerzoSostenido(sesiones, ventanaMin) {
   ventanaMin = ventanaMin || 20;
   const ventanaSeg = ventanaMin * 60;
@@ -1845,7 +1870,7 @@ function calcularMejorEsfuerzoSostenido(sesiones, ventanaMin) {
     const puntos = s.puntos || [];
     if (!puntos.length) return;
     const tsOrdenados = puntos.map(p => p.t);
-    const tMin = Math.min(...tsOrdenados), tMax = Math.max(...tsOrdenados);
+    const tMin = minSeguro(tsOrdenados), tMax = maxSeguro(tsOrdenados);
     const n = tMax - tMin + 1;
     if (n < ventanaSeg) return;
     const porT = {};
@@ -2415,7 +2440,7 @@ function procesarMinimoLocal(estado, valor, tsMs, opts) {
     ? historialPrevio.slice(-opts.ventanaMuestras)
     : historialPrevio.filter(p => tsMs - p.ts <= VENTANA_MS);
   const valores = historial.map(p => p.valor);
-  const mn = Math.min(...valores), mx = Math.max(...valores);
+  const mn = minSeguro(valores), mx = maxSeguro(valores);
   const rango = mx - mn;
   const umbralRuido = rango * FRACCION_RUIDO;
   let tendencia = estado.tendencia || null;
@@ -2758,7 +2783,7 @@ function procesarEnergiaHisteresis(estado, energia, tsMs, opts) {
   const historial = (estado.historial || []).concat([{ energia, ts: tsMs }])
     .filter(p => tsMs - p.ts <= VENTANA_MS);
   const valores = historial.map(p => p.energia);
-  const mn = Math.min(...valores), mx = Math.max(...valores);
+  const mn = minSeguro(valores), mx = maxSeguro(valores);
   const rango = mx - mn;
   let huboPico = false;
   if (rango > 1e-6 && historial.length >= MIN_MUESTRAS) {
@@ -4290,7 +4315,7 @@ function finalizarSesion() {
   pararBucleVivo();
   const duracionSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
   const pulsoPromedio = promedio(sesionActiva.pulsos);
-  const pulsoMax = sesionActiva.pulsos.length ? Math.max(...sesionActiva.pulsos) : null;
+  const pulsoMax = sesionActiva.pulsos.length ? maxSeguro(sesionActiva.pulsos) : null;
   const cadenciasValidas = puntosSesion.filter(p => p.cadencia != null).map(p => p.cadencia);
   const cadenciaPromedio = cadenciasValidas.length ? Math.round(promedio(cadenciasValidas)) : null;
   const umbralGuardado = lsGet(K_UMBRAL_PULSO, null);
@@ -4324,7 +4349,15 @@ function finalizarSesion() {
   sesiones.push(sesion);
   lsSet(K_SESIONES, sesiones);
   actualizarFormaCompartida(sesion);
-  recalcularUmbralAutomatico(); // después de guardar, no antes — no tiene sentido que la sesión recién terminada se autoevalúe contra un umbral que depende en parte de ella misma
+  // try/catch a propósito: esto es una comodidad (recalcular el umbral automático), no algo
+  // crítico — un error inesperado acá NUNCA debería poder trabar el guardado de la sesión ni
+  // dejar la pantalla pegada en "Finalizar sesión" sin avisar nada, que es justo lo que le pasó a
+  // Hugo el 29/8 con un bug real en esta misma zona (Math.max(...array) con un array grande).
+  try {
+    recalcularUmbralAutomatico(); // después de guardar, no antes — no tiene sentido que la sesión recién terminada se autoevalúe contra un umbral que depende en parte de ella misma
+  } catch (err) {
+    console.error('Falló el recálculo del umbral automático (no crítico, la sesión ya se guardó bien):', err);
+  }
 
   sesionActiva = null;
   puntosSesion = [];
@@ -4537,7 +4570,8 @@ function dibujarGraficoLinea(canvasId, valores, color) {
     ctx.fillText('Sin datos suficientes', 8, h / 2);
     return;
   }
-  const mn = Math.min(...validos.map(p => p.v)), mx = Math.max(...validos.map(p => p.v));
+  const valoresValidos = validos.map(p => p.v);
+  const mn = minSeguro(valoresValidos), mx = maxSeguro(valoresValidos);
   const rango = mx - mn || 1;
   const margen = 6;
   ctx.strokeStyle = color;
