@@ -85,7 +85,7 @@
   .calib-fila select{flex:none; width:auto;}
   .calib-fila .estado{width:22px; text-align:center; font-size:14px;}
 
-  table.lista{width:100%; border-collapse:collapse; font-size:13px;}
+  table.lista{width:100%; border-collapse:collapse; font-size:13px; white-space:nowrap;}
   table.lista th{text-align:left; color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase;
     padding:4px 6px; border-bottom:1px solid var(--borde);}
   table.lista td{padding:8px 6px; border-bottom:1px solid var(--borde); font-family:var(--mono);}
@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v71</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v77</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -231,7 +231,10 @@
         metrónomo: remá un tramo parejo a cualquier pace, anotá cuántos metros hiciste de verdad,
         y la app calcula sola el RPM promedio de ese tramo y la velocidad real. Hacé 3-4 tramos a
         paces distintos (suave, medio, fuerte) para armar una curva — con al menos un punto ya se
-        usa esto en vez de la cadencia; cuantos más puntos, mejor interpola en el medio.</p>
+        usa esto en vez de la cadencia; cuantos más puntos, mejor interpola en el medio. Para que
+        cada tramo sea confiable (que un error de 1-2s al cronometrar no pese demasiado), que dure
+        al menos 3-4 minutos. Cada tramo también queda guardado como una sesión real (con el TSS
+        calculado del pulso, si tenías la banda puesta) — cuenta para tu Forma, no se pierde.</p>
       <button class="btn primario" id="btnIniciarTramoRPM" style="margin-top:8px;" onclick="iniciarTramoCalibRPM()">▶ Iniciar tramo</button>
       <div id="cardTramoEnCurso" style="display:none; margin-top:8px;">
         <p class="nota">Tramo en curso — remá parejo. Cuando llegues a tu marca, anotá los metros reales y tocá "Terminar tramo".</p>
@@ -239,6 +242,32 @@
         <button class="btn peligro" style="margin-top:8px;" onclick="terminarTramoCalibRPM()">■ Terminar tramo</button>
       </div>
       <div id="listaCalibRPM" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Calibración de frenada (para eficiencia/potencia por palada)</h2>
+      <p class="nota">Un paso más allá de la eficiencia por vueltas — con esto se puede estimar
+        cuánta energía metiste en cada palada, no solo cuánto giró el volante. Necesita una prueba
+        de "frenada libre": tocá "Iniciar", dale unas paladas (no importa cuántas ni con cuánta
+        fuerza — 3, 5 o 10, suave o fuerte, todo sirve; más velocidad alcanzada = mejor rango para
+        el ajuste) y después soltá del todo, sin tirar más del cable ni frenarlo con la mano. La
+        app encuentra sola el instante en que dejaste de acelerar y descarta todo lo de antes —no
+        hace falta que seas preciso con el momento de tocar "Iniciar". Dejalo frenando solo al
+        menos 10-15 segundos sin tocar nada (cuanto más, mejor el ajuste) — no hace falta que
+        llegue a pararse del todo.</p>
+      <button class="btn primario" id="btnIniciarFrenada" style="margin-top:8px;" onclick="iniciarFrenada()">▶ Iniciar prueba de frenada</button>
+      <div id="cardFrenadaEnCurso" style="display:none; margin-top:8px;">
+        <p class="nota">Prueba en curso — acelerá y después soltá del todo, sin tocar más el
+          cable ni frenarlo con la mano. Tocá "Terminar" cuando ya frenó un rato (no hace falta
+          que llegue a 0).</p>
+        <button class="btn peligro" style="margin-top:8px;" onclick="terminarFrenada()">■ Terminar prueba</button>
+      </div>
+      <div id="resultadoFrenada" style="display:none; margin-top:8px;"></div>
+      <p class="nota" style="margin-top:10px; font-weight:700;">Pruebas guardadas — hacé varias a
+        intensidades bien distintas (suave/media/fuerte) y compará el k de cada una: si dan
+        parecido, confirma que el modelo vale para tu volante; si no, es una señal real a
+        investigar.</p>
+      <div id="listaPruebasFrenada" style="margin-top:6px;"></div>
     </div>
 
     <div class="card">
@@ -509,10 +538,12 @@
     </div>
     <div class="card">
       <h2>Sesiones de kayak</h2>
-      <table class="lista">
-        <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th><th></th><th></th></tr></thead>
-        <tbody id="tablaSesiones"><tr class="vacia"><td colspan="8">Sin sesiones todavía</td></tr></tbody>
-      </table>
+      <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+        <table class="lista">
+          <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th><th></th><th></th></tr></thead>
+          <tbody id="tablaSesiones"><tr class="vacia"><td colspan="8">Sin sesiones todavía</td></tr></tbody>
+        </table>
+      </div>
       <button class="btn chico" style="margin-top:8px;" onclick="toggleEvolucionSesiones()">📈 Ver evolución entre sesiones</button>
     </div>
     <div class="card" id="cardEvolucionSesiones" style="display:none;">
@@ -1917,12 +1948,117 @@
         (tieneTrack), sin que hiciera falta tocar nada ahí — agregado
         un ✍️ al lado de la fecha para distinguir a simple vista cuáles
         son manuales.
+   v72: Hugo mandó una captura — con 8 columnas (fecha, dur., dist.,
+        TSS, TCX+JSON, fantasma, carrera, eliminar), la tabla de
+        Historial se salía del borde de la tarjeta en pantallas
+        angostas; los últimos botones (🏁, 🗑) quedaban cortados sin
+        forma de tocarlos. La tabla no tenía ningún contenedor con
+        scroll horizontal — envuelta en un div con overflow-x:auto, y
+        agregado white-space:nowrap a table.lista para que las celdas
+        no se aprieten de forma rara antes de que el scroll entre en
+        juego (así el navegador scrollea en vez de recortar/achicar el
+        contenido).
+   v73: Hugo pidió el año a dos cifras en las fechas mostradas (DD/MM/AA
+        en vez de DD/MM/AAAA). Agregada formatearFecha() (un solo lugar
+        para el formato, con las opciones day/month/year:'2-digit' de
+        Intl) y reemplazados los seis usos de
+        `.toLocaleDateString('es-AR')` sueltos en todo el archivo —
+        Historial, detalle de sesión, tarjeta de fantasma, confirmación
+        de eliminar, y la tabla de posiciones de Carrera Virtual. No
+        toca los nombres de archivo de TCX/JSON, que usan su propio
+        formato ISO aparte.
+   v74: Hugo preguntó cuánto tienen que durar los tramos de calibración
+        por RPM para ser confiables (mismo tema que la confiabilidad de
+        la calibración de cadencia — recomendé 3-4 minutos, sus dos
+        primeras pruebas fueron de 100m en 64-93s, cortas), si hace
+        falta cubrir todos los ritmos (no, solo el rango que usa de
+        verdad — no extrapola), y pidió que remar un tramo de
+        calibración también cuente como carga de trabajo para la
+        aptitud física.
+        Lo tercero implementado: tramoCalibRPM ahora también junta
+        pulso (tramoCalibRPM.pulsos, mismo punto donde ya se juntaba
+        RPM en handleCSC — si había banda conectada). Al terminar el
+        tramo, además del punto de calibración de siempre, arma y
+        guarda una sesión real con ese pulso (TSS calculado con
+        calcularTSS(), 0 si no había banda — mismo criterio que
+        cualquier sesión), por el mismo camino seguro que todo el resto
+        (guardarSesionConReintento() + actualizarFormaCompartida()).
+        Marcada esCalibracion:true, se distingue en Historial con 📏
+        (mismo lugar donde v71 ya distinguía las manuales con ✍️).
+   v75: retomado el protocolo de potencia por palada, pendiente desde
+        hace tiempo (la prueba de "tracción y dejar frenar solo").
+        Física: un volante que frena por resistencia de aire cumple
+        dω/dt = -k·ω², que resuelto da 1/RPM lineal en el tiempo durante
+        una frenada libre — la pendiente de esa recta (k) es la única
+        constante que hace falta. calcularCoeficienteFrenada() (pura):
+        ajuste por cuadrados mínimos de 1/RPM contra el tiempo sobre las
+        muestras reales de una frenada, devuelve {k, r2} — r2 mide qué
+        tan limpia salió la prueba (alto = nadie tocó el volante a mitad
+        de camino), para que Hugo pueda juzgar si conviene repetirla
+        antes de guardarla.
+        Nueva tarjeta "Calibración de frenada" en Calibración: Iniciar/
+        Terminar prueba, captura cada notificación real del sensor
+        (mismo patrón que logCSC/tramoCalibRPM) mientras está en curso,
+        muestra el resultado con su calidad, y un botón aparte para
+        guardarlo — no se guarda solo, para no pisar un coeficiente
+        bueno con una prueba sucia sin querer.
+        A propósito NO se implementó todavía la parte de "aplicar esto
+        durante una sesión real" (comparar cada palada contra lo que
+        predeciría la frenada libre) — mejor validar primero que el
+        coeficiente salga razonable con una prueba real de Hugo, antes
+        de construir más cosas arriba de un número que todavía no se
+        vio en la práctica. Diseño ya pensado: comparar el RPM real al
+        final de cada palada (cámara/mic disparan el momento, mismo
+        criterio que registrarVueltasPorPalada()) contra el RPM que
+        predice la frenada libre sin fuerza aplicada — la diferencia (al
+        cuadrado, proporcional a energía) da un trabajo por palada en
+        unidades propias del ergómetro, comparables entre paladas y
+        sesiones de Hugo, aunque no sean watts absolutos calibrados
+        (haría falta el peso/inercia real del volante para eso).
+   v76: Hugo preguntó cuántas paladas/cuánto tiempo hacen falta, y si la
+        app sabe cuándo dejó de remar o si lo hizo fuerte/flojo.
+        Encontré un problema real al pensar la respuesta: v75 juntaba
+        TODO lo que pasa entre "Iniciar" y "Terminar" en un solo ajuste
+        — pero mientras se sigue tirando del cable, el volante ACELERA
+        (1/RPM baja), justo lo contrario de lo que hace frenando solo
+        (1/RPM sube). Si esa parte quedaba mezclada con la frenada real,
+        arruinaba la recta, y no había manera de que Hugo supiera "hasta
+        acá tiraba, desde acá solté" con precisión.
+        Agregada recortarHastaElPico() (pura): encuentra el índice del
+        RPM más alto en las muestras y descarta todo lo de ANTES —
+        adentro de calcularCoeficienteFrenada(), antes del ajuste. Ya no
+        hace falta que Hugo sea preciso con el momento de tocar
+        "Iniciar", ni le importa cuántas paladas dio ni con cuánta
+        fuerza (el coeficiente describe el volante, no el esfuerzo) —
+        más velocidad alcanzada solo da mejor rango para el ajuste,
+        pero no hay un mínimo estricto. Recomendado en la tarjeta:
+        al menos 10-15 segundos de frenada limpia después del pico.
+   v77: Hugo propuso "una sola tracción por muestra, varias muestras a
+        distintas intensidades" en vez de una frenada larga por prueba.
+        La primera mitad de la idea no ayuda (una tracción sola da
+        pocos puntos, resta precisión a esa prueba en particular) — pero
+        la segunda mitad es genuinamente valiosa: probar VARIAS
+        frenadas COMPLETAS (cada una larga y limpia, igual que ya
+        estaba) a intensidades bien distintas entre sí, y comparar el k
+        resultante entre ellas. Si da parecido, confirma que el modelo
+        físico (k constante, sin importar la velocidad) vale para su
+        volante; si no, es señal real de algo que la fórmula simple no
+        captura (fricción mecánica del eje, por ejemplo).
+        Antes K_COEF_FRENADA guardaba un solo resultado que se pisaba
+        cada vez — cambiado a una LISTA (mismo patrón que
+        K_CALIBRACION_RPM): guardarCoeficienteFrenada() ahora agrega en
+        vez de pisar, con botón 🗑 por prueba para sacar las que no
+        sirvan. calcularCoeficienteFrenada() ahora también devuelve
+        rpmMin/rpmMax (con minSeguro/maxSeguro de v69) — el rango de RPM
+        que cubrió esa prueba en particular, para poder comparar
+        pruebas de intensidades distintas de un vistazo.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
 const K_SESIONES = LS_PREFIX + 'sesiones';
 const K_CALIBRACION = LS_PREFIX + 'calibracion';
 const K_CALIBRACION_RPM = LS_PREFIX + 'calibracion_rpm';
+const K_COEF_FRENADA = LS_PREFIX + 'coef_frenada'; // {k, r2, fecha} — ver calcularCoeficienteFrenada()
 const K_UMBRAL_PULSO = LS_PREFIX + 'umbral_pulso'; // ahora guarda {valor, origen: 'auto'|'manual'}, no un número suelto — ver calcularMejorEsfuerzoSostenido()
 const K_UMBRAL_PULSO_SUGERIDO = LS_PREFIX + 'umbral_pulso_sugerido'; // último valor automático calculado, aunque el activo sea manual — para poder ofrecer "usar este" sin pisar nada en silencio
 const K_UMBRAL_COMPARTIDO = 'entrenamiento_umbrales'; // clave compartida con Correr — mismo patrón que K_FORMA_COMPARTIDA: se lee el objeto completo, se toca SOLO el campo propio (pulsoUmbralKayak + actualizado), nunca ftpBici/ritmoUmbralCarreraSegKm/etc.
@@ -2067,6 +2203,13 @@ function segAHMS(seg) {
   return h > 0 ? (h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'))
                : (String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'));
 }
+// fecha para mostrar en la interfaz, con el año a dos cifras (DD/MM/AA) — a pedido de Hugo. Un
+// solo lugar para el formato, así no queda inconsistente si se pide cambiar de nuevo más
+// adelante. NO se usa para nombres de archivo (TCX/JSON usan su propio formato ISO aparte, sin
+// tocar).
+function formatearFecha(fechaISO) {
+  return new Date(fechaISO).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -2153,14 +2296,146 @@ function promedioRPM(muestras) {
   if (!muestras || !muestras.length) return null;
   return muestras.reduce((a, b) => a + b, 0) / muestras.length;
 }
-let tramoCalibRPM = null; // { inicio: Date.now(), muestras: [] } mientras hay un tramo en curso; null si no
+
+/* ============================================================
+   CALIBRACIÓN DE FRENADA — protocolo pendiente desde que se habló por
+   primera vez del cálculo de potencia por palada. Física: un volante
+   que frena solo por resistencia de aire cumple dω/dt = -k·ω² (el
+   frenado es proporcional al cuadrado de la velocidad — el modelo
+   estándar de un ventilador/volante de aire, el mismo que usan los
+   ergómetros de remo comerciales tipo Concept2 para estimar potencia
+   sin sensor de fuerza). Resolviendo esa ecuación diferencial:
+   1/ω(t) = 1/ω(0) + k·t — es decir, graficando 1/RPM contra el tiempo
+   durante una frenada libre (acelerar fuerte y soltar del todo, sin
+   tirar más), tiene que salir una RECTA, y la pendiente de esa recta
+   es "k", la única constante que hace falta para lo que sigue.
+   No hace falta resolución fina (el sensor notifica ~1/seg, no
+   alcanzaría para ver el detalle de una frenada de menos de un
+   segundo) — una frenada dura varios segundos o minutos, así que la
+   densidad de muestras que da el sensor alcanza de sobra para ajustar
+   la recta.
+   ============================================================ */
+// ajusta una recta 1/RPM = A + k·t por cuadrados mínimos, a partir de las muestras REALES de una
+// frenada libre. Pura — recibe [{tMs, rpm}], no toca DOM ni localStorage. Devuelve
+// {k, r2, ordenadaOrigen} o null si no hay suficientes muestras válidas (menos de 5, o alguna con
+// rpm<=0 que rompería 1/rpm). r2 (0 a 1) mide qué tan bien ajusta la recta — una frenada limpia
+// (nadie tocó el volante ni le dio más fuerza a mitad de camino) tiene que dar un r2 alto (>0.9
+// aprox); uno bajo es señal de que la prueba salió sucia y conviene repetirla.
+// descarta todo lo de ANTES del pico de RPM — mientras todavía se está tirando del cable, el
+// volante acelera (1/RPM baja), justo lo contrario de lo que pasa frenando solo (1/RPM sube). Si
+// esa parte queda mezclada con la frenada real en el mismo ajuste, arruina la recta. No hace
+// falta que Hugo sea preciso con el momento de tocar "Iniciar" ni "iba tirando hasta acá
+// exacto" — la app encuentra sola el instante en que el RPM dejó de subir. Pura, separada para
+// poder testearla aparte de la regresión en sí.
+// Límite conocido: si algo golpea el volante A MITAD de la frenada con más fuerza que el pico
+// original (más que las paladas iniciales), el "pico" detectado sería ese golpe, no el real —
+// recortaría de más. Caso raro (implicaría una sacudida más fuerte que las paladas de arranque),
+// y el r2 resultante ya avisaría que algo salió mal si quedan pocas muestras después de eso.
+function recortarHastaElPico(muestras) {
+  if (!muestras || !muestras.length) return [];
+  let idxPico = 0;
+  for (let i = 1; i < muestras.length; i++) {
+    if (muestras[i].rpm > muestras[idxPico].rpm) idxPico = i;
+  }
+  return muestras.slice(idxPico);
+}
+function calcularCoeficienteFrenada(muestrasCrudas) {
+  const muestras = recortarHastaElPico(muestrasCrudas);
+  if (!muestras || muestras.length < 5) return null;
+  const validas = muestras.filter(m => m.rpm > 0);
+  if (validas.length < 5) return null;
+  const t0 = validas[0].tMs;
+  const puntos = validas.map(m => ({ x: (m.tMs - t0) / 1000, y: 1 / m.rpm }));
+  const n = puntos.length;
+  const sumX = puntos.reduce((a, p) => a + p.x, 0);
+  const sumY = puntos.reduce((a, p) => a + p.y, 0);
+  const sumXY = puntos.reduce((a, p) => a + p.x * p.y, 0);
+  const sumXX = puntos.reduce((a, p) => a + p.x * p.x, 0);
+  const denominador = n * sumXX - sumX * sumX;
+  if (Math.abs(denominador) < 1e-12) return null; // todas las muestras en el mismo instante — no se puede ajustar nada
+  const k = (n * sumXY - sumX * sumY) / denominador;
+  const ordenadaOrigen = (sumY - k * sumX) / n;
+  const promedioY = sumY / n;
+  const ssTot = puntos.reduce((a, p) => a + (p.y - promedioY) * (p.y - promedioY), 0);
+  const ssRes = puntos.reduce((a, p) => { const pred = ordenadaOrigen + k * p.x; return a + (p.y - pred) * (p.y - pred); }, 0);
+  const r2 = ssTot > 1e-12 ? 1 - ssRes / ssTot : 0;
+  const rpms = validas.map(m => m.rpm);
+  return { k, r2, ordenadaOrigen, rpmMax: maxSeguro(rpms), rpmMin: minSeguro(rpms) };
+}
+let frenadaEnCurso = null; // { inicioPerf: performance.now(), muestras: [{tMs, rpm}] } mientras hay una prueba en curso; null si no
+function iniciarFrenada() {
+  if (!cscUltimaManivela && !cscUltimaRueda) { toast('Conectá el sensor de cadencia/velocidad (BLE) primero'); return; }
+  frenadaEnCurso = { inicioPerf: performance.now(), muestras: [] };
+  document.getElementById('btnIniciarFrenada').style.display = 'none';
+  document.getElementById('cardFrenadaEnCurso').style.display = 'block';
+  document.getElementById('resultadoFrenada').style.display = 'none';
+  toast('Prueba iniciada — acelerá fuerte unas paladas y después soltá del todo, sin tirar más');
+}
+function terminarFrenada() {
+  if (!frenadaEnCurso) return;
+  const resultado = calcularCoeficienteFrenada(frenadaEnCurso.muestras);
+  const muestrasUsadas = frenadaEnCurso.muestras.length;
+  frenadaEnCurso = null;
+  document.getElementById('btnIniciarFrenada').style.display = 'block';
+  document.getElementById('cardFrenadaEnCurso').style.display = 'none';
+  const elResultado = document.getElementById('resultadoFrenada');
+  if (!resultado) {
+    elResultado.style.display = 'block';
+    elResultado.innerHTML = '<p class="nota" style="color:var(--pulso);">No se pudo calcular nada — se juntaron ' + muestrasUsadas + ' muestras, hacen falta al menos 5 con RPM real (mayor a 0). Probá de nuevo, dejando pasar más tiempo antes de soltar del todo.</p>';
+    return;
+  }
+  const calidad = resultado.r2 > 0.9 ? 'buena — la frenada salió limpia' : resultado.r2 > 0.7 ? 'aceptable, pero podría estar mejor — probá de nuevo si podés' : 'baja — probablemente alguien tocó el volante a mitad de la frenada, o se soltó antes de que agarrara buena velocidad. Convendría repetirla';
+  elResultado.style.display = 'block';
+  elResultado.innerHTML = '<p class="nota">Coeficiente k = <b>' + resultado.k.toExponential(3) + '</b> · ajuste (r²) = <b>' + resultado.r2.toFixed(3) + '</b> · rango ' + Math.round(resultado.rpmMin) + '-' + Math.round(resultado.rpmMax) + ' RPM — calidad ' + calidad + ' (' + muestrasUsadas + ' muestras).</p>' +
+    '<button class="btn primario" style="margin-top:8px;" onclick="guardarCoeficienteFrenada(' + resultado.k + ',' + resultado.r2 + ',' + resultado.rpmMin + ',' + resultado.rpmMax + ')">Agregar esta prueba a la lista</button>';
+}
+// a pedido de Hugo: guardar VARIAS pruebas (no una sola que se pisa cada vez) para poder
+// comparar el coeficiente a distintas intensidades — si da parecido entre pruebas, confirma que
+// el modelo físico (k constante, sin importar la velocidad) vale para su volante en particular;
+// si da distinto, es señal real de que hay algo más (fricción mecánica del eje, por ejemplo) que
+// la fórmula simple no captura.
+function guardarCoeficienteFrenada(k, r2, rpmMin, rpmMax) {
+  const pruebas = lsGet(K_COEF_FRENADA, []);
+  pruebas.push({ k, r2, rpmMin, rpmMax, fecha: new Date().toISOString() });
+  lsSet(K_COEF_FRENADA, pruebas);
+  toast('Prueba agregada — ya tenés ' + pruebas.length + ' guardada' + (pruebas.length === 1 ? '' : 's'));
+  document.getElementById('resultadoFrenada').style.display = 'none';
+  renderPruebasFrenada();
+}
+function eliminarPruebaFrenada(idx) {
+  const pruebas = lsGet(K_COEF_FRENADA, []);
+  pruebas.splice(idx, 1);
+  lsSet(K_COEF_FRENADA, pruebas);
+  renderPruebasFrenada();
+}
+function renderPruebasFrenada() {
+  const cont = document.getElementById('listaPruebasFrenada');
+  if (!cont) return;
+  const pruebas = lsGet(K_COEF_FRENADA, []);
+  if (!pruebas.length) { cont.innerHTML = '<p class="nota">Sin pruebas guardadas todavía.</p>'; return; }
+  cont.innerHTML = pruebas.map((p, i) =>
+    '<div class="fila" style="align-items:center; gap:8px; margin-top:4px;">' +
+    '<span class="nota" style="flex:1;">k=' + p.k.toExponential(2) + ' · r²=' + p.r2.toFixed(2) + ' · ' + Math.round(p.rpmMin) + '-' + Math.round(p.rpmMax) + ' RPM · ' + formatearFecha(p.fecha) + '</span>' +
+    '<button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 8px; color:var(--pulso);" onclick="eliminarPruebaFrenada(' + i + ')">🗑</button>' +
+    '</div>'
+  ).join('');
+}
+let tramoCalibRPM = null; // { inicio: Date.now(), muestras: [], pulsos: [] } mientras hay un tramo en curso; null si no
 function iniciarTramoCalibRPM() {
   if (!cscUltimaManivela && !cscUltimaRueda) { toast('Conectá el sensor de cadencia/velocidad (BLE) primero'); return; }
-  tramoCalibRPM = { inicio: Date.now(), muestras: [] };
+  tramoCalibRPM = { inicio: Date.now(), muestras: [], pulsos: [] };
   document.getElementById('btnIniciarTramoRPM').style.display = 'none';
   document.getElementById('cardTramoEnCurso').style.display = 'block';
   toast('Tramo iniciado — remá parejo y tocá "Terminar tramo" al llegar a la distancia elegida');
 }
+// a pedido de Hugo: un tramo de calibración es esfuerzo real (a veces varios minutos remando
+// fuerte) y quiere que cuente para su aptitud física, no que se pierda. Además del punto de
+// calibración de siempre, ahora arma y guarda una sesión de verdad (mismo camino seguro que
+// cualquier otra — guardarSesionConReintento() + actualizarFormaCompartida()), con el TSS
+// calculado del pulso real juntado durante el tramo (si había banda conectada; si no, TSS=0,
+// mismo criterio que cualquier sesión sin pulso). Se marca esCalibracion:true para poder
+// distinguirla en Historial con 📏 en vez de con nada — no es lo mismo que una sesión manual
+// (v71, tipeada de memoria) ni que una sesión con track completo, es una tercera categoría.
 function terminarTramoCalibRPM() {
   if (!tramoCalibRPM) return;
   const tiempoSeg = (Date.now() - tramoCalibRPM.inicio) / 1000;
@@ -2171,12 +2446,40 @@ function terminarTramoCalibRPM() {
   const puntos = lsGet(K_CALIBRACION_RPM, []);
   puntos.push({ rpmPromedio: rpmProm, distanciaM, tiempoSeg });
   lsSet(K_CALIBRACION_RPM, puntos);
+
+  const pulsoPromedio = tramoCalibRPM.pulsos.length ? promedio(tramoCalibRPM.pulsos) : null;
+  const pulsoMax = tramoCalibRPM.pulsos.length ? maxSeguro(tramoCalibRPM.pulsos) : null;
+  const umbralGuardado = lsGet(K_UMBRAL_PULSO, null);
+  const umbralPulso = umbralGuardado ? umbralGuardado.valor : null;
+  const tss = calcularTSS(tiempoSeg, pulsoPromedio, umbralPulso);
+  const sesionTramo = {
+    id: 'k_calib_' + Date.now(),
+    fecha: new Date().toISOString(),
+    duracionSeg: Math.round(tiempoSeg),
+    distanciaM,
+    pulsoPromedio: pulsoPromedio != null ? Math.round(pulsoPromedio) : null,
+    pulsoMax,
+    cadenciaPromedio: null,
+    tss,
+    puntos: [],
+    eficienciaPromedio: null,
+    eficienciaDesvio: null,
+    gapFantasmaFinalM: null,
+    paladasDetectadas: 0,
+    logCSC: [],
+    logCamara: [],
+    esCalibracion: true,
+  };
+  const resultado = guardarSesionConReintento(sesionTramo);
+  if (resultado.ok) actualizarFormaCompartida(sesionTramo);
+
   tramoCalibRPM = null;
   document.getElementById('btnIniciarTramoRPM').style.display = 'block';
   document.getElementById('cardTramoEnCurso').style.display = 'none';
   document.getElementById('inputDistanciaTramoRPM').value = '';
-  toast('Punto agregado: ' + Math.round(rpmProm) + ' RPM ≈ ' + (distanciaM / tiempoSeg).toFixed(2) + ' m/s');
+  toast('Punto agregado: ' + Math.round(rpmProm) + ' RPM ≈ ' + (distanciaM / tiempoSeg).toFixed(2) + ' m/s' + (tss ? ' — TSS ' + Math.round(tss) + ' sumado a tu Forma' : ''));
   renderCalibRPM();
+  renderHistorial();
 }
 function renderCalibRPM() {
   const cont = document.getElementById('listaCalibRPM');
@@ -2653,7 +2956,11 @@ function handleCSC(event) {
   cscUltimoRPM = rpm;
   const rpmEl = document.getElementById('hudRPM');
   if (rpmEl) rpmEl.textContent = Math.round(rpm);
-  if (tramoCalibRPM) tramoCalibRPM.muestras.push(rpm); // recolecta muestras para el tramo de calibración por velocímetro, si hay uno activo
+  if (tramoCalibRPM) {
+    tramoCalibRPM.muestras.push(rpm); // recolecta muestras de RPM para el tramo de calibración por velocímetro
+    if (actual.pulso > 0) tramoCalibRPM.pulsos.push(actual.pulso); // y de pulso, si hay banda conectada — para poder calcular el TSS real del tramo al terminar
+  }
+  if (frenadaEnCurso) frenadaEnCurso.muestras.push({ tMs: performance.now() - frenadaEnCurso.inicioPerf, rpm });
   // v60 — Hugo mandó tres videos reales remando con el sensor puesto, y "vueltas de volante por
   // palada" nunca mostró nada en ninguno. Simulé la secuencia EXACTA de esos videos (extraída
   // cuadro a cuadro) por esta misma función y encontré DOS problemas reales:
@@ -3777,7 +4084,7 @@ function renderFantasmaEnSesion() {
     cont.innerHTML = '<p class="nota">Sin fantasma elegido — activá uno desde Historial para competir contra una sesión anterior.</p>';
     return;
   }
-  cont.innerHTML = '<p class="nota">👻 Fantasma: ' + new Date(fantasma.fecha).toLocaleDateString('es-AR') +
+  cont.innerHTML = '<p class="nota">👻 Fantasma: ' + formatearFecha(fantasma.fecha) +
     ' (' + fantasma.distanciaM + 'm en ' + segAHMS(fantasma.duracionSeg) + ')' +
     ' <button class="btn chico" style="display:inline-block; width:auto; margin:0 0 0 8px; padding:4px 8px;" onclick="quitarFantasma()">Quitar</button></p>';
 }
@@ -3809,7 +4116,7 @@ function actualizarCardCarreraSeleccion() {
   lista.innerHTML = carreraSeleccion.map(id => {
     const s = sesiones.find(x => x.id === id);
     if (!s) return '';
-    return '<p class="nota">• ' + new Date(s.fecha).toLocaleDateString('es-AR') + ' — ' + s.distanciaM + 'm en ' + segAHMS(s.duracionSeg) + '</p>';
+    return '<p class="nota">• ' + formatearFecha(s.fecha) + ' — ' + s.distanciaM + 'm en ' + segAHMS(s.duracionSeg) + '</p>';
   }).join('');
 }
 
@@ -4008,7 +4315,7 @@ function renderCarrera() {
       return '<div class="fila" style="align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">' +
       '<span style="font-weight:800; width:20px;">' + (i + 1) + 'º</span>' +
       '<span style="width:14px; height:14px; border-radius:4px; background:' + p.corredor.color + '; flex:none;"></span>' +
-      '<span class="nota" style="flex:1; min-width:60px;">' + new Date(p.corredor.sesion.fecha).toLocaleDateString('es-AR') + '</span>' +
+      '<span class="nota" style="flex:1; min-width:60px;">' + formatearFecha(p.corredor.sesion.fecha) + '</span>' +
       '<span style="font-family:var(--mono);" title="cadencia">' + Math.round(cad) + 'p/m</span>' +
       '<span style="font-family:var(--mono); color:var(--pulso);" title="pulso">' + (pul != null ? pul : '--') + '♥</span>' +
       '<span style="font-family:var(--mono); font-weight:700;">' + Math.round(p.distancia) + 'm</span>' +
@@ -4630,7 +4937,7 @@ function renderHistorial() {
     const esFantasma = s.id === fantasmaActualId;
     const tieneTrack = s.puntos && s.puntos.length > 0;
     const enCarrera = carreraSeleccion.includes(s.id);
-    return '<tr><td><a href="javascript:void(0)" onclick="mostrarDetalleSesion(\'' + s.id + '\')" style="color:var(--ritmo); text-decoration:underline;">' + (s.manual ? '✍️ ' : '') + new Date(s.fecha).toLocaleDateString('es-AR') + '</a></td>' +
+    return '<tr><td><a href="javascript:void(0)" onclick="mostrarDetalleSesion(\'' + s.id + '\')" style="color:var(--ritmo); text-decoration:underline;">' + (s.manual ? '✍️ ' : s.esCalibracion ? '📏 ' : '') + formatearFecha(s.fecha) + '</a></td>' +
     '<td>' + segAHMS(s.duracionSeg) + '</td>' +
     '<td>' + s.distanciaM + 'm</td>' +
     '<td>' + s.tss + '</td>' +
@@ -4649,7 +4956,7 @@ function mostrarDetalleSesion(id) {
   const sesion = lsGet(K_SESIONES, []).find(s => s.id === id);
   if (!sesion) return;
   const card = document.getElementById('cardDetalleSesion');
-  document.getElementById('detalleFecha').textContent = new Date(sesion.fecha).toLocaleDateString('es-AR') + ' · ' + segAHMS(sesion.duracionSeg) + ' · ' + sesion.distanciaM + 'm';
+  document.getElementById('detalleFecha').textContent = formatearFecha(sesion.fecha) + ' · ' + segAHMS(sesion.duracionSeg) + ' · ' + sesion.distanciaM + 'm';
   const ritmoSeg = segundosPor500m(sesion.duracionSeg, sesion.distanciaM);
   document.getElementById('detalleRitmo').textContent = ritmoSeg != null ? segAMMSS(ritmoSeg) : '--';
   document.getElementById('detallePulsoProm').textContent = sesion.pulsoPromedio != null ? sesion.pulsoPromedio : '--';
@@ -4775,7 +5082,7 @@ function eliminarSesion(id) {
   const sesiones = lsGet(K_SESIONES, []);
   const sesion = sesiones.find(s => s.id === id);
   if (!sesion) return;
-  const fecha = new Date(sesion.fecha).toLocaleDateString('es-AR');
+  const fecha = formatearFecha(sesion.fecha);
   if (!confirm('¿Eliminar la sesión del ' + fecha + ' (' + sesion.distanciaM + 'm)? Esto no se puede deshacer.')) return;
   lsSet(K_SESIONES, sesiones.filter(s => s.id !== id));
   // saca también su aporte a la Forma combinada (si no, quedaría un TSS fantasma sumando aunque
@@ -5327,6 +5634,7 @@ function cambiarTab(nombre) {
 
 renderCalibracion();
 renderCalibRPM();
+renderPruebasFrenada();
 actualizarNotaCalib();
 renderHistorial();
 renderFantasmaEnSesion();
