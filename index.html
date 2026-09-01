@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v77</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v78</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -252,14 +252,15 @@
         fuerza — 3, 5 o 10, suave o fuerte, todo sirve; más velocidad alcanzada = mejor rango para
         el ajuste) y después soltá del todo, sin tirar más del cable ni frenarlo con la mano. La
         app encuentra sola el instante en que dejaste de acelerar y descarta todo lo de antes —no
-        hace falta que seas preciso con el momento de tocar "Iniciar". Dejalo frenando solo al
-        menos 10-15 segundos sin tocar nada (cuanto más, mejor el ajuste) — no hace falta que
-        llegue a pararse del todo.</p>
+        hace falta que seas preciso con el momento de tocar "Iniciar". Mirá el contador de
+        muestras válidas que aparece mientras frena — <b>cortá cuando deje de subir</b> (no hace
+        falta esperar a que vaya lento: el sensor manda cada vez menos datos nuevos a baja
+        velocidad, esperar de más no suma muestras).</p>
       <button class="btn primario" id="btnIniciarFrenada" style="margin-top:8px;" onclick="iniciarFrenada()">▶ Iniciar prueba de frenada</button>
       <div id="cardFrenadaEnCurso" style="display:none; margin-top:8px;">
         <p class="nota">Prueba en curso — acelerá y después soltá del todo, sin tocar más el
-          cable ni frenarlo con la mano. Tocá "Terminar" cuando ya frenó un rato (no hace falta
-          que llegue a 0).</p>
+          cable ni frenarlo con la mano.</p>
+        <p class="nota" style="margin-top:6px;">Muestras válidas juntadas: <b id="contadorMuestrasFrenada" style="font-family:var(--mono); color:var(--ritmo);">0</b> — cortá apenas veas que dejó de subir, no hace falta esperar más.</p>
         <button class="btn peligro" style="margin-top:8px;" onclick="terminarFrenada()">■ Terminar prueba</button>
       </div>
       <div id="resultadoFrenada" style="display:none; margin-top:8px;"></div>
@@ -2052,6 +2053,23 @@
         rpmMin/rpmMax (con minSeguro/maxSeguro de v69) — el rango de RPM
         que cubrió esa prueba en particular, para poder comparar
         pruebas de intensidades distintas de un vistazo.
+   v78: Hugo probó "contar hasta 20" (mi consejo anterior) y SIGUIÓ
+        fallando. Revisando calcularRPMDesdeEventosCSC() con cuidado
+        encontré la explicación real, y era al revés de lo que
+        recomendé: esa función devuelve null cuando deltaTiempo===0
+        (mismo evento repetido, sin dato nuevo) — y a velocidad BAJA,
+        el volante tarda más en completar una vuelta entera, así que
+        muchas notificaciones le llegan a la app con el MISMO
+        timestamp que la anterior. Esperar más tiempo una vez que ya
+        va lento no suma muestras nuevas, las tira casi todas —
+        "contar hasta 20" empeoraba las cosas, no las mejoraba.
+        Agregado un contador en vivo de muestras válidas
+        (contadorMuestrasFrenada, actualizado en cada notificación real
+        dentro de handleCSC) en la tarjeta de la prueba en curso — así
+        Hugo ve crecer el número en la pantalla y corta apenas deja de
+        subir, en vez de adivinar cuánto tiempo esperar a ciegas.
+        Cambiado el consejo de la tarjeta en consecuencia: "cortá cuando
+        deje de subir", no "esperá 10-15 segundos".
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2369,6 +2387,8 @@ function iniciarFrenada() {
   document.getElementById('btnIniciarFrenada').style.display = 'none';
   document.getElementById('cardFrenadaEnCurso').style.display = 'block';
   document.getElementById('resultadoFrenada').style.display = 'none';
+  const elContador = document.getElementById('contadorMuestrasFrenada');
+  if (elContador) elContador.textContent = '0';
   toast('Prueba iniciada — acelerá fuerte unas paladas y después soltá del todo, sin tirar más');
 }
 function terminarFrenada() {
@@ -2960,7 +2980,11 @@ function handleCSC(event) {
     tramoCalibRPM.muestras.push(rpm); // recolecta muestras de RPM para el tramo de calibración por velocímetro
     if (actual.pulso > 0) tramoCalibRPM.pulsos.push(actual.pulso); // y de pulso, si hay banda conectada — para poder calcular el TSS real del tramo al terminar
   }
-  if (frenadaEnCurso) frenadaEnCurso.muestras.push({ tMs: performance.now() - frenadaEnCurso.inicioPerf, rpm });
+  if (frenadaEnCurso) {
+    frenadaEnCurso.muestras.push({ tMs: performance.now() - frenadaEnCurso.inicioPerf, rpm });
+    const elContador = document.getElementById('contadorMuestrasFrenada');
+    if (elContador) elContador.textContent = frenadaEnCurso.muestras.filter(m => m.rpm > 0).length; // solo cuento las que realmente sirven para el ajuste (rpm>0), no el total de eventos recibidos
+  }
   // v60 — Hugo mandó tres videos reales remando con el sensor puesto, y "vueltas de volante por
   // palada" nunca mostró nada en ninguno. Simulé la secuencia EXACTA de esos videos (extraída
   // cuadro a cuadro) por esta misma función y encontré DOS problemas reales:
