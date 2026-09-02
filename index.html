@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v78</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v80</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -215,9 +215,12 @@
       <p class="nota">El TSS de cada sesión se calcula comparando tu pulso medio contra este
         umbral (tu FTHR aproximado — el pulso que podrías sostener durante ~1 hora a fondo). Sin
         cargar esto, el TSS siempre va a dar 0, no porque la sesión no haya tenido esfuerzo. También
-        se calcula solo, del mejor esfuerzo sostenido de 20'+ que encuentre en tu historial — cargarlo
-        a mano acá abajo no se pisa en silencio con eso, si el automático sugiere algo distinto avisa
-        en vez de cambiarlo solo.</p>
+        se calcula solo, del mejor esfuerzo sostenido de 20'+ que encuentre en tu historial — y
+        mientras no tengas ninguna sesión así de larga, usa una estimación PROVISIONAL del mejor
+        esfuerzo más corto que tenga (15' hasta 5', lo que encuentre), para que el TSS no quede en
+        0 mientras tanto — se reemplaza sola apenas aparezca una sesión de 20'+ real. Cargarlo a
+        mano acá abajo no se pisa en silencio con ninguna de las dos: si la automática sugiere algo
+        distinto, avisa en vez de cambiarlo solo.</p>
       <p class="nota" style="margin-top:6px;">Origen actual: <b id="origenUmbralPulso">--</b></p>
       <input type="number" inputmode="numeric" id="inputUmbralPulso" placeholder="ej. 165" style="width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);">
       <button class="btn primario" style="margin-top:8px;" onclick="guardarUmbralPulso()">Guardar umbral</button>
@@ -248,14 +251,15 @@
       <h2>Calibración de frenada (para eficiencia/potencia por palada)</h2>
       <p class="nota">Un paso más allá de la eficiencia por vueltas — con esto se puede estimar
         cuánta energía metiste en cada palada, no solo cuánto giró el volante. Necesita una prueba
-        de "frenada libre": tocá "Iniciar", dale unas paladas (no importa cuántas ni con cuánta
-        fuerza — 3, 5 o 10, suave o fuerte, todo sirve; más velocidad alcanzada = mejor rango para
-        el ajuste) y después soltá del todo, sin tirar más del cable ni frenarlo con la mano. La
-        app encuentra sola el instante en que dejaste de acelerar y descarta todo lo de antes —no
-        hace falta que seas preciso con el momento de tocar "Iniciar". Mirá el contador de
-        muestras válidas que aparece mientras frena — <b>cortá cuando deje de subir</b> (no hace
-        falta esperar a que vaya lento: el sensor manda cada vez menos datos nuevos a baja
-        velocidad, esperar de más no suma muestras).</p>
+        de "frenada libre": tocá "Iniciar", dale paladas fuertes hasta llegar a bastante velocidad
+        (mientras más rápido gire al soltar, más notificaciones del sensor vas a juntar en la
+        ventana corta que dura la frenada — importa más la velocidad alcanzada que la cantidad de
+        paladas en sí) y después soltá del todo, sin tirar más del cable ni frenarlo con la mano.
+        La app encuentra sola el instante en que dejaste de acelerar y descarta todo lo de antes —
+        no hace falta que seas preciso con el momento de tocar "Iniciar". Muchos volantes (el de
+        Hugo, por ejemplo) frenan del todo en pocos segundos — mirá el contador de muestras
+        válidas que aparece mientras frena y <b>cortá apenas deje de subir</b>, esperar más no
+        suma nada una vez que ya viene lento.</p>
       <button class="btn primario" id="btnIniciarFrenada" style="margin-top:8px;" onclick="iniciarFrenada()">▶ Iniciar prueba de frenada</button>
       <div id="cardFrenadaEnCurso" style="display:none; margin-top:8px;">
         <p class="nota">Prueba en curso — acelerá y después soltá del todo, sin tocar más el
@@ -2070,6 +2074,41 @@
         subir, en vez de adivinar cuánto tiempo esperar a ciegas.
         Cambiado el consejo de la tarjeta en consecuencia: "cortá cuando
         deje de subir", no "esperá 10-15 segundos".
+   v79: Hugo miró su ergómetro en persona y dio el dato que faltaba:
+        tracciona hasta el segundo 10, y el volante se para del todo en
+        el segundo 14 — una ventana de frenada libre de apenas 4
+        segundos. Con el sensor notificando ~1 vez/seg, eso da como
+        máximo 4-5 notificaciones — el mínimo de 5 muestras que pedía
+        calcularCoeficienteFrenada() hacía fallar CASI cualquier prueba,
+        aunque saliera perfectamente limpia, no por un problema real de
+        la prueba en sí. Bajado el mínimo a 4 (todavía por encima del
+        mínimo matemático trivial de 2 puntos, que siempre "ajustan
+        perfecto" sin decir nada real). Actualizado el texto de la
+        tarjeta: importa más llegar a BUENA VELOCIDAD antes de soltar
+        (más vueltas por segundo = más notificaciones distintas en esa
+        ventana corta) que la cantidad de paladas en sí — y avisa que
+        muchos volantes frenan del todo en pocos segundos, así que
+        conviene mirar el contador en vivo en vez de esperar de más.
+   v80: Hugo pidió que mientras no haya una sesión de 20'+ válida, la
+        app estime un umbral PROVISIONAL con lo que tenga (aunque sea
+        una sola sesión de 10') para que el TSS no quede en 0 todo ese
+        tiempo. calcularUmbralProvisional() (nueva) reusa
+        calcularMejorEsfuerzoSostenido() — que ya era genérica, acepta
+        cualquier largo de ventana — probando 15/12/10/8/5 minutos de
+        mayor a menor, usa la primera que encuentre algo (un esfuerzo
+        sostenido más largo se parece más al umbral real que uno corto).
+        recalcularUmbralAutomatico() reescrita con tres niveles de
+        origen: 'auto' (20'+ real, máxima prioridad), 'auto_provisional'
+        (estimación corta, se sube sola a 'auto' apenas aparezca una
+        sesión de 20'+), 'manual' (nunca se pisa en silencio, sea cual
+        sea la combinación). De paso encontré y arreglé un bug real en
+        usarUmbralAutomatico(): asumía que la sugerencia SIEMPRE era
+        'auto', así que si alguien la usaba estando en estado
+        provisional, quedaba mal marcada como si fuera la de 20' real.
+        K_UMBRAL_PULSO_SUGERIDO pasó de guardar un número suelto al
+        objeto completo {valor, origen, ventanaMin}, para que
+        usarUmbralAutomatico() sepa qué tipo de sugerencia está
+        adoptando.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2151,35 +2190,64 @@ function sincronizarUmbralCompartido(valor) {
 // sin pedir nada — es coherente que se actualice solo, nunca fue una decisión manual. Si lo
 // activo es MANUAL, nunca lo pisa en silencio — solo avisa si el automático sugiere algo
 // distinto, y deja el valor sugerido guardado aparte para que la UI ofrezca adoptarlo.
+// a pedido de Hugo: mientras no haya ninguna sesión de 20'+ (el protocolo Friel real), estimar
+// un umbral PROVISIONAL del mejor esfuerzo sostenido más corto que tenga disponible — mejor un
+// número aproximado que TSS=0 en todas las sesiones mientras tanto. Reusa
+// calcularMejorEsfuerzoSostenido() (ya es genérica, acepta cualquier largo de ventana) probando
+// ventanas cada vez más cortas — un esfuerzo sostenido más largo se parece más al umbral real que
+// uno corto (que tiende a sobreestimar, ya que a menos tiempo se puede sostener más pulso), así
+// que se prueba de mayor a menor y se usa la primera (más larga) que encuentre algo.
+function calcularUmbralProvisional(sesiones) {
+  const ventanas = [15, 12, 10, 8, 5];
+  for (const ventanaMin of ventanas) {
+    const mejor = calcularMejorEsfuerzoSostenido(sesiones, ventanaMin);
+    if (mejor) return { pulsoPromedio: mejor.pulsoPromedio, ventanaMin };
+  }
+  return null;
+}
 function recalcularUmbralAutomatico() {
-  const mejor = calcularMejorEsfuerzoSostenido(lsGet(K_SESIONES, []), 20);
-  if (!mejor) return; // ninguna sesión llega a los 20' sostenidos todavía
-  const sugerido = Math.round(mejor.pulsoPromedio);
-  lsSet(K_UMBRAL_PULSO_SUGERIDO, sugerido);
+  const sesiones = lsGet(K_SESIONES, []);
+  const mejorReal = calcularMejorEsfuerzoSostenido(sesiones, 20); // el protocolo Friel de verdad — siempre tiene prioridad si existe
+  const provisional = mejorReal ? null : calcularUmbralProvisional(sesiones); // solo se busca si TODAVÍA no hay uno real de 20'+
+  const candidato = mejorReal
+    ? { valor: Math.round(mejorReal.pulsoPromedio), origen: 'auto' }
+    : provisional
+      ? { valor: Math.round(provisional.pulsoPromedio), origen: 'auto_provisional', ventanaMin: provisional.ventanaMin }
+      : null;
+  if (!candidato) return; // ni siquiera hay una sesión de 5' sostenidos todavía
+  lsSet(K_UMBRAL_PULSO_SUGERIDO, candidato); // objeto completo {valor, origen, ventanaMin} — no solo el número, para que usarUmbralAutomatico() sepa qué tipo de sugerencia es
   const actual = lsGet(K_UMBRAL_PULSO, null);
   if (!actual) {
-    lsSet(K_UMBRAL_PULSO, { valor: sugerido, origen: 'auto' });
-    sincronizarUmbralCompartido(sugerido);
+    lsSet(K_UMBRAL_PULSO, candidato);
+    sincronizarUmbralCompartido(candidato.valor);
     return;
   }
-  if (actual.origen === 'auto') {
-    if (actual.valor !== sugerido) {
-      lsSet(K_UMBRAL_PULSO, { valor: sugerido, origen: 'auto' });
-      sincronizarUmbralCompartido(sugerido);
+  if (actual.origen === 'manual') {
+    if (actual.valor !== candidato.valor) {
+      toast('Encontré un esfuerzo sostenido que sugiere ' + candidato.valor + ' bpm de umbral (tenés ' + actual.valor + ' cargado a mano) — mirá Calibración si querés usarlo');
     }
     return;
   }
-  if (actual.valor !== sugerido) {
-    toast('Encontré un esfuerzo sostenido que sugiere ' + sugerido + ' bpm de umbral (tenés ' + actual.valor + ' cargado a mano) — mirá Calibración si querés usarlo');
+  // acá "actual" es 'auto' o 'auto_provisional' — nunca hace falta pedir confirmación para
+  // reemplazar uno automático con otro automático (sea cual sea la combinación), pero SÍ importa
+  // no downgradear un real 20' a uno provisional más corto si por algún motivo el cálculo real
+  // fallara transitoriamente (no debería pasar dado el orden de arriba, pero por las dudas)
+  if (actual.origen === 'auto' && candidato.origen === 'auto_provisional') return;
+  if (actual.valor !== candidato.valor || actual.origen !== candidato.origen) {
+    lsSet(K_UMBRAL_PULSO, candidato);
+    sincronizarUmbralCompartido(candidato.valor);
+    if (candidato.origen === 'auto' && actual.origen === 'auto_provisional') {
+      toast('Ya tenés una sesión de 20\'+ — umbral actualizado a ' + candidato.valor + ' bpm (antes era una estimación provisional)');
+    }
   }
 }
 function usarUmbralAutomatico() {
   const sugerido = lsGet(K_UMBRAL_PULSO_SUGERIDO, null);
-  if (sugerido == null) { toast('Todavía no hay ningún esfuerzo sostenido de 20\' calculado'); return; }
-  lsSet(K_UMBRAL_PULSO, { valor: sugerido, origen: 'auto' });
-  sincronizarUmbralCompartido(sugerido);
+  if (sugerido == null) { toast('Todavía no hay ningún esfuerzo sostenido calculado'); return; }
+  lsSet(K_UMBRAL_PULSO, sugerido); // ya viene con {valor, origen, ventanaMin} armado desde recalcularUmbralAutomatico() — no asumir que siempre es 'auto', podría ser 'auto_provisional'
+  sincronizarUmbralCompartido(sugerido.valor);
   renderCalibracion();
-  toast('Umbral actualizado al automático: ' + sugerido + ' bpm');
+  toast('Umbral actualizado: ' + sugerido.valor + ' bpm');
 }
 const K_FORMA_COMPARTIDA = 'entrenamiento_forma_registro';
 
@@ -2359,9 +2427,14 @@ function recortarHastaElPico(muestras) {
 }
 function calcularCoeficienteFrenada(muestrasCrudas) {
   const muestras = recortarHastaElPico(muestrasCrudas);
-  if (!muestras || muestras.length < 5) return null;
+  // el mínimo bajó de 5 a 4 el 1/9 — Hugo midió que su volante frena del todo en ~4 segundos
+  // desde que suelta, y el sensor notifica ~1 vez/seg, así que pedir 5 hacía fallar CASI
+  // cualquier prueba, aunque saliera limpia. 4 sigue siendo más que el mínimo matemático trivial
+  // (2 puntos siempre "ajustan perfecto" sin decir nada real) — con 4 el r² ya es un indicador
+  // honesto de qué tan buena salió la prueba, aunque menos robusto que con más puntos.
+  if (!muestras || muestras.length < 4) return null;
   const validas = muestras.filter(m => m.rpm > 0);
-  if (validas.length < 5) return null;
+  if (validas.length < 4) return null;
   const t0 = validas[0].tMs;
   const puntos = validas.map(m => ({ x: (m.tMs - t0) / 1000, y: 1 / m.rpm }));
   const n = puntos.length;
@@ -2401,7 +2474,7 @@ function terminarFrenada() {
   const elResultado = document.getElementById('resultadoFrenada');
   if (!resultado) {
     elResultado.style.display = 'block';
-    elResultado.innerHTML = '<p class="nota" style="color:var(--pulso);">No se pudo calcular nada — se juntaron ' + muestrasUsadas + ' muestras, hacen falta al menos 5 con RPM real (mayor a 0). Probá de nuevo, dejando pasar más tiempo antes de soltar del todo.</p>';
+    elResultado.innerHTML = '<p class="nota" style="color:var(--pulso);">No se pudo calcular nada — se juntaron ' + muestrasUsadas + ' muestras, hacen falta al menos 4 con RPM real (mayor a 0). Tu volante frena del todo en pocos segundos, así que conviene llegar a más velocidad ANTES de soltar (más vueltas por segundo = más notificaciones del sensor en esa ventana corta) — esperar más después de soltar no ayuda.</p>';
     return;
   }
   const calidad = resultado.r2 > 0.9 ? 'buena — la frenada salió limpia' : resultado.r2 > 0.7 ? 'aceptable, pero podría estar mejor — probá de nuevo si podés' : 'baja — probablemente alguien tocó el volante a mitad de la frenada, o se soltó antes de que agarrara buena velocidad. Convendría repetirla';
@@ -4001,12 +4074,13 @@ function renderCalibracion() {
   if (elOrigen) {
     elOrigen.textContent = !umbralGuardado ? 'Sin cargar todavía'
       : umbralGuardado.origen === 'auto' ? 'Automático (mejor esfuerzo sostenido de 20\'+)'
+      : umbralGuardado.origen === 'auto_provisional' ? 'Provisional (esfuerzo sostenido de ' + (umbralGuardado.ventanaMin || '?') + '\' — se va a actualizar solo apenas tengas una sesión de 20\'+)'
       : 'Cargado a mano';
   }
   if (elSugerencia) {
-    const hayDiferencia = umbralGuardado && umbralGuardado.origen === 'manual' && sugerido != null && sugerido !== umbralGuardado.valor;
+    const hayDiferencia = umbralGuardado && umbralGuardado.origen === 'manual' && sugerido != null && sugerido.valor !== umbralGuardado.valor;
     elSugerencia.style.display = hayDiferencia ? 'block' : 'none';
-    if (hayDiferencia) elSugerencia.innerHTML = 'El mejor esfuerzo sostenido encontrado en tu historial sugiere <b>' + sugerido + ' bpm</b> — <button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 8px;" onclick="usarUmbralAutomatico()">Usar automático</button>';
+    if (hayDiferencia) elSugerencia.innerHTML = 'El mejor esfuerzo sostenido encontrado en tu historial sugiere <b>' + sugerido.valor + ' bpm</b>' + (sugerido.origen === 'auto_provisional' ? ' (provisional, de ' + sugerido.ventanaMin + '\')' : '') + ' — <button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 8px;" onclick="usarUmbralAutomatico()">Usar automático</button>';
   }
 }
 function guardarUmbralPulso() {
