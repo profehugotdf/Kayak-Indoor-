@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v83</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v85</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -594,6 +594,10 @@
       <p class="nota" id="detalleEficienciaAerobica"></p>
       <p class="nota" id="detalleVsFantasma"></p>
       <p class="nota" id="detalleAvisoClampeo" style="display:none; color:var(--pulso); margin-top:6px;"></p>
+      <div id="editarDistanciaTramo" style="display:none; margin-top:8px;">
+        <input type="number" inputmode="decimal" id="inputEditarDistanciaTramo" placeholder="distancia real correcta (m)" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);">
+        <button class="btn chico" style="margin-top:6px;" id="btnEditarDistanciaTramo">Corregir distancia</button>
+      </div>
       <div id="graficasDetalleSesion" style="margin-top:10px;"></div>
     </div>
     <div class="card" id="cardCarreraSeleccion" style="display:none;">
@@ -2169,6 +2173,40 @@
         un avance real que registrar, a diferencia de un tramo. Marcada
         esCalibracionFrenada:true, distinguida en Historial con 🛑
         (al lado de 📏 para RPM y ✍️ para manual).
+   v84: Hugo mandó dos intentos seguidos de frenada, ambos con muy
+        pocas muestras (2, y antes otra con r²=0.00 — un ajuste
+        completamente inútil). Sin poder ver el rastro crudo de esas
+        pruebas puntuales, no hay forma de diagnosticar con certeza qué
+        está pasando — mismo problema que tuvimos con la cadencia por
+        cámara y el sensor BLE en su momento, resuelto ahí guardando el
+        dato crudo real.
+        Como desde v83 cada prueba de frenada YA se guarda como sesión
+        (esCalibracionFrenada), aproveché ese mismo objeto para agregar
+        logFrenada: el rastro crudo (tMs+rpm de cada notificación) de
+        ESA prueba puntual — a diferencia de logCSC (que es de una
+        sesión entera), esto es específico de una sola prueba de
+        frenada, y antes se perdía apenas terminaba sin dejar rastro.
+        Viaja en el JSON de esa sesión (con 🛑), recortable igual que
+        logCSC/logCamara si el guardado no entra por espacio.
+   v85: Hugo se olvidó de cargar 500m reales en un tramo de calibración
+        por RPM, y quedó guardado como 1m — pidió poder editarlo y
+        recalcular. Encontré que corregirlo NO era solo cosmético: cada
+        tramo genera DOS cosas (la sesión que se ve en Historial, Y un
+        punto en la curva de calibración K_CALIBRACION_RPM que la app
+        usa de verdad para estimar distancia) — pero esos dos objetos
+        no compartían ningún id, no había forma de encontrar cuál punto
+        de calibración corregir junto con la sesión.
+        Arreglado: terminarTramoCalibRPM() ahora genera el id ANTES de
+        armar los dos objetos, y se lo pone a los dos. Nueva
+        editarDistanciaTramoRPM(idSesion, distanciaNueva) corrige la
+        sesión Y (si lo encuentra por id) el punto de calibración
+        correspondiente a la vez — en tramos guardados ANTES de este
+        cambio, corrige solo la sesión y avisa la diferencia, en vez de
+        fallar en silencio. Botón "Corregir distancia" nuevo en el
+        detalle de sesión, visible solo para tramos de calibración por
+        RPM (esCalibracion) — no tiene sentido en una sesión normal, esa
+        ya calcula su distancia del track real, no de un número tipeado
+        a mano que se pudo haber olvidado.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2583,6 +2621,7 @@ function guardarSesionDeFrenada(frenada) {
     paladasDetectadas: 0,
     logCSC: [],
     logCamara: [],
+    logFrenada: frenada.muestras || [], // el rastro crudo de ESTA prueba puntual (tMs+rpm de cada notificación, tal cual las capturó frenadaEnCurso) — a diferencia de logCSC (que es de una sesión entera), esto es específico de una sola prueba de frenada. Antes de esto, ese dato se perdía apenas terminaba la prueba, sin dejar forma de diagnosticar una que fallara.
     esCalibracionFrenada: true,
   };
   const resultado = guardarSesionConReintento(sesion);
@@ -2592,6 +2631,33 @@ function guardarSesionDeFrenada(frenada) {
 // el modelo físico (k constante, sin importar la velocidad) vale para su volante en particular;
 // si da distinto, es señal real de que hay algo más (fricción mecánica del eje, por ejemplo) que
 // la fórmula simple no captura.
+// corrige la distancia de un tramo de calibración por RPM, DESPUÉS de guardado — a pedido de
+// Hugo, que se olvidó de cargar los 500m reales de un tramo. Corrige los DOS lugares donde ese
+// número vive: la sesión (K_SESIONES, lo que se ve en Historial/detalle) Y el punto de
+// calibración correspondiente (K_CALIBRACION_RPM, lo que realmente usa la app para estimar
+// distancia en sesiones futuras) — si solo se corrigiera la sesión, la curva de calibración
+// seguiría mal sin que se note. Los dos comparten el mismo id desde que se generan (ver
+// terminarTramoCalibRPM) — en tramos guardados ANTES de ese cambio, el punto de calibración no
+// se va a encontrar por id, y esta función corrige solo la sesión (mejor eso que nada, pero avisa
+// la diferencia).
+function editarDistanciaTramoRPM(idSesion, distanciaNueva) {
+  if (!distanciaNueva || distanciaNueva <= 0) { toast('Ingresá una distancia válida'); return; }
+  const sesiones = lsGet(K_SESIONES, []);
+  const sesion = sesiones.find(s => s.id === idSesion);
+  if (!sesion) { toast('No encontré esa sesión'); return; }
+  sesion.distanciaM = distanciaNueva;
+  lsSet(K_SESIONES, sesiones);
+  const puntos = lsGet(K_CALIBRACION_RPM, []);
+  const punto = puntos.find(p => p.id === idSesion);
+  if (punto) {
+    punto.distanciaM = distanciaNueva;
+    lsSet(K_CALIBRACION_RPM, puntos);
+  }
+  toast('Distancia corregida a ' + distanciaNueva + 'm' + (punto ? ' — también se actualizó el punto de calibración' : ' (este tramo es de antes de poder vincular el punto de calibración, revisalo a mano en la tarjeta de RPM si hace falta)'));
+  renderHistorial();
+  renderCalibRPM();
+  mostrarDetalleSesion(idSesion);
+}
 function guardarCoeficienteFrenada(k, r2, rpmMin, rpmMax) {
   const pruebas = lsGet(K_COEF_FRENADA, []);
   pruebas.push({ k, r2, rpmMin, rpmMax, fecha: new Date().toISOString() });
@@ -2645,8 +2711,9 @@ function terminarTramoCalibRPM() {
   const rpmProm = promedioRPM(tramoCalibRPM.muestras);
   if (!distanciaM || distanciaM <= 0) { toast('Ingresá la distancia real que remaste en este tramo'); return; }
   if (rpmProm == null) { toast('No se juntó ninguna muestra de RPM en este tramo — ¿estaba conectado el sensor?'); tramoCalibRPM = null; document.getElementById('btnIniciarTramoRPM').style.display = 'block'; document.getElementById('cardTramoEnCurso').style.display = 'none'; return; }
+  const idSesion = 'k_calib_' + Date.now(); // generado ACÁ, antes de armar los dos objetos — así el punto de calibración y la sesión comparten el mismo id, y se puede corregir uno sin perder de vista el otro (ver editarDistanciaTramoRPM)
   const puntos = lsGet(K_CALIBRACION_RPM, []);
-  puntos.push({ rpmPromedio: rpmProm, distanciaM, tiempoSeg });
+  puntos.push({ id: idSesion, rpmPromedio: rpmProm, distanciaM, tiempoSeg });
   lsSet(K_CALIBRACION_RPM, puntos);
 
   const pulsoPromedio = tramoCalibRPM.pulsos.length ? promedio(tramoCalibRPM.pulsos) : null;
@@ -2655,7 +2722,7 @@ function terminarTramoCalibRPM() {
   const umbralPulso = umbralGuardado ? umbralGuardado.valor : null;
   const tss = calcularTSS(tiempoSeg, pulsoPromedio, umbralPulso);
   const sesionTramo = {
-    id: 'k_calib_' + Date.now(),
+    id: idSesion,
     fecha: new Date().toISOString(),
     duracionSeg: Math.round(tiempoSeg),
     distanciaM,
@@ -4937,7 +5004,7 @@ function guardarSesionConReintento(sesion) {
     return { ok: true, recortada: false };
   } catch (err) {
     console.error('No entró en localStorage con los registros de diagnóstico completos, reintento sin ellos:', err);
-    sesiones[sesiones.length - 1] = { ...sesion, logCamara: [], logCSC: [] };
+    sesiones[sesiones.length - 1] = { ...sesion, logCamara: [], logCSC: [], logFrenada: [] };
     try {
       lsSet(K_SESIONES, sesiones);
       return { ok: true, recortada: true };
@@ -5188,6 +5255,21 @@ function mostrarDetalleSesion(id) {
   document.getElementById('detalleEficienciaPalada').textContent = sesion.eficienciaPromedio != null
     ? sesion.eficienciaPromedio.toFixed(1) + (sesion.eficienciaDesvio != null ? ' ± ' + sesion.eficienciaDesvio.toFixed(1) : '')
     : '--';
+
+  // solo tiene sentido corregir la distancia en un tramo de calibración por RPM (esCalibracion)
+  // — una sesión normal ya tiene su distancia calculada del track real, no de un número tipeado a
+  // mano que se pudo haber olvidado. A pedido de Hugo, que se olvidó de cargar 500m reales.
+  const elEditar = document.getElementById('editarDistanciaTramo');
+  if (sesion.esCalibracion) {
+    elEditar.style.display = 'block';
+    document.getElementById('inputEditarDistanciaTramo').value = '';
+    document.getElementById('btnEditarDistanciaTramo').onclick = () => {
+      const nueva = parseFloat(document.getElementById('inputEditarDistanciaTramo').value);
+      editarDistanciaTramoRPM(sesion.id, nueva);
+    };
+  } else {
+    elEditar.style.display = 'none';
+  }
 
   const puntos = sesion.puntos || [];
   const desacople = calcularDesacoplePulso(puntos);
