@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v80</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v83</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -241,6 +241,17 @@
       <button class="btn primario" id="btnIniciarTramoRPM" style="margin-top:8px;" onclick="iniciarTramoCalibRPM()">▶ Iniciar tramo</button>
       <div id="cardTramoEnCurso" style="display:none; margin-top:8px;">
         <p class="nota">Tramo en curso — remá parejo. Cuando llegues a tu marca, anotá los metros reales y tocá "Terminar tramo".</p>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <div style="flex:1; text-align:center; padding:12px; border-radius:10px; border:1px solid var(--borde); background:var(--panel2);">
+            <div id="cuentavueltasTramo" style="font-family:var(--mono); font-size:2.4rem; color:var(--ritmo); line-height:1;">--</div>
+            <div class="nota" style="margin-top:4px;">RPM (cuentavueltas)</div>
+          </div>
+          <div style="flex:1; text-align:center; padding:12px; border-radius:10px; border:1px solid var(--borde); background:var(--panel2);">
+            <div id="cadenciaRefTramo" style="font-family:var(--mono); font-size:2.4rem; color:#e8b84b; line-height:1;">--</div>
+            <div class="nota" style="margin-top:4px;">Paladas/min (referencia)</div>
+          </div>
+        </div>
+        <p class="nota" style="margin-top:6px;">El RPM responde al toque, como el cuentavueltas de un auto — subilo y bajalo con el esfuerzo para encontrar el punto de cada intensidad (suave/media/fuerte), mirando la cadencia al lado como referencia de lo que ya conocés.</p>
         <input type="number" inputmode="decimal" id="inputDistanciaTramoRPM" placeholder="metros reales remados" style="width:100%; margin-top:6px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);">
         <button class="btn peligro" style="margin-top:8px;" onclick="terminarTramoCalibRPM()">■ Terminar tramo</button>
       </div>
@@ -259,7 +270,9 @@
         no hace falta que seas preciso con el momento de tocar "Iniciar". Muchos volantes (el de
         Hugo, por ejemplo) frenan del todo en pocos segundos — mirá el contador de muestras
         válidas que aparece mientras frena y <b>cortá apenas deje de subir</b>, esperar más no
-        suma nada una vez que ya viene lento.</p>
+        suma nada una vez que ya viene lento. Cada prueba también queda guardada como sesión real
+        (con el TSS del pulso, si tenías la banda puesta) — cuenta para tu Forma, salga bien o mal
+        el cálculo del coeficiente.</p>
       <button class="btn primario" id="btnIniciarFrenada" style="margin-top:8px;" onclick="iniciarFrenada()">▶ Iniciar prueba de frenada</button>
       <div id="cardFrenadaEnCurso" style="display:none; margin-top:8px;">
         <p class="nota">Prueba en curso — acelerá y después soltá del todo, sin tocar más el
@@ -580,6 +593,7 @@
       <p class="nota" style="margin-top:8px;" id="detalleDesacople"></p>
       <p class="nota" id="detalleEficienciaAerobica"></p>
       <p class="nota" id="detalleVsFantasma"></p>
+      <p class="nota" id="detalleAvisoClampeo" style="display:none; color:var(--pulso); margin-top:6px;"></p>
       <div id="graficasDetalleSesion" style="margin-top:10px;"></div>
     </div>
     <div class="card" id="cardCarreraSeleccion" style="display:none;">
@@ -2109,6 +2123,52 @@
         objeto completo {valor, origen, ventanaMin}, para que
         usarUmbralAutomatico() sepa qué tipo de sugerencia está
         adoptando.
+   v81: Hugo mandó su Historial — después de calibrar frenada y RPM,
+        una sesión real de 10' dio 761m contra los 933m del fantasma
+        (~180m de diferencia). Diagnóstico: sus dos puntos de
+        calibración por RPM eran de 52-59 (bastante suaves), pero una
+        sesión real anda con RPM de 300-400+ — velocidadEstimadaDesdeRPM()
+        NO extrapola fuera del rango calibrado, se clampea al extremo
+        más cercano (59 RPM → 1.57 m/s) sin importar cuánto más rápido
+        vaya en realidad. Ya se lo había avisado de antemano, y se
+        confirmó en la práctica.
+        Agregado estaClampeadoRPM() (pura) + segundosClampeados nuevo en
+        sesionActiva, sumado en cada tick() cuando la fuente elegida fue
+        'rpm' y el RPM de ese segundo cayó afuera del rango calibrado.
+        Si más del 20% de una sesión quedó clampeada, el detalle de esa
+        sesión ahora muestra un aviso explícito (color de alerta) — para
+        que esto se note solo la próxima vez, en vez de descubrirlo por
+        un resultado raro contra el fantasma.
+   v82: Hugo explicó por qué sus tramos de calibración quedaron tan
+        bajos (52-59 RPM): siempre se guio por cadencia o velocidad,
+        nunca había visto el número de RPM en vivo mientras remaba —
+        pidió un "cuentavueltas" para poder controlar el esfuerzo en
+        base a eso al calibrar.
+        Agregado un cuentavueltas grande (cuentavueltasTramo) adentro de
+        la tarjeta del tramo en curso, actualizado en vivo desde
+        handleCSC() (mismo punto donde ya se actualizaba hudRPM) — y al
+        lado, la cadencia de cámara/mic en vivo (cadenciaRefTramo, mismo
+        dato que ya mostraba hudCadenciaCamara, ahora también acá) como
+        referencia de lo que ya conoce, para que pueda ir relacionando
+        los dos números mientras rema. Se resetean los dos a "--" al
+        iniciar cada tramo nuevo, para no arrastrar el valor del tramo
+        anterior en la pantalla.
+   v83: Hugo preguntó si las pruebas de calibración (RPM y frenada)
+        cuentan con su TSS en Historial — los tramos de RPM sí (desde
+        v74), la frenada no todavía. Confirmó que quería lo mismo para
+        la frenada.
+        frenadaEnCurso ahora también junta pulso (frenadaEnCurso.pulsos,
+        mismo punto en handleCSC donde ya se juntaba para tramoCalibRPM)
+        y guarda inicio real (Date.now(), separado de inicioPerf que
+        sigue siendo para los timestamps de la regresión). Nueva
+        guardarSesionDeFrenada() (mismo patrón que terminarTramoCalibRPM
+        de v74): arma y guarda una sesión real con el TSS del pulso —
+        se llama SIEMPRE al terminar la prueba, calcule bien o no el
+        coeficiente (el esfuerzo de las paladas iniciales ya se hizo,
+        cuenta igual). distanciaM=0 a propósito — una frenada no tiene
+        un avance real que registrar, a diferencia de un tramo. Marcada
+        esCalibracionFrenada:true, distinguida en Historial con 🛑
+        (al lado de 📏 para RPM y ✍️ para manual).
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2376,6 +2436,18 @@ function velocidadEstimadaDesdeRPM(rpm, puntosCalibRPM) {
   }
   return vel(pts[pts.length - 1]);
 }
+// true si este RPM cae AFUERA del rango que cubren los puntos de calibración — en ese caso
+// velocidadEstimadaDesdeRPM() no interpola de verdad, se queda "clampeada" en el extremo más
+// cercano sin importar cuánto más rápido/lento vaya en realidad. Encontrado el 1/9: Hugo calibró
+// con dos tramos de 52-59 RPM (bastante suaves) y después remó una sesión real con RPM mucho más
+// alto (300-400+) — toda esa sesión quedó clampeada en el valor de 59 RPM, dando una distancia
+// muy por debajo de la real. Separada en su propia función pura para poder contar cuánto tiempo
+// de una sesión pasó clampeado, y avisar si fue significativo.
+function estaClampeadoRPM(rpm, puntosCalibRPM) {
+  if (!puntosCalibRPM || !puntosCalibRPM.length || rpm == null) return false; // sin calibración o sin lectura no aplica este concepto — esos casos ya caen al respaldo de cadencia en otro lado
+  const rpms = puntosCalibRPM.map(p => p.rpmPromedio);
+  return rpm < minSeguro(rpms) || rpm > maxSeguro(rpms);
+}
 // promedio simple de un array de RPM — separado en su propia función solo para poder testearlo
 // aislado del resto (junta las muestras crudas de un tramo y las reduce a un solo número).
 function promedioRPM(muestras) {
@@ -2456,7 +2528,7 @@ function calcularCoeficienteFrenada(muestrasCrudas) {
 let frenadaEnCurso = null; // { inicioPerf: performance.now(), muestras: [{tMs, rpm}] } mientras hay una prueba en curso; null si no
 function iniciarFrenada() {
   if (!cscUltimaManivela && !cscUltimaRueda) { toast('Conectá el sensor de cadencia/velocidad (BLE) primero'); return; }
-  frenadaEnCurso = { inicioPerf: performance.now(), muestras: [] };
+  frenadaEnCurso = { inicio: Date.now(), inicioPerf: performance.now(), muestras: [], pulsos: [] };
   document.getElementById('btnIniciarFrenada').style.display = 'none';
   document.getElementById('cardFrenadaEnCurso').style.display = 'block';
   document.getElementById('resultadoFrenada').style.display = 'none';
@@ -2468,6 +2540,7 @@ function terminarFrenada() {
   if (!frenadaEnCurso) return;
   const resultado = calcularCoeficienteFrenada(frenadaEnCurso.muestras);
   const muestrasUsadas = frenadaEnCurso.muestras.length;
+  guardarSesionDeFrenada(frenadaEnCurso); // el esfuerzo físico ya se hizo, cuenta para la Forma haya salido bien el cálculo o no — mismo criterio que tramoCalibRPM (v74)
   frenadaEnCurso = null;
   document.getElementById('btnIniciarFrenada').style.display = 'block';
   document.getElementById('cardFrenadaEnCurso').style.display = 'none';
@@ -2482,7 +2555,39 @@ function terminarFrenada() {
   elResultado.innerHTML = '<p class="nota">Coeficiente k = <b>' + resultado.k.toExponential(3) + '</b> · ajuste (r²) = <b>' + resultado.r2.toFixed(3) + '</b> · rango ' + Math.round(resultado.rpmMin) + '-' + Math.round(resultado.rpmMax) + ' RPM — calidad ' + calidad + ' (' + muestrasUsadas + ' muestras).</p>' +
     '<button class="btn primario" style="margin-top:8px;" onclick="guardarCoeficienteFrenada(' + resultado.k + ',' + resultado.r2 + ',' + resultado.rpmMin + ',' + resultado.rpmMax + ')">Agregar esta prueba a la lista</button>';
 }
-// a pedido de Hugo: guardar VARIAS pruebas (no una sola que se pisa cada vez) para poder
+// guarda la prueba de frenada (paladas de arranque + frenada libre) como sesión real — mismo
+// patrón que terminarTramoCalibRPM() (v74), a pedido de Hugo. Se llama SIEMPRE al terminar la
+// prueba, calcule bien o no el coeficiente — el esfuerzo físico de las paladas iniciales ya se
+// hizo, cuenta igual. Cada prueba individual dura pocos segundos, así que el TSS de una sola es
+// mínimo — pero varias seguidas suman.
+function guardarSesionDeFrenada(frenada) {
+  const duracionSeg = (Date.now() - frenada.inicio) / 1000;
+  const pulsoPromedio = frenada.pulsos.length ? promedio(frenada.pulsos) : null;
+  const pulsoMax = frenada.pulsos.length ? maxSeguro(frenada.pulsos) : null;
+  const umbralGuardado = lsGet(K_UMBRAL_PULSO, null);
+  const umbralPulso = umbralGuardado ? umbralGuardado.valor : null;
+  const tss = calcularTSS(duracionSeg, pulsoPromedio, umbralPulso);
+  const sesion = {
+    id: 'k_frenada_' + Date.now(),
+    fecha: new Date().toISOString(),
+    duracionSeg: Math.round(duracionSeg),
+    distanciaM: 0, // una frenada no tiene un "avance" que tenga sentido registrar, a diferencia de un tramo de RPM
+    pulsoPromedio: pulsoPromedio != null ? Math.round(pulsoPromedio) : null,
+    pulsoMax,
+    cadenciaPromedio: null,
+    tss,
+    puntos: [],
+    eficienciaPromedio: null,
+    eficienciaDesvio: null,
+    gapFantasmaFinalM: null,
+    paladasDetectadas: 0,
+    logCSC: [],
+    logCamara: [],
+    esCalibracionFrenada: true,
+  };
+  const resultado = guardarSesionConReintento(sesion);
+  if (resultado.ok) actualizarFormaCompartida(sesion);
+}
 // comparar el coeficiente a distintas intensidades — si da parecido entre pruebas, confirma que
 // el modelo físico (k constante, sin importar la velocidad) vale para su volante en particular;
 // si da distinto, es señal real de que hay algo más (fricción mecánica del eje, por ejemplo) que
@@ -2519,6 +2624,10 @@ function iniciarTramoCalibRPM() {
   tramoCalibRPM = { inicio: Date.now(), muestras: [], pulsos: [] };
   document.getElementById('btnIniciarTramoRPM').style.display = 'none';
   document.getElementById('cardTramoEnCurso').style.display = 'block';
+  const elCuentavueltas = document.getElementById('cuentavueltasTramo');
+  if (elCuentavueltas) elCuentavueltas.textContent = '--';
+  const elCadRefTramo = document.getElementById('cadenciaRefTramo');
+  if (elCadRefTramo) elCadRefTramo.textContent = '--';
   toast('Tramo iniciado — remá parejo y tocá "Terminar tramo" al llegar a la distancia elegida');
 }
 // a pedido de Hugo: un tramo de calibración es esfuerzo real (a veces varios minutos remando
@@ -3052,9 +3161,12 @@ function handleCSC(event) {
   if (tramoCalibRPM) {
     tramoCalibRPM.muestras.push(rpm); // recolecta muestras de RPM para el tramo de calibración por velocímetro
     if (actual.pulso > 0) tramoCalibRPM.pulsos.push(actual.pulso); // y de pulso, si hay banda conectada — para poder calcular el TSS real del tramo al terminar
+    const elCuentavueltas = document.getElementById('cuentavueltasTramo');
+    if (elCuentavueltas) elCuentavueltas.textContent = Math.round(rpm); // cuentavueltas grande de v82 — a pedido de Hugo, que se guía por cadencia/velocidad y nunca había visto el RPM en vivo mientras rema
   }
   if (frenadaEnCurso) {
     frenadaEnCurso.muestras.push({ tMs: performance.now() - frenadaEnCurso.inicioPerf, rpm });
+    if (actual.pulso > 0) frenadaEnCurso.pulsos.push(actual.pulso); // igual que en tramoCalibRPM — para que la prueba también cuente como carga de trabajo al terminar
     const elContador = document.getElementById('contadorMuestrasFrenada');
     if (elContador) elContador.textContent = frenadaEnCurso.muestras.filter(m => m.rpm > 0).length; // solo cuento las que realmente sirven para el ajuste (rpm>0), no el total de eventos recibidos
   }
@@ -3701,6 +3813,8 @@ function loopCamCadencia() {
           document.getElementById('cadCam').firstChild.textContent = cad;
           const elCadCamara = document.getElementById('hudCadenciaCamara');
           if (elCadCamara) elCadCamara.textContent = cad;
+          const elCadRefTramo = document.getElementById('cadenciaRefTramo');
+          if (elCadRefTramo) elCadRefTramo.textContent = cad;
           establecerCadencia(cad);
         }
         if (camEstadoMarcador.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); destellar('flashCam'); }
@@ -3750,6 +3864,8 @@ function loopCamCadencia() {
           document.getElementById('cadCam').firstChild.textContent = cad;
           const elCadCamara = document.getElementById('hudCadenciaCamara');
           if (elCadCamara) elCadCamara.textContent = cad;
+          const elCadRefTramo = document.getElementById('cadenciaRefTramo');
+          if (elCadRefTramo) elCadRefTramo.textContent = cad;
           establecerCadencia(cad); // mismo motivo que en loopMicCadencia — ver comentario ahí
         }
         if (camEstado.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); destellar('flashCam'); }
@@ -4651,6 +4767,7 @@ function iniciarSesion() {
     logCamara: [], // posición cruda del marcador (1 de cada 6 cuadros, ver loopCamCadencia) — a
     // pedido de Hugo, que notó saltos de cadencia (60 a 80) que no eran reales y no se podían
     // explicar sin ver la señal cruda, mismo motivo que llevó a agregar logCSC en v64
+    segundosClampeados: 0, // cuántos segundos de la sesión tuvieron RPM fuera del rango calibrado — ver estaClampeadoRPM()
   };
   camFrameContador = 0;
   puntosSesion = [];
@@ -4673,8 +4790,13 @@ function tick() {
   if (!sesionActiva) return;
   const puntosCalib = lsGet(K_CALIBRACION, []);
   const puntosCalibRPM = lsGet(K_CALIBRACION_RPM, []);
-  const { velocidad: vel } = elegirVelocidadEstimada(cscUltimoRPM, puntosCalibRPM, actual.cadencia, puntosCalib);
+  const { velocidad: vel, fuente } = elegirVelocidadEstimada(cscUltimoRPM, puntosCalibRPM, actual.cadencia, puntosCalib);
   sesionActiva.distanciaM += vel; // 1 tick = 1 segundo
+  // cuenta cuántos segundos de la sesión quedaron "clampeados" (RPM fuera del rango calibrado,
+  // así que la velocidad de ese segundo no es una interpolación real) — ver estaClampeadoRPM()
+  if (fuente === 'rpm' && estaClampeadoRPM(cscUltimoRPM, puntosCalibRPM)) {
+    sesionActiva.segundosClampeados = (sesionActiva.segundosClampeados || 0) + 1;
+  }
   if (actual.pulso > 0) sesionActiva.pulsos.push(actual.pulso);
   const tSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
   // un punto por segundo, para poder armar un TCX con track real (no solo el resumen del Lap).
@@ -4861,6 +4983,7 @@ function finalizarSesion() {
     paladasDetectadas: sesionActiva.paladasDetectadas || 0,
     logCSC: sesionActiva.logCSC || [], // notificaciones reales del sensor BLE, una por una (no una foto por segundo) — ver handleCSC()
     logCamara: sesionActiva.logCamara || [], // posición cruda del marcador, 1 de cada 6 cuadros — ver comentario en iniciarSesion()
+    segundosClampeados: sesionActiva.segundosClampeados || 0,
   };
   const resultadoGuardado = guardarSesionConReintento(sesion);
   if (!resultadoGuardado.ok) {
@@ -5035,7 +5158,7 @@ function renderHistorial() {
     const esFantasma = s.id === fantasmaActualId;
     const tieneTrack = s.puntos && s.puntos.length > 0;
     const enCarrera = carreraSeleccion.includes(s.id);
-    return '<tr><td><a href="javascript:void(0)" onclick="mostrarDetalleSesion(\'' + s.id + '\')" style="color:var(--ritmo); text-decoration:underline;">' + (s.manual ? '✍️ ' : s.esCalibracion ? '📏 ' : '') + formatearFecha(s.fecha) + '</a></td>' +
+    return '<tr><td><a href="javascript:void(0)" onclick="mostrarDetalleSesion(\'' + s.id + '\')" style="color:var(--ritmo); text-decoration:underline;">' + (s.manual ? '✍️ ' : s.esCalibracion ? '📏 ' : s.esCalibracionFrenada ? '🛑 ' : '') + formatearFecha(s.fecha) + '</a></td>' +
     '<td>' + segAHMS(s.duracionSeg) + '</td>' +
     '<td>' + s.distanciaM + 'm</td>' +
     '<td>' + s.tss + '</td>' +
@@ -5074,6 +5197,19 @@ function mostrarDetalleSesion(id) {
     elDesacople.textContent = 'Desacople ritmo:pulso: ' + desacople.toFixed(1) + '% — ' + calificacion;
   } else {
     elDesacople.textContent = 'Desacople ritmo:pulso: sin datos suficientes de pulso para calcularlo.';
+  }
+
+  // aviso si buena parte de la sesión quedó "clampeada" fuera del rango de calibración por RPM —
+  // encontrado el 1/9: Hugo calibró con tramos de 52-59 RPM (suaves) y remó una sesión real con
+  // RPM mucho más alto, quedando clampeada casi toda — la distancia estimada de esa sesión no era
+  // confiable, y no había forma de saberlo sin este aviso.
+  const elClampeo = document.getElementById('detalleAvisoClampeo');
+  const fraccionClampeada = sesion.duracionSeg ? (sesion.segundosClampeados || 0) / sesion.duracionSeg : 0;
+  if (fraccionClampeada > 0.2) {
+    elClampeo.style.display = 'block';
+    elClampeo.textContent = '⚠️ ' + Math.round(fraccionClampeada * 100) + '% de esta sesión tuvo el RPM fuera del rango que cubre tu calibración por velocímetro — esa parte no se interpoló de verdad, quedó pegada al extremo más cercano. La distancia puede estar subestimada (o sobreestimada) — convendría agregar tramos de calibración a la intensidad real que usás.';
+  } else {
+    elClampeo.style.display = 'none';
   }
 
   const distanciaTotalSeg = sesion.duracionSeg;
