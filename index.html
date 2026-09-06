@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v85</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v89</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -165,6 +165,8 @@
         <div class="hud-tile cad"><div class="val" id="hudCadencia">--</div><div class="lbl">Paladas/min</div></div>
         <div class="hud-tile pulso"><div class="val" id="hudPulso">--</div><div class="lbl">Pulso</div></div>
         <div class="hud-tile"><div class="val" id="hudDistancia">--</div><div class="lbl">Distancia est. (m)</div></div>
+        <div class="hud-tile"><div class="val" id="hudVelocidad">--</div><div class="lbl">Velocidad (m/s)</div></div>
+        <div class="hud-tile"><div class="val" id="hudRPMSesion">--</div><div class="lbl">RPM velocímetro</div></div>
         <div class="hud-tile"><div class="val" id="hudTiempo">00:00</div><div class="lbl">Tiempo</div></div>
         <div class="hud-tile" style="grid-column:span 2;"><div class="val" id="hudFantasma">--</div><div class="lbl">vs. fantasma 👻</div></div>
       </div>
@@ -252,6 +254,7 @@
           </div>
         </div>
         <p class="nota" style="margin-top:6px;">El RPM responde al toque, como el cuentavueltas de un auto — subilo y bajalo con el esfuerzo para encontrar el punto de cada intensidad (suave/media/fuerte), mirando la cadencia al lado como referencia de lo que ya conocés.</p>
+        <p class="nota" id="rangoYaCubiertoTramo" style="margin-top:6px;"></p>
         <input type="number" inputmode="decimal" id="inputDistanciaTramoRPM" placeholder="metros reales remados" style="width:100%; margin-top:6px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);">
         <button class="btn peligro" style="margin-top:8px;" onclick="terminarTramoCalibRPM()">■ Terminar tramo</button>
       </div>
@@ -2207,6 +2210,73 @@
         RPM (esCalibracion) — no tiene sentido en una sesión normal, esa
         ya calcula su distancia del track real, no de un número tipeado
         a mano que se pudo haber olvidado.
+   v86: Hugo mandó una captura de TrainingPeaks — al subir el TCX de un
+        tramo de calibración, mostraba una velocidad promedio sin
+        sentido ("3") y TSS en "--". Encontré la causa real: las
+        sesiones sin track (tramos, frenadas, cargadas a mano — todas
+        con puntos:[]) generaban un TCX sin NINGÚN trackpoint adentro,
+        solo un resumen a nivel de Lap — sin eso, Connect/TrainingPeaks
+        no tienen de qué calcular un promedio real. Aviso honesto dado
+        también: el TSS en "--" probablemente no se puede arreglar desde
+        el archivo — TrainingPeaks calcula el suyo propio a partir de
+        las zonas configuradas en la cuenta, no lee ningún TSS que le
+        mandemos.
+        Agregada sintetizarPuntosLineal() (pura): para sesiones sin
+        track real, arma una aproximación de un punto por segundo
+        (avance parejo, pulso constante) — SOLO para exportar, no se
+        guarda en la sesión ni se usa para nada más adentro de la app.
+        generarTCX() la usa automáticamente cuando sesion.puntos está
+        vacío, en vez de generar un Track vacío.
+   v87: Hugo mandó dos JSON (03/9 y 06/9) — "distancia completamente
+        inconsistente" — y pidió que la velocidad quede registrada y se
+        muestre en el HUD. Analizando la sesión del 06/9 punto por
+        punto: cadencia real por cámara consistente (77-82 p/m) y RPM
+        alto (320-360) todo el tiempo, pero la distancia casi no
+        avanzaba (15m en 50 segundos) — otro caso de clampeo, esta vez
+        con un punto de calibración que da una velocidad absurdamente
+        lenta justo en el rango de RPM que más usa. Pedí su tabla de
+        calibración para señalar el punto exacto, no vino en estos JSON.
+        Agregada esPuntoInconsistente() (pura): chequeo de sentido común
+        físico — más RPM tiene que dar más (o igual) velocidad que
+        menos RPM, nunca al revés. Si un punto nuevo (en
+        terminarTramoCalibRPM) o corregido (en editarDistanciaTramoRPM)
+        rompe esto contra algún punto ya guardado, confirm() antes de
+        guardar — para agarrar a tiempo el mismo tipo de error que ya
+        pasó una vez (una distancia mal cargada).
+        Velocidad en vivo: nuevo tile "Velocidad (m/s)" en el HUD de
+        Sesión, actualizado cada segundo en tick(). Cada punto guardado
+        ahora también lleva "velocidad" (m/s de ESE segundo puntual, no
+        acumulada) — para tenerla registrada sin depender de calcular
+        deltas de distAcum después.
+   v88: Hugo mandó la lista completa de calibración — confirmó el punto
+        exacto sospechado: "341 RPM ≈ 0.00 m/s (1m en 05:35)", el mismo
+        error de siempre (distancia real olvidada, probablemente 500m
+        de nuevo) — y es justo el que interpola/clampa mal contra su
+        rango real de RPM (320-360). También avisó que un tramo de
+        500m/05:47 (36 RPM) le pareció "al pedo" — pidió indicadores
+        en vivo para no perder tiempo en tramos que terminan sin sumar.
+        Dos agregados: (1) renderCalibRPM() ahora marca con ⚠️ (fondo
+        rojo tenue) cualquier punto de la lista que rompa el sentido
+        físico contra el anterior en RPM — visible con solo abrir la
+        tarjeta, sin esperar a que un tramo nuevo dispare el aviso.
+        Botón ✏️ nuevo por punto (corregirPuntoCalibRPM) para arreglarlo
+        ahí mismo, sin ir a buscar la sesión en Historial — reusa
+        editarDistanciaTramoRPM() si el punto tiene id vinculado, o
+        corrige el punto solo (con el mismo chequeo) si es de antes de
+        v85. (2) Al iniciar un tramo nuevo, muestra el rango de RPM que
+        ya cubre la calibración ANTES de remar, para poder apuntar a
+        algo genuinamente nuevo en vez de descubrir recién al terminar
+        que el tramo cayó cerca de un punto que ya tenía.
+   v89: Hugo preguntó si borrar sus puntos de calibración viejos (36-59
+        RPM, lejos de su rango real) — recomendé dejarlos y sumar
+        puntos intermedios en vez de borrar, no hacen daño estando ahí.
+        También pidió el RPM en vivo en el HUD de Sesión, para chequear
+        de un vistazo si el velocímetro anda bien junto con la
+        velocidad ya agregada en v87. Nuevo tile "RPM velocímetro"
+        (hudRPMSesion) en el HUD de Sesión, actualizado desde el mismo
+        punto en handleCSC donde ya se actualiza hudRPM (el de la
+        tarjeta de Sensores) — mismo valor, dos lugares donde verlo
+        según qué pantalla se esté mirando.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2645,10 +2715,15 @@ function editarDistanciaTramoRPM(idSesion, distanciaNueva) {
   const sesiones = lsGet(K_SESIONES, []);
   const sesion = sesiones.find(s => s.id === idSesion);
   if (!sesion) { toast('No encontré esa sesión'); return; }
-  sesion.distanciaM = distanciaNueva;
-  lsSet(K_SESIONES, sesiones);
   const puntos = lsGet(K_CALIBRACION_RPM, []);
   const punto = puntos.find(p => p.id === idSesion);
+  if (punto) {
+    const otros = puntos.filter(p => p.id !== idSesion); // sin el propio punto — comparar un punto contra sí mismo con el valor nuevo no tiene sentido
+    const aviso = esPuntoInconsistente({ rpmPromedio: punto.rpmPromedio, distanciaM: distanciaNueva, tiempoSeg: punto.tiempoSeg }, otros);
+    if (aviso && !confirm(aviso + '\n\n¿Corregir igual?')) { toast('Corrección cancelada'); return; }
+  }
+  sesion.distanciaM = distanciaNueva;
+  lsSet(K_SESIONES, sesiones);
   if (punto) {
     punto.distanciaM = distanciaNueva;
     lsSet(K_CALIBRACION_RPM, puntos);
@@ -2694,6 +2769,19 @@ function iniciarTramoCalibRPM() {
   if (elCuentavueltas) elCuentavueltas.textContent = '--';
   const elCadRefTramo = document.getElementById('cadenciaRefTramo');
   if (elCadRefTramo) elCadRefTramo.textContent = '--';
+  // a pedido de Hugo, para no "perder tiempo" con un tramo que termine muy cerca de un punto que
+  // ya tiene — muestra el rango de RPM que ya cubre su calibración, ANTES de arrancar a remar,
+  // para que pueda apuntar a algo genuinamente nuevo (más arriba o más abajo de ese rango)
+  const puntosExistentes = lsGet(K_CALIBRACION_RPM, []);
+  const elRango = document.getElementById('rangoYaCubiertoTramo');
+  if (elRango) {
+    if (puntosExistentes.length) {
+      const rpms = puntosExistentes.map(p => p.rpmPromedio);
+      elRango.textContent = 'Ya cubrís: ' + Math.round(minSeguro(rpms)) + '-' + Math.round(maxSeguro(rpms)) + ' RPM — para un punto nuevo que sume, apuntá bien afuera de ese rango.';
+    } else {
+      elRango.textContent = 'Todavía no tenés ningún punto cargado — este va a ser el primero.';
+    }
+  }
   toast('Tramo iniciado — remá parejo y tocá "Terminar tramo" al llegar a la distancia elegida');
 }
 // a pedido de Hugo: un tramo de calibración es esfuerzo real (a veces varios minutos remando
@@ -2704,6 +2792,24 @@ function iniciarTramoCalibRPM() {
 // mismo criterio que cualquier sesión sin pulso). Se marca esCalibracion:true para poder
 // distinguirla en Historial con 📏 en vez de con nada — no es lo mismo que una sesión manual
 // (v71, tipeada de memoria) ni que una sesión con track completo, es una tercera categoría.
+// detecta un punto de calibración que rompe la lógica física básica: más RPM tiene que dar más
+// (o igual) velocidad, nunca menos — si un punto nuevo viola esto contra alguno YA guardado, es
+// una señal fuerte de que la distancia se cargó mal (un typo, olvidarse de cambiar el campo,
+// etc — el mismo tipo de error que ya pasó una vez con un tramo guardado como "1m"). Pura,
+// devuelve el mensaje de aviso o null si no hay problema.
+function esPuntoInconsistente(nuevoPunto, puntosExistentes) {
+  const velNueva = nuevoPunto.distanciaM / nuevoPunto.tiempoSeg;
+  for (const p of (puntosExistentes || [])) {
+    const velExistente = p.distanciaM / p.tiempoSeg;
+    if (nuevoPunto.rpmPromedio > p.rpmPromedio && velNueva < velExistente) {
+      return 'Este punto (' + Math.round(nuevoPunto.rpmPromedio) + ' RPM → ' + velNueva.toFixed(2) + ' m/s) da una velocidad MÁS LENTA que uno con menos RPM (' + Math.round(p.rpmPromedio) + ' RPM → ' + velExistente.toFixed(2) + ' m/s). Más RPM debería ser más rápido, no al revés — ¿la distancia está bien cargada?';
+    }
+    if (nuevoPunto.rpmPromedio < p.rpmPromedio && velNueva > velExistente) {
+      return 'Este punto (' + Math.round(nuevoPunto.rpmPromedio) + ' RPM → ' + velNueva.toFixed(2) + ' m/s) da una velocidad MÁS RÁPIDA que uno con más RPM (' + Math.round(p.rpmPromedio) + ' RPM → ' + velExistente.toFixed(2) + ' m/s). ¿La distancia está bien cargada?';
+    }
+  }
+  return null;
+}
 function terminarTramoCalibRPM() {
   if (!tramoCalibRPM) return;
   const tiempoSeg = (Date.now() - tramoCalibRPM.inicio) / 1000;
@@ -2711,8 +2817,11 @@ function terminarTramoCalibRPM() {
   const rpmProm = promedioRPM(tramoCalibRPM.muestras);
   if (!distanciaM || distanciaM <= 0) { toast('Ingresá la distancia real que remaste en este tramo'); return; }
   if (rpmProm == null) { toast('No se juntó ninguna muestra de RPM en este tramo — ¿estaba conectado el sensor?'); tramoCalibRPM = null; document.getElementById('btnIniciarTramoRPM').style.display = 'block'; document.getElementById('cardTramoEnCurso').style.display = 'none'; return; }
+  const puntosExistentes = lsGet(K_CALIBRACION_RPM, []);
+  const aviso = esPuntoInconsistente({ rpmPromedio: rpmProm, distanciaM, tiempoSeg }, puntosExistentes);
+  if (aviso && !confirm(aviso + '\n\n¿Guardar igual?')) { toast('Tramo descartado — revisá la distancia y probá de nuevo'); tramoCalibRPM = null; document.getElementById('btnIniciarTramoRPM').style.display = 'block'; document.getElementById('cardTramoEnCurso').style.display = 'none'; return; }
   const idSesion = 'k_calib_' + Date.now(); // generado ACÁ, antes de armar los dos objetos — así el punto de calibración y la sesión comparten el mismo id, y se puede corregir uno sin perder de vista el otro (ver editarDistanciaTramoRPM)
-  const puntos = lsGet(K_CALIBRACION_RPM, []);
+  const puntos = puntosExistentes;
   puntos.push({ id: idSesion, rpmPromedio: rpmProm, distanciaM, tiempoSeg });
   lsSet(K_CALIBRACION_RPM, puntos);
 
@@ -2756,11 +2865,44 @@ function renderCalibRPM() {
   const puntos = [...lsGet(K_CALIBRACION_RPM, [])].sort((a, b) => a.rpmPromedio - b.rpmPromedio);
   if (!puntos.length) { cont.innerHTML = '<p class="nota">Sin puntos todavía — remá 3-4 tramos a paces distintos para armar la curva.</p>'; return; }
   cont.innerHTML = puntos.map((p, i) => {
-    return '<div class="fila" style="align-items:center; gap:8px; margin-top:4px;">' +
-      '<span class="nota" style="flex:1;">' + Math.round(p.rpmPromedio) + ' RPM ≈ ' + (p.distanciaM / p.tiempoSeg).toFixed(2) + ' m/s (' + p.distanciaM + 'm en ' + segAHMS(Math.round(p.tiempoSeg)) + ')</span>' +
+    const vel = p.distanciaM / p.tiempoSeg;
+    // marca visual directa en la lista si este punto rompe el sentido físico básico contra el
+    // anterior (más RPM, ordenados, tiene que dar más o igual velocidad) — a pedido de Hugo, que
+    // quería un indicador de "algo no está saliendo bien" sin tener que esperar a terminar un
+    // tramo nuevo para enterarse (el punto de 341 RPM≈0.00 m/s de su captura ya estaba guardado
+    // de antes, esta marca lo hubiera señalado apenas abriera la tarjeta)
+    const anterior = i > 0 ? puntos[i - 1] : null;
+    const velAnterior = anterior ? anterior.distanciaM / anterior.tiempoSeg : null;
+    const inconsistente = anterior != null && vel < velAnterior;
+    return '<div class="fila" style="align-items:center; gap:6px; margin-top:4px;' + (inconsistente ? ' background:rgba(255,107,107,0.12); border-radius:8px; padding:4px;' : '') + '">' +
+      (inconsistente ? '<span title="Más RPM que el punto anterior, pero menos velocidad — revisá si la distancia está bien cargada">⚠️</span>' : '') +
+      '<span class="nota" style="flex:1;">' + Math.round(p.rpmPromedio) + ' RPM ≈ ' + vel.toFixed(2) + ' m/s (' + p.distanciaM + 'm en ' + segAHMS(Math.round(p.tiempoSeg)) + ')</span>' +
+      '<button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 8px;" onclick="corregirPuntoCalibRPM(' + p.rpmPromedio + ')">✏️</button>' +
       '<button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 8px; color:var(--pulso);" onclick="eliminarPuntoCalibRPMPorRPM(' + p.rpmPromedio + ')">🗑</button>' +
       '</div>';
   }).join('');
+}
+// corrige un punto DESDE la propia lista de calibración, sin tener que ir a buscar la sesión en
+// Historial — a pedido de Hugo. Si el punto tiene un id vinculado (tramos guardados desde v85),
+// reusa editarDistanciaTramoRPM() para corregir sesión+punto juntos; si no (tramos de antes),
+// corrige solo el punto, con el mismo chequeo de sentido físico antes de guardar.
+function corregirPuntoCalibRPM(rpmPromedio) {
+  const puntos = lsGet(K_CALIBRACION_RPM, []);
+  const punto = puntos.find(p => p.rpmPromedio === rpmPromedio);
+  if (!punto) { toast('No encontré ese punto'); return; }
+  const nueva = parseFloat(prompt('Distancia real correcta (m) para el punto de ' + Math.round(rpmPromedio) + ' RPM:', punto.distanciaM));
+  if (!nueva || nueva <= 0) { toast('Distancia inválida, no se cambió nada'); return; }
+  if (punto.id) {
+    editarDistanciaTramoRPM(punto.id, nueva);
+    return;
+  }
+  const otros = puntos.filter(p => p !== punto);
+  const aviso = esPuntoInconsistente({ rpmPromedio: punto.rpmPromedio, distanciaM: nueva, tiempoSeg: punto.tiempoSeg }, otros);
+  if (aviso && !confirm(aviso + '\n\n¿Corregir igual?')) { toast('Corrección cancelada'); return; }
+  punto.distanciaM = nueva;
+  lsSet(K_CALIBRACION_RPM, puntos);
+  toast('Punto corregido a ' + nueva + 'm (sin sesión vinculada para actualizar aparte — este punto es de antes de v85)');
+  renderCalibRPM();
 }
 // elimina por valor de rpmPromedio en vez de índice — más simple que rastrear el índice real
 // después de ordenar para mostrar, sin tener que duplicar el orden en dos lugares
@@ -3225,6 +3367,8 @@ function handleCSC(event) {
   cscUltimoRPM = rpm;
   const rpmEl = document.getElementById('hudRPM');
   if (rpmEl) rpmEl.textContent = Math.round(rpm);
+  const rpmSesionEl = document.getElementById('hudRPMSesion');
+  if (rpmSesionEl) rpmSesionEl.textContent = Math.round(rpm); // a pedido de Hugo, para chequear en vivo si el velocímetro anda bien sin tener que ir a mirar la tarjeta de Sensores aparte
   if (tramoCalibRPM) {
     tramoCalibRPM.muestras.push(rpm); // recolecta muestras de RPM para el tramo de calibración por velocímetro
     if (actual.pulso > 0) tramoCalibRPM.pulsos.push(actual.pulso); // y de pulso, si hay banda conectada — para poder calcular el TSS real del tramo al terminar
@@ -4879,10 +5023,12 @@ function tick() {
     rpmCrudo: cscUltimoRPM,
     cadenciaBLE: cscEstadoPaladas.cadencia != null ? cscEstadoPaladas.cadencia : null,
     cadenciaCamara: camEstadoMarcador.cadencia != null ? camEstadoMarcador.cadencia : (camEstado.cadencia != null ? camEstado.cadencia : null),
+    velocidad: vel, // m/s de ESTE segundo puntual (no acumulada) — a pedido de Hugo, para verla en vivo y tenerla registrada sin depender de calcular deltas de distAcum después
   });
 
   document.getElementById('hudCadencia').textContent = cadenciaAlgunaVezReportada ? actual.cadencia : '--';
   document.getElementById('hudPulso').textContent = actual.pulso || '--';
+  document.getElementById('hudVelocidad').textContent = vel.toFixed(2);
   document.getElementById('hudDistancia').textContent = Math.round(sesionActiva.distanciaM);
   document.getElementById('hudTiempo').textContent = segAHMS(tSeg);
 
@@ -5076,6 +5222,8 @@ function finalizarSesion() {
   document.getElementById('btnIniciar').style.display = 'block';
   document.getElementById('btnFinalizar').style.display = 'none';
   document.getElementById('hudTiempo').textContent = '00:00';
+  document.getElementById('hudVelocidad').textContent = '--';
+  document.getElementById('hudRPMSesion').textContent = '--';
   toast('Sesión guardada');
   renderHistorial();
   cambiarTab('historial');
@@ -5097,8 +5245,23 @@ function finalizarSesion() {
    nada para ver la cadencia en TrainingPeaks) pero puede que el servicio
    los etiquete como "cadencia de carrera/pedaleo" en vez de "paladas".
    ============================================================ */
+// para sesiones sin track real (tramos de calibración, cargadas a mano) — arma una aproximación
+// lineal (avance parejo, pulso constante) de un punto por segundo, SOLO para que el TCX exportado
+// tenga trackpoints coherentes. Encontrado el 3/9: sin esto, Connect/TrainingPeaks no tienen nada
+// de qué calcular un promedio real y terminan mostrando cualquier cosa (un "3" sin sentido en vez
+// de la velocidad real). Esto NO se guarda en la sesión ni se usa para nada más adentro de la
+// app — es pura cortesía hacia afuera, un promedio aproximado es mejor que ninguno.
+function sintetizarPuntosLineal(duracionSeg, distanciaM, pulsoPromedio) {
+  const n = Math.round(duracionSeg);
+  if (!n || n <= 0) return [];
+  const puntos = [];
+  for (let t = 1; t <= n; t++) {
+    puntos.push({ t, distAcum: (distanciaM * t) / n, pulso: pulsoPromedio || null, cadencia: null });
+  }
+  return puntos;
+}
 function generarTCX(sesion) {
-  const puntos = sesion.puntos || [];
+  const puntos = (sesion.puntos && sesion.puntos.length) ? sesion.puntos : sintetizarPuntosLineal(sesion.duracionSeg, sesion.distanciaM, sesion.pulsoPromedio);
   const t0 = new Date(sesion.fecha);
   const filas = puntos.map(p => {
     const tiempoAbs = new Date(t0.getTime() + p.t * 1000).toISOString();
