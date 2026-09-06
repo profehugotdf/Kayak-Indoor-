@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v89</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v92</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -170,6 +170,7 @@
         <div class="hud-tile"><div class="val" id="hudTiempo">00:00</div><div class="lbl">Tiempo</div></div>
         <div class="hud-tile" style="grid-column:span 2;"><div class="val" id="hudFantasma">--</div><div class="lbl">vs. fantasma 👻</div></div>
       </div>
+      <p class="nota" id="estadoDeteccionCamaraHUD" style="margin-top:8px;"></p>
       <div class="nota" style="margin-top:10px;" id="notaCalib"></div>
     </div>
 
@@ -2277,6 +2278,60 @@
         punto en handleCSC donde ya se actualiza hudRPM (el de la
         tarjeta de Sensores) — mismo valor, dos lugares donde verlo
         según qué pantalla se esté mirando.
+   v90: Hugo dijo que 59 RPM le parece falso — "nunca he remado a tan
+        lentas rpm". Encontré una causa real y probable:
+        promedioRPM() promediaba TODAS las muestras del tramo sin
+        descartar el arranque en frío de la conexión BLE (valores
+        basura mientras se estabiliza, como el "32→116→126" que ya
+        vimos en otra prueba) — en un tramo corto (sus primeros dos
+        tramos eran de 64-93 segundos), unos pocos segundos de basura
+        al arrancar pesan mucho en el promedio entero.
+        Agregada promedioRPMSinCalentamiento() (pura): descarta los
+        primeros 3 segundos de muestras antes de promediar (usa todo
+        igual si el tramo entero queda más corto que eso, para no
+        devolver null de la nada). Para esto, tramoCalibRPM.muestras
+        pasó de guardar el RPM suelto a {tMs, rpm} con tiempo real
+        desde que arranca el tramo (mismo patrón que frenadaEnCurso).
+        De paso, agregado logTramo (rastro crudo de ESE tramo puntual)
+        a la sesión que ya se guarda por cada tramo — mismo motivo que
+        logFrenada de v84, para poder diagnosticar un tramo futuro con
+        datos reales en vez de sospechar a ciegas.
+   v91: Hugo agregó dos puntos nuevos consistentes (339, 385 RPM) y
+        preguntó si se iban a usar — sí, confirmado: el ⚠️ es solo un
+        aviso visual, nunca excluye un punto del cálculo real de
+        velocidadEstimadaDesdeRPM(). Pero mirando su captura encontré
+        una limitación real del propio aviso: renderCalibRPM() solo
+        comparaba cada punto contra el INMEDIATO anterior en la lista
+        ordenada — el punto de 321 (más lento que el de 59, marcado ⚠️)
+        "tapaba" que el de 339 (justo después, consistente CONTRA 321)
+        en realidad también era inconsistente contra el mismo 59, y no
+        se notaba. Corregido: ahora reusa esPuntoInconsistente() (ya
+        comparaba contra TODOS los puntos, no solo el adyacente) para
+        decidir la marca de cada fila — un desliz al escribir el
+        arreglo dejó código roto a mitad de camino (una función
+        cortada por la mitad con el cierre de la versión vieja
+        colgando suelto abajo), encontrado y corregido antes de
+        entregar. Sospecha compartida con Hugo: los puntos de 52/59
+        son de antes del arreglo del arranque en frío (v90) y
+        probablemente tengan el RPM subestimado — mejor rehacerlos que
+        confiar en ellos tal cual.
+   v92: Hugo pidió una "pantallita de sensor de cadencia" para no remar
+        a ciegas y saber que está detectando bien. Ya existía un
+        mini-preview de la cámara superpuesto en la animación (video
+        crudo con el marcador resaltado en magenta), pero requiere
+        interpretar la imagen, no da un estado claro de un vistazo.
+        Agregado estadoDeteccionCamara() (pura): compara hace cuánto
+        fue la última palada real detectada por cámara contra un umbral
+        (6s por defecto) y devuelve 'sin_datos' (recién arrancando),
+        'ok', o 'sin_senal'. Nuevo indicador en el HUD de Sesión
+        (estadoDeteccionCamaraHUD) — 🟢 si detectó algo hace poco, 🔴
+        con los segundos exactos si hace rato que no detecta nada, en
+        vez de solo notarlo al ver la animación quieta. Solo se muestra
+        si la cámara está corriendo (camStream), para no confundir en
+        sesiones donde no se usa. tUltimaDeteccionCamara (nueva)
+        actualizada en los dos huboPico de cámara existentes, reseteada
+        al iniciar cada sesión para no arrastrar la marca de una
+        anterior.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -2556,11 +2611,37 @@ function estaClampeadoRPM(rpm, puntosCalibRPM) {
   const rpms = puntosCalibRPM.map(p => p.rpmPromedio);
   return rpm < minSeguro(rpms) || rpm > maxSeguro(rpms);
 }
+// estado de la detección de cadencia por cámara, para mostrar en vivo mientras se rema — a
+// pedido de Hugo ("no remar a ciegas"). 'sin_datos': nunca detectó ninguna palada todavía en esta
+// sesión (recién arrancando, o la cámara no está corriendo). 'ok': detectó algo hace poco.
+// 'sin_senal': hace más de segundosAviso que no detecta nada — probablemente el marcador salió
+// de cuadro, cambió la luz, o algo lo está tapando. Pura, separada para poder testearla sin
+// depender del reloj real ni del DOM.
+function estadoDeteccionCamara(tUltimaDeteccion, ahoraMs, segundosAviso) {
+  if (tUltimaDeteccion == null) return 'sin_datos';
+  const segundos = (ahoraMs - tUltimaDeteccion) / 1000;
+  return segundos <= (segundosAviso || 6) ? 'ok' : 'sin_senal';
+}
 // promedio simple de un array de RPM — separado en su propia función solo para poder testearlo
 // aislado del resto (junta las muestras crudas de un tramo y las reduce a un solo número).
 function promedioRPM(muestras) {
   if (!muestras || !muestras.length) return null;
   return muestras.reduce((a, b) => a + b, 0) / muestras.length;
+}
+// como promedioRPM(), pero descartando los primeros segundosDescarte de muestras — a pedido de
+// Hugo, que sospechó (con razón) que sus dos primeros puntos de calibración (52 y 59 RPM) eran
+// demasiado bajos para lo que rema de verdad. El sensor puede traer valores basura mientras se
+// estabiliza recién conectado (ya vimos esto antes: "32→116→126" en las primeras notificaciones
+// de otra prueba) — en un tramo corto (sus primeros tramos eran de 64-93 segundos), unos pocos
+// segundos de basura al arrancar pesan mucho en el promedio entero. Recibe muestras con
+// timestamp ({tMs, rpm}), no un array de números sueltos como promedioRPM(). Si TODO el tramo
+// queda descartado (uno muy corto), usa las muestras igual antes que devolver null de la nada.
+function promedioRPMSinCalentamiento(muestrasConTiempo, segundosDescarte) {
+  if (!muestrasConTiempo || !muestrasConTiempo.length) return null;
+  const umbralMs = (segundosDescarte || 0) * 1000;
+  const filtradas = muestrasConTiempo.filter(m => m.tMs >= umbralMs);
+  const usar = filtradas.length ? filtradas : muestrasConTiempo;
+  return promedioRPM(usar.map(m => m.rpm));
 }
 
 /* ============================================================
@@ -2762,7 +2843,7 @@ function renderPruebasFrenada() {
 let tramoCalibRPM = null; // { inicio: Date.now(), muestras: [], pulsos: [] } mientras hay un tramo en curso; null si no
 function iniciarTramoCalibRPM() {
   if (!cscUltimaManivela && !cscUltimaRueda) { toast('Conectá el sensor de cadencia/velocidad (BLE) primero'); return; }
-  tramoCalibRPM = { inicio: Date.now(), muestras: [], pulsos: [] };
+  tramoCalibRPM = { inicio: Date.now(), inicioPerf: performance.now(), muestras: [], pulsos: [] };
   document.getElementById('btnIniciarTramoRPM').style.display = 'none';
   document.getElementById('cardTramoEnCurso').style.display = 'block';
   const elCuentavueltas = document.getElementById('cuentavueltasTramo');
@@ -2814,7 +2895,7 @@ function terminarTramoCalibRPM() {
   if (!tramoCalibRPM) return;
   const tiempoSeg = (Date.now() - tramoCalibRPM.inicio) / 1000;
   const distanciaM = parseFloat(document.getElementById('inputDistanciaTramoRPM').value);
-  const rpmProm = promedioRPM(tramoCalibRPM.muestras);
+  const rpmProm = promedioRPMSinCalentamiento(tramoCalibRPM.muestras, 3); // descarta los primeros 3s (arranque en frío de la conexión BLE) antes de promediar — ver el comentario largo en la función
   if (!distanciaM || distanciaM <= 0) { toast('Ingresá la distancia real que remaste en este tramo'); return; }
   if (rpmProm == null) { toast('No se juntó ninguna muestra de RPM en este tramo — ¿estaba conectado el sensor?'); tramoCalibRPM = null; document.getElementById('btnIniciarTramoRPM').style.display = 'block'; document.getElementById('cardTramoEnCurso').style.display = 'none'; return; }
   const puntosExistentes = lsGet(K_CALIBRACION_RPM, []);
@@ -2846,6 +2927,7 @@ function terminarTramoCalibRPM() {
     paladasDetectadas: 0,
     logCSC: [],
     logCamara: [],
+    logTramo: tramoCalibRPM.muestras || [], // rastro crudo de ESTE tramo (tMs+rpm de cada notificación) — mismo motivo que logFrenada (v84): poder diagnosticar un tramo puntual sin adivinar, en vez de perder el dato apenas termina
     esCalibracion: true,
   };
   const resultado = guardarSesionConReintento(sesionTramo);
@@ -2866,16 +2948,16 @@ function renderCalibRPM() {
   if (!puntos.length) { cont.innerHTML = '<p class="nota">Sin puntos todavía — remá 3-4 tramos a paces distintos para armar la curva.</p>'; return; }
   cont.innerHTML = puntos.map((p, i) => {
     const vel = p.distanciaM / p.tiempoSeg;
-    // marca visual directa en la lista si este punto rompe el sentido físico básico contra el
-    // anterior (más RPM, ordenados, tiene que dar más o igual velocidad) — a pedido de Hugo, que
-    // quería un indicador de "algo no está saliendo bien" sin tener que esperar a terminar un
-    // tramo nuevo para enterarse (el punto de 341 RPM≈0.00 m/s de su captura ya estaba guardado
-    // de antes, esta marca lo hubiera señalado apenas abriera la tarjeta)
-    const anterior = i > 0 ? puntos[i - 1] : null;
-    const velAnterior = anterior ? anterior.distanciaM / anterior.tiempoSeg : null;
-    const inconsistente = anterior != null && vel < velAnterior;
+    // marca visual directa en la lista si este punto rompe el sentido físico básico (más RPM
+    // tiene que dar más o igual velocidad) contra CUALQUIER otro punto de la lista — a pedido de
+    // Hugo. Antes solo comparaba contra el punto inmediato anterior en la lista ordenada, y un
+    // punto malo (321, más lento que el de 59) "tapaba" que el siguiente (339) también era
+    // inconsistente contra ese mismo 59 — se notaba al lado de 321 pero no al lado de 339, aunque
+    // el problema de fondo era el mismo. esPuntoInconsistente() ya compara contra TODOS.
+    const otros = puntos.filter((_, j) => j !== i);
+    const inconsistente = esPuntoInconsistente(p, otros) != null;
     return '<div class="fila" style="align-items:center; gap:6px; margin-top:4px;' + (inconsistente ? ' background:rgba(255,107,107,0.12); border-radius:8px; padding:4px;' : '') + '">' +
-      (inconsistente ? '<span title="Más RPM que el punto anterior, pero menos velocidad — revisá si la distancia está bien cargada">⚠️</span>' : '') +
+      (inconsistente ? '<span title="Rompe el sentido físico contra otro punto de la lista (más RPM debería dar más o igual velocidad) — revisá si la distancia está bien cargada">⚠️</span>' : '') +
       '<span class="nota" style="flex:1;">' + Math.round(p.rpmPromedio) + ' RPM ≈ ' + vel.toFixed(2) + ' m/s (' + p.distanciaM + 'm en ' + segAHMS(Math.round(p.tiempoSeg)) + ')</span>' +
       '<button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 8px;" onclick="corregirPuntoCalibRPM(' + p.rpmPromedio + ')">✏️</button>' +
       '<button class="btn chico" style="display:inline-block; width:auto; margin:0; padding:4px 8px; color:var(--pulso);" onclick="eliminarPuntoCalibRPMPorRPM(' + p.rpmPromedio + ')">🗑</button>' +
@@ -3370,7 +3452,7 @@ function handleCSC(event) {
   const rpmSesionEl = document.getElementById('hudRPMSesion');
   if (rpmSesionEl) rpmSesionEl.textContent = Math.round(rpm); // a pedido de Hugo, para chequear en vivo si el velocímetro anda bien sin tener que ir a mirar la tarjeta de Sensores aparte
   if (tramoCalibRPM) {
-    tramoCalibRPM.muestras.push(rpm); // recolecta muestras de RPM para el tramo de calibración por velocímetro
+    tramoCalibRPM.muestras.push({ tMs: performance.now() - tramoCalibRPM.inicioPerf, rpm }); // con tiempo real, para poder descartar el arranque en frío al promediar (ver promedioRPMSinCalentamiento) y para poder guardar el rastro crudo del tramo (logTramo)
     if (actual.pulso > 0) tramoCalibRPM.pulsos.push(actual.pulso); // y de pulso, si hay banda conectada — para poder calcular el TSS real del tramo al terminar
     const elCuentavueltas = document.getElementById('cuentavueltasTramo');
     if (elCuentavueltas) elCuentavueltas.textContent = Math.round(rpm); // cuentavueltas grande de v82 — a pedido de Hugo, que se guía por cadencia/velocidad y nunca había visto el RPM en vivo mientras rema
@@ -3747,6 +3829,7 @@ function detenerMicCadencia() {
 
 // --- CÁMARA ---
 let camStream = null, camRAF = null, camEstado = {}, camFramePrev = null, camAnguloPrev = null;
+let tUltimaDeteccionCamara = null; // Date.now() de la última palada real detectada por cámara (cualquiera de los dos modos) — a pedido de Hugo, para poder avisar "hace rato que no detecta nada" en vivo, en vez de que solo lo note al ver la animación quieta
 let camFrameContador = 0; // para decimar logCamara — a 30-60fps, cada cuadro pesaría demasiado. Bajado de 1/3 a 1/6 el 30/8, después de que una sesión real de 20' con cámara+BLE juntos no entrara en localStorage (ver guardarSesionConReintento())
 let camEstadoMarcador = {}; // detector de mínimo local para el modo marcador de color
 let camROI = null; // {x0,y0,x1,y1} normalizado 0..1 respecto del video — null = cuadro completo
@@ -4028,7 +4111,7 @@ function loopCamCadencia() {
           if (elCadRefTramo) elCadRefTramo.textContent = cad;
           establecerCadencia(cad);
         }
-        if (camEstadoMarcador.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); destellar('flashCam'); }
+        if (camEstadoMarcador.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); tUltimaDeteccionCamara = Date.now(); destellar('flashCam'); }
         if (sesionActiva) {
           camFrameContador++;
           if (camFrameContador % 6 === 0) { // decimado — ver comentario en camFrameContador
@@ -4079,7 +4162,7 @@ function loopCamCadencia() {
           if (elCadRefTramo) elCadRefTramo.textContent = cad;
           establecerCadencia(cad); // mismo motivo que en loopMicCadencia — ver comentario ahí
         }
-        if (camEstado.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); destellar('flashCam'); }
+        if (camEstado.huboPico) { registrarPaladaDetectada(); registrarVueltasPorPalada(); tUltimaDeteccionCamara = Date.now(); destellar('flashCam'); }
       }
     }
     camFramePrev = frame;
@@ -4981,6 +5064,7 @@ function iniciarSesion() {
     segundosClampeados: 0, // cuántos segundos de la sesión tuvieron RPM fuera del rango calibrado — ver estaClampeadoRPM()
   };
   camFrameContador = 0;
+  tUltimaDeteccionCamara = null; // que una sesión nueva no arranque mostrando "detectando bien" con una marca de hace rato, de una sesión/prueba anterior
   puntosSesion = [];
   document.getElementById('btnIniciar').style.display = 'none';
   document.getElementById('btnFinalizar').style.display = 'block';
@@ -5031,6 +5115,24 @@ function tick() {
   document.getElementById('hudVelocidad').textContent = vel.toFixed(2);
   document.getElementById('hudDistancia').textContent = Math.round(sesionActiva.distanciaM);
   document.getElementById('hudTiempo').textContent = segAHMS(tSeg);
+  // indicador de si la cámara sigue detectando algo — a pedido de Hugo, "no remar a ciegas". Solo
+  // tiene sentido mostrarlo si la cámara está corriendo; si no, no hay nada que reportar acá.
+  const elEstadoCam = document.getElementById('estadoDeteccionCamaraHUD');
+  if (elEstadoCam) {
+    if (!camStream) {
+      elEstadoCam.textContent = '';
+    } else {
+      const estado = estadoDeteccionCamara(tUltimaDeteccionCamara, Date.now(), 6);
+      if (estado === 'sin_datos') {
+        elEstadoCam.innerHTML = '⚪ Cámara activa, esperando la primera palada...';
+      } else if (estado === 'ok') {
+        elEstadoCam.innerHTML = '<span style="color:var(--ritmo);">🟢 Cámara detectando bien</span>';
+      } else {
+        const segundos = Math.round((Date.now() - tUltimaDeteccionCamara) / 1000);
+        elEstadoCam.innerHTML = '<span style="color:var(--pulso);">🔴 Cámara sin detectar nada hace ' + segundos + 's — revisá que el marcador esté en cuadro</span>';
+      }
+    }
+  }
 
   const tileFantasma = document.getElementById('hudFantasma');
   const gap = calcularGapFantasma(sesionActiva.distanciaM, tSeg);
@@ -5150,7 +5252,7 @@ function guardarSesionConReintento(sesion) {
     return { ok: true, recortada: false };
   } catch (err) {
     console.error('No entró en localStorage con los registros de diagnóstico completos, reintento sin ellos:', err);
-    sesiones[sesiones.length - 1] = { ...sesion, logCamara: [], logCSC: [], logFrenada: [] };
+    sesiones[sesiones.length - 1] = { ...sesion, logCamara: [], logCSC: [], logFrenada: [], logTramo: [] };
     try {
       lsSet(K_SESIONES, sesiones);
       return { ok: true, recortada: true };
@@ -5224,6 +5326,7 @@ function finalizarSesion() {
   document.getElementById('hudTiempo').textContent = '00:00';
   document.getElementById('hudVelocidad').textContent = '--';
   document.getElementById('hudRPMSesion').textContent = '--';
+  document.getElementById('estadoDeteccionCamaraHUD').textContent = '';
   toast('Sesión guardada');
   renderHistorial();
   cambiarTab('historial');
