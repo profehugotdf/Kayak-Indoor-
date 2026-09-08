@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v92</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v93</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -165,7 +165,7 @@
         <div class="hud-tile cad"><div class="val" id="hudCadencia">--</div><div class="lbl">Paladas/min</div></div>
         <div class="hud-tile pulso"><div class="val" id="hudPulso">--</div><div class="lbl">Pulso</div></div>
         <div class="hud-tile"><div class="val" id="hudDistancia">--</div><div class="lbl">Distancia est. (m)</div></div>
-        <div class="hud-tile"><div class="val" id="hudVelocidad">--</div><div class="lbl">Velocidad (m/s)</div></div>
+        <div class="hud-tile"><div class="val" id="hudVelocidad">--</div><div class="lbl">Velocidad (km/h)</div></div>
         <div class="hud-tile"><div class="val" id="hudRPMSesion">--</div><div class="lbl">RPM velocímetro</div></div>
         <div class="hud-tile"><div class="val" id="hudTiempo">00:00</div><div class="lbl">Tiempo</div></div>
         <div class="hud-tile" style="grid-column:span 2;"><div class="val" id="hudFantasma">--</div><div class="lbl">vs. fantasma 👻</div></div>
@@ -2332,6 +2332,11 @@
         actualizada en los dos huboPico de cámara existentes, reseteada
         al iniciar cada sesión para no arrastrar la marca de una
         anterior.
+   v93: Hugo pidió la velocidad del HUD en km/h en vez de m/s. Cambio
+        solo de presentación — por dentro sigue todo en m/s (vel, el
+        campo "velocidad" que se guarda por punto desde v87, distanciaM
+        += vel en tick(), etc.), nada de eso se tocó. Solo la conversión
+        al mostrar en el tile (×3.6) y la etiqueta.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -5112,7 +5117,7 @@ function tick() {
 
   document.getElementById('hudCadencia').textContent = cadenciaAlgunaVezReportada ? actual.cadencia : '--';
   document.getElementById('hudPulso').textContent = actual.pulso || '--';
-  document.getElementById('hudVelocidad').textContent = vel.toFixed(2);
+  document.getElementById('hudVelocidad').textContent = (vel * 3.6).toFixed(1); // vel sigue en m/s por dentro (así queda todo lo demás sin tocar) — acá solo se convierte a km/h para mostrar, 1 m/s = 3.6 km/h
   document.getElementById('hudDistancia').textContent = Math.round(sesionActiva.distanciaM);
   document.getElementById('hudTiempo').textContent = segAHMS(tSeg);
   // indicador de si la cámara sigue detectando algo — a pedido de Hugo, "no remar a ciegas". Solo
