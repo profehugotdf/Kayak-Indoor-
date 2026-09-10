@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v94</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v95</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -574,9 +574,13 @@
         alimenta las gráficas del detalle y sirve para diagnosticar) — con el tiempo, eso puede
         ocupar bastante en el almacenamiento del navegador, compartido con todo lo demás. Esto
         NUNCA corre solo — vos decidís cuándo, y podés hacer un backup (JSON de cada sesión)
-        antes si querés.</p>
+        antes si querés. El resumen (fecha, duración, distancia, TSS, pulso, etc.) se conserva
+        siempre en TODAS las sesiones — lo que se poda es solo el detalle crudo de las viejas.</p>
+      <p class="nota" style="margin-top:8px;">Conservar el detalle completo en las últimas
+        <input type="number" inputmode="numeric" id="inputNRecientes" value="10" min="1" style="width:60px; padding:6px; border-radius:6px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono); text-align:center;" onchange="renderEspacioAlmacenamiento()">
+        sesiones — el resto de las que sean más viejas quedan solo con el resumen.</p>
       <p class="nota" style="margin-top:8px;" id="tamanioActualSesiones"></p>
-      <button class="btn chico" style="margin-top:8px;" onclick="archivarSesionesViejas()">🗄 Archivar sesiones de más de 90 días</button>
+      <button class="btn chico" style="margin-top:8px;" onclick="archivarSesionesViejas()">🗄 Archivar sesiones viejas</button>
     </div>
     <div class="card" id="cardEvolucionSesiones" style="display:none;">
       <div class="fila" style="justify-content:space-between; align-items:center;">
@@ -2370,6 +2374,24 @@
         SIEMPRE es manual — nunca corre solo — y muestra los números
         reales (KB actuales, KB a liberar) en un confirm() antes de
         tocar nada, tal como pidió Hugo.
+   v95: Hugo avisó que el criterio de 90 días no servía en la práctica
+        — no tiene sesiones tan viejas, pero cada sesión individual ya
+        pesa bastante por sus propios arrays crudos. Pidió cambiar el
+        criterio a "conservar detalle completo en las últimas N
+        sesiones", con N elegible (sugerido 10 de default).
+        calcularPlanDePoda() reescrita: en vez de comparar contra una
+        fecha límite, ordena las sesiones por fecha, arma el set de las
+        N más recientes, y poda los campos pesados de cualquier otra que
+        no esté en ese set — sin importar cuán vieja o nueva sea en
+        términos absolutos, solo importa si está entre las N últimas o
+        no. El resultado se devuelve en el mismo orden del array
+        original (no el orden por fecha), para no alterar el orden de
+        guardado sin necesidad. Input numérico nuevo (inputNRecientes,
+        default 10) en la tarjeta — leerNRecientes() centraliza la
+        lectura con el fallback, usada tanto por el cálculo en vivo
+        como por la ejecución real. Misma mecánica de siempre sin
+        tocar: botón manual, confirm() con KB reales antes de ejecutar,
+        nunca automático.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -5706,54 +5728,72 @@ function toggleEvolucionSesiones() {
 const CAMPOS_PESADOS_SESION = ['puntos', 'logCSC', 'logCamara', 'logFrenada', 'logTramo'];
 // calcula el PLAN de poda sin tocar nada todavía — pura, para poder previsualizar cuánto se
 // liberaría antes de ejecutar de verdad, y para poder testearla sin depender de localStorage
-// real. diasUmbral: sesiones más viejas que esto (por fecha) son candidatas; una sesión que ya no
-// tiene ningún campo pesado (ya archivada antes, o nace sin track como las manuales/calibración)
-// no cuenta como "afectada" aunque sea vieja — no hay nada que sacarle.
-function calcularPlanDePoda(sesiones, diasUmbral, ahoraMs) {
-  const ahora = ahoraMs || Date.now();
-  const umbralMs = (diasUmbral || 90) * 24 * 60 * 60 * 1000;
+// real. Cambiado el 10/9 — el criterio original (más de 90 días) no servía en la práctica: Hugo
+// no tiene sesiones tan viejas, pero cada sesión individual ya pesa bastante por sus propios
+// arrays crudos (puntos, logCSC, logCamara, logFrenada, logTramo). Ahora el criterio es "conservar
+// el detalle crudo completo en las últimas N sesiones (por fecha), podar el resto" — N lo elige
+// Hugo desde la tarjeta, con 10 de default. Una sesión que ya no tiene ningún campo pesado (ya
+// podada antes, o nace sin track como las manuales/calibración) no cuenta como "afectada" aunque
+// sea vieja — no hay nada que sacarle. El resultado se devuelve en el MISMO ORDEN del array
+// original (no reordenado por fecha), para no alterar el orden de guardado sin necesidad.
+function calcularPlanDePoda(sesiones, nRecientes) {
+  const n = nRecientes || 10;
+  const ordenadas = [...(sesiones || [])].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)); // más nueva primero
+  const idsRecientes = new Set(ordenadas.slice(0, n).map(s => s.id));
   let bytesAntes = 0, bytesDespues = 0, cantidadAfectada = 0;
-  const resultado = (sesiones || []).map(s => {
+  const podadasPorId = {};
+  (sesiones || []).forEach(s => {
     const pesoAntes = JSON.stringify(s).length;
     bytesAntes += pesoAntes;
-    const esVieja = (ahora - new Date(s.fecha).getTime()) > umbralMs;
+    const esReciente = idsRecientes.has(s.id);
     const tienePesoQueSacar = CAMPOS_PESADOS_SESION.some(campo => s[campo] && s[campo].length > 0);
-    if (esVieja && tienePesoQueSacar) {
+    if (!esReciente && tienePesoQueSacar) {
       const podada = { ...s };
       CAMPOS_PESADOS_SESION.forEach(campo => { podada[campo] = []; });
       bytesDespues += JSON.stringify(podada).length;
       cantidadAfectada++;
-      return podada;
+      podadasPorId[s.id] = podada;
+    } else {
+      bytesDespues += pesoAntes;
+      podadasPorId[s.id] = s;
     }
-    bytesDespues += pesoAntes;
-    return s;
   });
+  const resultado = (sesiones || []).map(s => podadasPorId[s.id]);
   return { sesiones: resultado, cantidadAfectada, bytesAntes, bytesDespues, bytesLiberados: bytesAntes - bytesDespues };
 }
 // muestra el tamaño actual y, si hay algo para podar, cuánto se liberaría — se recalcula solo
 // (nada de localStorage.length en bytes reales del navegador, JSON.stringify().length es una
 // aproximación de caracteres, más que suficiente para dar una idea del orden de magnitud)
+// lee cuántas sesiones recientes conservar completas desde el input de la tarjeta — con 10 de
+// default si está vacío o inválido, mismo valor que usa calcularPlanDePoda() por default
+function leerNRecientes() {
+  const el = document.getElementById('inputNRecientes');
+  const n = el ? parseInt(el.value, 10) : NaN;
+  return (n && n > 0) ? n : 10;
+}
 function renderEspacioAlmacenamiento() {
   const el = document.getElementById('tamanioActualSesiones');
   if (!el) return;
   const sesiones = lsGet(K_SESIONES, []);
   const kbActual = (JSON.stringify(sesiones).length / 1024).toFixed(1);
-  const plan = calcularPlanDePoda(sesiones, 90);
+  const n = leerNRecientes();
+  const plan = calcularPlanDePoda(sesiones, n);
   el.textContent = sesiones.length + ' sesiones guardadas, ~' + kbActual + ' KB' +
-    (plan.cantidadAfectada > 0 ? ' — ' + plan.cantidadAfectada + ' de más de 90 días con datos crudos que se podrían archivar (~' + (plan.bytesLiberados / 1024).toFixed(1) + ' KB liberables)' : ' — nada para archivar por ahora');
+    (plan.cantidadAfectada > 0 ? ' — ' + plan.cantidadAfectada + ' más viejas que las últimas ' + n + ' que se podrían archivar (~' + (plan.bytesLiberados / 1024).toFixed(1) + ' KB liberables)' : ' — nada para archivar con las últimas ' + n + ' conservadas');
 }
 // ejecuta la poda DE VERDAD — muestra los números reales antes de tocar nada, y solo hace algo si
 // se confirma. A pedido de Hugo: nunca automática, siempre explícita.
 function archivarSesionesViejas() {
   const sesiones = lsGet(K_SESIONES, []);
-  const plan = calcularPlanDePoda(sesiones, 90);
+  const n = leerNRecientes();
+  const plan = calcularPlanDePoda(sesiones, n);
   if (plan.cantidadAfectada === 0) {
-    toast('No hay sesiones de más de 90 días con datos crudos para archivar — nada que hacer');
+    toast('No hay sesiones más viejas que las últimas ' + n + ' con datos crudos para archivar — nada que hacer');
     return;
   }
   const kbAntes = (plan.bytesAntes / 1024).toFixed(1);
   const kbLiberados = (plan.bytesLiberados / 1024).toFixed(1);
-  const mensaje = 'Se van a recortar ' + plan.cantidadAfectada + ' sesiones de más de 90 días — se conserva el resumen (fecha, duración, distancia, TSS, pulso), se descartan los registros crudos punto por punto.\n\n' +
+  const mensaje = 'Se van a recortar ' + plan.cantidadAfectada + ' sesiones más viejas que las últimas ' + n + ' — se conserva el resumen (fecha, duración, distancia, TSS, pulso), se descartan los registros crudos punto por punto.\n\n' +
     'Espacio actual: ' + kbAntes + ' KB\nSe liberarían aproximadamente: ' + kbLiberados + ' KB\n\n' +
     'Esto no se puede deshacer (los registros crudos se pierden — hacé un backup en JSON antes si los querés conservar). ¿Continuar?';
   if (!confirm(mensaje)) { toast('Archivado cancelado'); return; }
