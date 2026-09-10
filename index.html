@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v93</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v94</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -567,6 +567,16 @@
         </table>
       </div>
       <button class="btn chico" style="margin-top:8px;" onclick="toggleEvolucionSesiones()">📈 Ver evolución entre sesiones</button>
+    </div>
+    <div class="card">
+      <h2>Espacio de almacenamiento</h2>
+      <p class="nota">Cada sesión con cámara/BLE guarda el registro crudo punto por punto (lo que
+        alimenta las gráficas del detalle y sirve para diagnosticar) — con el tiempo, eso puede
+        ocupar bastante en el almacenamiento del navegador, compartido con todo lo demás. Esto
+        NUNCA corre solo — vos decidís cuándo, y podés hacer un backup (JSON de cada sesión)
+        antes si querés.</p>
+      <p class="nota" style="margin-top:8px;" id="tamanioActualSesiones"></p>
+      <button class="btn chico" style="margin-top:8px;" onclick="archivarSesionesViejas()">🗄 Archivar sesiones de más de 90 días</button>
     </div>
     <div class="card" id="cardEvolucionSesiones" style="display:none;">
       <div class="fila" style="justify-content:space-between; align-items:center;">
@@ -2337,6 +2347,29 @@
         campo "velocidad" que se guarda por punto desde v87, distanciaM
         += vel en tick(), etc.), nada de eso se tocó. Solo la conversión
         al mostrar en el tile (×3.6) y la etiqueta.
+   v94: Hugo pegó un pedido (portado de una solución ya hecha en Bici
+        Indoor) — localStorage compartido entre apps, kayak_sesiones
+        pesando 2116.2 KB en su dispositivo. Aviso dado antes de tocar
+        nada: no puedo "revisar el archivo real" de su navegador desde
+        acá, solo el código — mejor que la app misma calcule y muestre
+        los números reales en el momento, más preciso que cualquier
+        estimación mía desde afuera.
+        Revisé qué campos de una sesión pesan de verdad: puntos,
+        logCSC, logCamara, logFrenada, logTramo (arrays crudos punto a
+        punto) — todo lo demás ya es resumen escalar (fecha, duración,
+        distancia, TSS, pulso, eficiencia, etc.), eficienciaPaladas
+        (crudo) ni siquiera se guarda en la sesión final, solo su
+        resumen ya calculado.
+        calcularPlanDePoda() (pura): para sesiones de más de 90 días
+        (configurable) que todavía tengan algún campo pesado, arma una
+        versión con esos campos vaciados, y devuelve cuántos bytes se
+        liberarían — sin tocar nada todavía, solo calcula. Nueva
+        tarjeta "Espacio de almacenamiento" en Historial: muestra el
+        tamaño actual en vivo (recalculado cada vez que renderHistorial
+        corre) y un botón "Archivar sesiones de más de 90 días" que
+        SIEMPRE es manual — nunca corre solo — y muestra los números
+        reales (KB actuales, KB a liberar) en un confirm() antes de
+        tocar nada, tal como pidió Hugo.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -5484,6 +5517,7 @@ function guardarSesionManual() {
 }
 function renderHistorial() {
   renderForma();
+  renderEspacioAlmacenamiento();
   const sesiones = [...lsGet(K_SESIONES, [])].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const tbody = document.getElementById('tablaSesiones');
   if (!sesiones.length) {
@@ -5664,6 +5698,69 @@ function toggleEvolucionSesiones() {
     dibujarGraficoLinea('graficaEvolEficiencia', evolucion.eficienciaAerobica.map(p => p.valor), '#a78bfa');
     card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+}
+// campos "pesados" de una sesión — arrays de datos crudos punto a punto, no el resumen. Al
+// archivar una sesión vieja, estos se vacían, dejando solo el resumen (fecha, duración,
+// distancia, TSS, pulso, etc.) — lo que realmente pesa en localStorage, mismo problema de cuota
+// compartida (entre todas las apps de Hugo) ya resuelto antes en Bici Indoor.
+const CAMPOS_PESADOS_SESION = ['puntos', 'logCSC', 'logCamara', 'logFrenada', 'logTramo'];
+// calcula el PLAN de poda sin tocar nada todavía — pura, para poder previsualizar cuánto se
+// liberaría antes de ejecutar de verdad, y para poder testearla sin depender de localStorage
+// real. diasUmbral: sesiones más viejas que esto (por fecha) son candidatas; una sesión que ya no
+// tiene ningún campo pesado (ya archivada antes, o nace sin track como las manuales/calibración)
+// no cuenta como "afectada" aunque sea vieja — no hay nada que sacarle.
+function calcularPlanDePoda(sesiones, diasUmbral, ahoraMs) {
+  const ahora = ahoraMs || Date.now();
+  const umbralMs = (diasUmbral || 90) * 24 * 60 * 60 * 1000;
+  let bytesAntes = 0, bytesDespues = 0, cantidadAfectada = 0;
+  const resultado = (sesiones || []).map(s => {
+    const pesoAntes = JSON.stringify(s).length;
+    bytesAntes += pesoAntes;
+    const esVieja = (ahora - new Date(s.fecha).getTime()) > umbralMs;
+    const tienePesoQueSacar = CAMPOS_PESADOS_SESION.some(campo => s[campo] && s[campo].length > 0);
+    if (esVieja && tienePesoQueSacar) {
+      const podada = { ...s };
+      CAMPOS_PESADOS_SESION.forEach(campo => { podada[campo] = []; });
+      bytesDespues += JSON.stringify(podada).length;
+      cantidadAfectada++;
+      return podada;
+    }
+    bytesDespues += pesoAntes;
+    return s;
+  });
+  return { sesiones: resultado, cantidadAfectada, bytesAntes, bytesDespues, bytesLiberados: bytesAntes - bytesDespues };
+}
+// muestra el tamaño actual y, si hay algo para podar, cuánto se liberaría — se recalcula solo
+// (nada de localStorage.length en bytes reales del navegador, JSON.stringify().length es una
+// aproximación de caracteres, más que suficiente para dar una idea del orden de magnitud)
+function renderEspacioAlmacenamiento() {
+  const el = document.getElementById('tamanioActualSesiones');
+  if (!el) return;
+  const sesiones = lsGet(K_SESIONES, []);
+  const kbActual = (JSON.stringify(sesiones).length / 1024).toFixed(1);
+  const plan = calcularPlanDePoda(sesiones, 90);
+  el.textContent = sesiones.length + ' sesiones guardadas, ~' + kbActual + ' KB' +
+    (plan.cantidadAfectada > 0 ? ' — ' + plan.cantidadAfectada + ' de más de 90 días con datos crudos que se podrían archivar (~' + (plan.bytesLiberados / 1024).toFixed(1) + ' KB liberables)' : ' — nada para archivar por ahora');
+}
+// ejecuta la poda DE VERDAD — muestra los números reales antes de tocar nada, y solo hace algo si
+// se confirma. A pedido de Hugo: nunca automática, siempre explícita.
+function archivarSesionesViejas() {
+  const sesiones = lsGet(K_SESIONES, []);
+  const plan = calcularPlanDePoda(sesiones, 90);
+  if (plan.cantidadAfectada === 0) {
+    toast('No hay sesiones de más de 90 días con datos crudos para archivar — nada que hacer');
+    return;
+  }
+  const kbAntes = (plan.bytesAntes / 1024).toFixed(1);
+  const kbLiberados = (plan.bytesLiberados / 1024).toFixed(1);
+  const mensaje = 'Se van a recortar ' + plan.cantidadAfectada + ' sesiones de más de 90 días — se conserva el resumen (fecha, duración, distancia, TSS, pulso), se descartan los registros crudos punto por punto.\n\n' +
+    'Espacio actual: ' + kbAntes + ' KB\nSe liberarían aproximadamente: ' + kbLiberados + ' KB\n\n' +
+    'Esto no se puede deshacer (los registros crudos se pierden — hacé un backup en JSON antes si los querés conservar). ¿Continuar?';
+  if (!confirm(mensaje)) { toast('Archivado cancelado'); return; }
+  lsSet(K_SESIONES, plan.sesiones);
+  toast('Listo — ' + plan.cantidadAfectada + ' sesiones archivadas, ~' + kbLiberados + ' KB liberados');
+  renderEspacioAlmacenamiento();
+  renderHistorial();
 }
 function eliminarSesion(id) {
   const sesiones = lsGet(K_SESIONES, []);
