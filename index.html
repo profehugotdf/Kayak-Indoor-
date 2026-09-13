@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v95</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v96</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -189,6 +189,7 @@
     </div>
 
     <div class="card">
+      <p class="nota" id="chequeoPreSesion" style="margin-bottom:10px;"></p>
       <button class="btn primario" id="btnIniciar" onclick="iniciarSesion()">Iniciar sesión</button>
       <button class="btn peligro" id="btnFinalizar" style="display:none;" onclick="finalizarSesion()">Finalizar sesión</button>
     </div>
@@ -2392,6 +2393,22 @@
         como por la ejecución real. Misma mecánica de siempre sin
         tocar: botón manual, confirm() con KB reales antes de ejecutar,
         nunca automático.
+   v96: Hugo mandó dos capturas — 41 segundos en una sesión activa con
+        el velocímetro pegado en 42 RPM y todo perdiendo terreno contra
+        el fantasma. Pidió poder ver si el velocímetro sube a su rango
+        real ANTES de arrancar la sesión, frustrado de empezar y que no
+        responda. El chequeo en vivo ya existía (la tarjeta de
+        Sensores), pero queda lejos del botón "Iniciar sesión" — fácil
+        arrancar sin mirarlo.
+        Agregado chequeoPreSesion: un aviso justo arriba del botón,
+        actualizado desde el mismo punto en handleCSC que ya actualiza
+        hudRPM/hudRPMSesion — 🟢 si el RPM ya está en 200+ ahora mismo,
+        🟡 con el número actual si todavía está bajo, invitando a remar
+        unas paladas fuertes antes de iniciar. Solo se muestra mientras
+        NO hay sesión activa (una vez arrancada, el botón cambia a
+        Finalizar y ya está el tile de RPM del HUD para lo mismo) —
+        reseteado a vacío tanto al iniciar como al finalizar, para no
+        arrastrar un estado viejo de la sesión anterior.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3511,6 +3528,19 @@ function handleCSC(event) {
   if (rpmEl) rpmEl.textContent = Math.round(rpm);
   const rpmSesionEl = document.getElementById('hudRPMSesion');
   if (rpmSesionEl) rpmSesionEl.textContent = Math.round(rpm); // a pedido de Hugo, para chequear en vivo si el velocímetro anda bien sin tener que ir a mirar la tarjeta de Sensores aparte
+  // chequeo previo a iniciar la sesión — a pedido de Hugo, frustrado de arrancar y que el
+  // velocímetro no responda: mostrarlo JUSTO al lado del botón, no solo arriba en Sensores, para
+  // que sea parte natural de arrancar en vez de algo que hay que acordarse de ir a mirar aparte.
+  // Solo tiene sentido antes de que arranque la sesión — una vez activa, el botón cambia a
+  // "Finalizar" y ya está el tile de RPM en el HUD de En vivo para lo mismo.
+  const elChequeo = document.getElementById('chequeoPreSesion');
+  if (elChequeo && !sesionActiva) {
+    if (rpm >= 200) {
+      elChequeo.innerHTML = '<span style="color:var(--ritmo);">🟢 Velocímetro respondiendo: ' + Math.round(rpm) + ' RPM</span>';
+    } else {
+      elChequeo.innerHTML = '<span style="color:#e8b84b;">🟡 Velocímetro en ' + Math.round(rpm) + ' RPM ahora — remá unas paladas fuertes y fijate que suba antes de iniciar</span>';
+    }
+  }
   if (tramoCalibRPM) {
     tramoCalibRPM.muestras.push({ tMs: performance.now() - tramoCalibRPM.inicioPerf, rpm }); // con tiempo real, para poder descartar el arranque en frío al promediar (ver promedioRPMSinCalentamiento) y para poder guardar el rastro crudo del tramo (logTramo)
     if (actual.pulso > 0) tramoCalibRPM.pulsos.push(actual.pulso); // y de pulso, si hay banda conectada — para poder calcular el TSS real del tramo al terminar
@@ -5128,6 +5158,7 @@ function iniciarSesion() {
   puntosSesion = [];
   document.getElementById('btnIniciar').style.display = 'none';
   document.getElementById('btnFinalizar').style.display = 'block';
+  document.getElementById('chequeoPreSesion').textContent = '';
   tickInterval = setInterval(tick, 1000);
   iniciarBucleVivo();
   toast('Sesión iniciada');
@@ -5387,6 +5418,7 @@ function finalizarSesion() {
   document.getElementById('hudVelocidad').textContent = '--';
   document.getElementById('hudRPMSesion').textContent = '--';
   document.getElementById('estadoDeteccionCamaraHUD').textContent = '';
+  document.getElementById('chequeoPreSesion').textContent = '';
   toast('Sesión guardada');
   renderHistorial();
   cambiarTab('historial');
