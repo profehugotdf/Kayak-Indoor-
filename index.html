@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v96</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v97</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -136,6 +136,10 @@
       <div class="estado-conexion" id="estadoBLE">Sin conectar.</div>
       <button class="btn chico" onclick="conectarBandaHR()">Conectar banda de pulso aparte</button>
       <button class="btn chico" onclick="conectarSensorCadenciaBLE()">Conectar sensor de cadencia (BLE)</button>
+      <button class="btn chico" id="btnCamSesion" onclick="toggleCamCadencia()">📷 Cámara</button>
+      <p class="nota" id="notaCamSesion" style="margin-top:4px;">Usa la zona/color que ya tengas
+        elegidos en Calibración — si nunca calibraste una zona, andá para allá primero. Acá solo
+        prende/apaga la detección, sin la vista de ajuste.</p>
       <p class="nota" style="margin-top:6px;">RPM crudo del eje (velocidad de rotación, no
         paladas): <span id="hudRPM" style="font-family:var(--mono); color:var(--ritmo);">--</span></p>
       <p class="nota" style="margin-top:4px;">Vueltas de volante por palada (eficiencia): <span id="hudVueltasPorPalada" style="font-family:var(--mono); color:var(--ritmo);">--</span></p>
@@ -151,6 +155,20 @@
       <p class="nota">Si arrancaste el micrófono o la cámara desde Calibración, siguen corriendo
         acá y la cadencia que detecten también mueve al kayakista y la distancia — el último
         sensor que reporte un dato nuevo es el que manda (igual que con el pulso banda/reloj).</p>
+    </div>
+
+    <div class="card" id="fantasmaInfo"></div>
+
+    <div class="card">
+      <h2>Meta de la sesión (opcional)</h2>
+      <div class="fila">
+        <button class="btn chico" id="btnMetaNinguna" onclick="elegirTipoMeta('ninguna')">Sin meta</button>
+        <button class="btn chico" id="btnMetaTiempo" onclick="elegirTipoMeta('tiempo')">Por tiempo</button>
+        <button class="btn chico" id="btnMetaDistancia" onclick="elegirTipoMeta('distancia')">Por distancia</button>
+      </div>
+      <input type="text" inputmode="decimal" id="inputMetaTiempo" placeholder="mm:ss" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);" oninput="guardarMetaValor()">
+      <input type="number" inputmode="decimal" id="inputMetaDistancia" placeholder="metros" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);" oninput="guardarMetaValor()">
+      <p class="nota" id="notaMeta" style="margin-top:8px;">Al llegar a la meta, la sesión termina y se guarda sola.</p>
     </div>
 
     <div class="card" style="position:relative;">
@@ -172,20 +190,6 @@
       </div>
       <p class="nota" id="estadoDeteccionCamaraHUD" style="margin-top:8px;"></p>
       <div class="nota" style="margin-top:10px;" id="notaCalib"></div>
-    </div>
-
-    <div class="card" id="fantasmaInfo"></div>
-
-    <div class="card">
-      <h2>Meta de la sesión (opcional)</h2>
-      <div class="fila">
-        <button class="btn chico" id="btnMetaNinguna" onclick="elegirTipoMeta('ninguna')">Sin meta</button>
-        <button class="btn chico" id="btnMetaTiempo" onclick="elegirTipoMeta('tiempo')">Por tiempo</button>
-        <button class="btn chico" id="btnMetaDistancia" onclick="elegirTipoMeta('distancia')">Por distancia</button>
-      </div>
-      <input type="text" inputmode="decimal" id="inputMetaTiempo" placeholder="mm:ss" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);" oninput="guardarMetaValor()">
-      <input type="number" inputmode="decimal" id="inputMetaDistancia" placeholder="metros" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);" oninput="guardarMetaValor()">
-      <p class="nota" id="notaMeta" style="margin-top:8px;">Al llegar a la meta, la sesión termina y se guarda sola.</p>
     </div>
 
     <div class="card">
@@ -2409,6 +2413,25 @@
         Finalizar y ya está el tile de RPM del HUD para lo mismo) —
         reseteado a vacío tanto al iniciar como al finalizar, para no
         arrastrar un estado viejo de la sesión anterior.
+   v97: Hugo pidió poder habilitar la cámara, probar pulsómetro/RPM, y
+        arrancar la sesión, todo desde la vista de Sesión — y preguntó
+        si se podía reordenar la tarjeta del fantasma. Revisé la
+        estructura real antes de tocar nada: el botón de cámara vivía
+        SOLO en Calibración (obligando a ir y volver), mientras que
+        pulso/BLE/RPM ya estaban en la tarjeta "Sensores" de Sesión
+        desde hace tiempo.
+        Agregado btnCamSesion — mismo botón (toggleCamCadencia(), la
+        función de siempre) ahora también en la tarjeta Sensores de
+        Sesión, usando la zona/color ya calibrados (no duplica la vista
+        de ajuste ROI/color, que sigue siendo cosa de Calibración). Los
+        dos botones (el de Calibración y este nuevo) se mantienen
+        sincronizados en las dos actualizaciones de texto existentes
+        (conectando/desconectando).
+        Reordenada la vista de Sesión: Sensores → Fantasma → Meta →
+        Canvas/animación → HUD En vivo → Iniciar/Finalizar — toda la
+        preparación (sensores, cámara, fantasma, meta) queda junta
+        arriba, la parte de "ya estoy remando" abajo. Nada de contenido
+        se tocó, solo el orden de las tarjetas.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3962,6 +3985,8 @@ async function conectarCamaraConDispositivo(deviceId) {
     camROI = lsGet(K_CAM_ROI, null);
     colorMarcador = lsGet(K_CAM_COLOR_MARCADOR, null);
     document.getElementById('btnCam').textContent = '📷 Detener';
+    const btnCamSesionEl = document.getElementById('btnCamSesion');
+    if (btnCamSesionEl) btnCamSesionEl.textContent = '📷 Detener'; // mismo botón, ahora también accesible desde Sesión — hay que mantener los dos sincronizados
     inicializarROIListeners();
     mostrarOverlayDesdeROI();
     actualizarUIColorMarcador();
@@ -4273,6 +4298,8 @@ function detenerCamCadencia() {
   video.srcObject = null;
   video.style.display = 'none';
   document.getElementById('btnCam').textContent = '📷 Cámara';
+  const btnCamSesionEl = document.getElementById('btnCamSesion');
+  if (btnCamSesionEl) btnCamSesionEl.textContent = '📷 Cámara';
   document.getElementById('cadCam').firstChild.textContent = '--';
 }
 function destellar(id) {
