@@ -22,7 +22,7 @@
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--texto);font-family:var(--sans);
     height:100%; overflow-x:hidden;}
-  body{padding-bottom:24px;}
+  body{padding-bottom:max(24px, env(safe-area-inset-bottom, 24px));}
   button{font-family:inherit; cursor:pointer;}
   input{font-family:inherit;}
 
@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v97</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v99</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2432,6 +2432,31 @@
         preparación (sensores, cámara, fantasma, meta) queda junta
         arriba, la parte de "ya estoy remando" abajo. Nada de contenido
         se tocó, solo el orden de las tarjetas.
+   v98: Hugo mandó dos capturas — el botón "Iniciar sesión" solo
+        responde con la barra del navegador visible; con la pantalla
+        "limpia" (barra escondida, típico al scrollear en el celular),
+        no responde. Causa probable: la página pide viewport-fit=cover
+        (ocupar toda la pantalla, hasta debajo de la zona del gesto de
+        navegación del sistema) pero el padding inferior del body era
+        un valor fijo (24px) que no tiene en cuenta esa franja segura
+        — con la barra escondida, el botón puede terminar sentado
+        justo en esa zona, y el toque lo agarra el gesto del sistema
+        en vez de la página. Cambiado a
+        padding-bottom:max(24px, env(safe-area-inset-bottom, 24px)) —
+        el mecanismo estándar para esto, sin efecto en dispositivos que
+        no tienen esa zona conflictiva. Revisado también si algún
+        elemento fijo (el toast) podía estar tapando el botón — ya
+        tenía pointer-events:none, no era la causa.
+   v99: Hugo pidió que la pantalla no se apague ni se oscurezca durante
+        una sesión. Agregado pedirWakeLock()/soltarWakeLock() con la
+        Wake Lock API (navigator.wakeLock) — pide el lock al iniciar la
+        sesión, lo suelta al finalizar. Si el navegador no soporta la
+        API, no hace nada (mismo comportamiento de antes, sin romper).
+        El navegador libera el lock solo si la pestaña deja de estar
+        visible (cambiar de app, o el sistema apaga la pantalla igual
+        por batería) — agregado un listener de visibilitychange que lo
+        vuelve a pedir si la sesión sigue activa cuando la pestaña
+        vuelve a primer plano.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -5162,6 +5187,28 @@ function debeTerminarPorMeta(tipoMeta, valorMeta, tSeg, distanciaM) {
   return false;
 }
 
+let wakeLock = null; // referencia al WakeLockSentinel activo mientras hay una sesión corriendo, o null si no hay ninguno pedido
+// pide que la pantalla no se apague ni se oscurezca — a pedido de Hugo, para no tener que estar
+// tocando la pantalla en medio de una sesión para que no se apague sola. Usa la Wake Lock API
+// (soportada en Chrome/Brave/Android, no en todos los navegadores) — si no está disponible, no
+// hace nada y no rompe nada, queda el comportamiento de antes (la pantalla se apaga como siempre).
+// El navegador libera el wake lock solo si la pestaña deja de estar visible (cambiás de app, o el
+// sistema apaga la pantalla igual por batería) — por eso hay un listener de visibilitychange más
+// abajo que lo vuelve a pedir si la sesión sigue activa cuando la pestaña vuelve a primer plano.
+async function pedirWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+  } catch (e) {
+    wakeLock = null; // puede fallar (ej. la pestaña no estaba visible en ese instante) — no es grave, se reintenta solo cuando vuelva a estar visible
+  }
+}
+function soltarWakeLock() {
+  if (wakeLock) { wakeLock.release(); wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && sesionActiva && !wakeLock) pedirWakeLock();
+});
 function iniciarSesion() {
   sesionActiva = {
     id: 'k_' + Date.now(),
@@ -5186,6 +5233,7 @@ function iniciarSesion() {
   document.getElementById('btnIniciar').style.display = 'none';
   document.getElementById('btnFinalizar').style.display = 'block';
   document.getElementById('chequeoPreSesion').textContent = '';
+  pedirWakeLock(); // a pedido de Hugo: que la pantalla no se apague ni se oscurezca mientras hay una sesión corriendo
   tickInterval = setInterval(tick, 1000);
   iniciarBucleVivo();
   toast('Sesión iniciada');
@@ -5385,6 +5433,7 @@ function finalizarSesion() {
   if (!sesionActiva) return;
   clearInterval(tickInterval);
   pararBucleVivo();
+  soltarWakeLock();
   const duracionSeg = Math.round((Date.now() - sesionActiva.inicio) / 1000);
   const pulsoPromedio = promedio(sesionActiva.pulsos);
   const pulsoMax = sesionActiva.pulsos.length ? maxSeguro(sesionActiva.pulsos) : null;
