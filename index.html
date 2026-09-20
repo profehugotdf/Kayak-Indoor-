@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v99</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v100</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -567,8 +567,8 @@
       <h2>Sesiones de kayak</h2>
       <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
         <table class="lista">
-          <thead><tr><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th><th></th><th></th></tr></thead>
-          <tbody id="tablaSesiones"><tr class="vacia"><td colspan="8">Sin sesiones todavía</td></tr></tbody>
+          <thead><tr><th></th><th>Fecha</th><th>Dur.</th><th>Dist.</th><th>TSS</th><th></th><th></th><th></th><th></th></tr></thead>
+          <tbody id="tablaSesiones"><tr class="vacia"><td colspan="9">Sin sesiones todavía</td></tr></tbody>
         </table>
       </div>
       <button class="btn chico" style="margin-top:8px;" onclick="toggleEvolucionSesiones()">📈 Ver evolución entre sesiones</button>
@@ -586,6 +586,10 @@
         sesiones — el resto de las que sean más viejas quedan solo con el resumen.</p>
       <p class="nota" style="margin-top:8px;" id="tamanioActualSesiones"></p>
       <button class="btn chico" style="margin-top:8px;" onclick="archivarSesionesViejas()">🗄 Archivar sesiones viejas</button>
+      <p class="nota" style="margin-top:10px; font-weight:700;">O elegí puntuales: marcá la
+        casilla al lado de cada sesión en la tabla de abajo y archivá solo esas.</p>
+      <p class="nota" id="resumenSeleccionPoda" style="margin-top:4px;"></p>
+      <button class="btn chico" id="btnPodarSeleccionadas" style="margin-top:6px; display:none; color:var(--pulso);" onclick="archivarSesionesSeleccionadas()">🗄 Archivar las marcadas</button>
     </div>
     <div class="card" id="cardEvolucionSesiones" style="display:none;">
       <div class="fila" style="justify-content:space-between; align-items:center;">
@@ -2457,6 +2461,21 @@
         por batería) — agregado un listener de visibilitychange que lo
         vuelve a pedir si la sesión sigue activa cuando la pestaña
         vuelve a primer plano.
+   v100: Hugo pidió poder elegir sesiones puntuales del Historial para
+        podar, en vez de solo "las últimas N". Agregada una casilla por
+        fila en la tabla (solo en las que realmente tengan algún campo
+        pesado que sacar — mismo chequeo que ya usa calcularPlanDePoda)
+        que suma/saca el id de sesionesSeleccionadasPoda (Set nuevo).
+        calcularPlanDePodaPorIds() (pura, mismo criterio y forma que
+        calcularPlanDePoda pero por una lista explícita de ids en vez
+        de "las N más recientes") + archivarSesionesSeleccionadas()
+        (misma mecánica de siempre: confirm() con los KB reales antes
+        de tocar nada, nunca automática). Nueva sección en la tarjeta
+        "Espacio de almacenamiento" mostrando cuántas hay marcadas y
+        cuánto se liberaría, con su propio botón aparte del de "últimas
+        N". eliminarSesion() ahora también saca el id de la selección
+        si estaba marcada, para no dejar un id colgado apuntando a una
+        sesión que ya no existe.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -5660,7 +5679,12 @@ function renderHistorial() {
     const esFantasma = s.id === fantasmaActualId;
     const tieneTrack = s.puntos && s.puntos.length > 0;
     const enCarrera = carreraSeleccion.includes(s.id);
-    return '<tr><td><a href="javascript:void(0)" onclick="mostrarDetalleSesion(\'' + s.id + '\')" style="color:var(--ritmo); text-decoration:underline;">' + (s.manual ? '✍️ ' : s.esCalibracion ? '📏 ' : s.esCalibracionFrenada ? '🛑 ' : '') + formatearFecha(s.fecha) + '</a></td>' +
+    const tienePesoQueSacar = CAMPOS_PESADOS_SESION.some(campo => s[campo] && s[campo].length > 0);
+    return '<tr>' +
+    '<td>' + (tienePesoQueSacar
+      ? '<input type="checkbox" ' + (sesionesSeleccionadasPoda.has(s.id) ? 'checked' : '') + ' onchange="toggleSeleccionPoda(\'' + s.id + '\')" style="width:20px; height:20px;">'
+      : '') + '</td>' +
+    '<td><a href="javascript:void(0)" onclick="mostrarDetalleSesion(\'' + s.id + '\')" style="color:var(--ritmo); text-decoration:underline;">' + (s.manual ? '✍️ ' : s.esCalibracion ? '📏 ' : s.esCalibracionFrenada ? '🛑 ' : '') + formatearFecha(s.fecha) + '</a></td>' +
     '<td>' + segAHMS(s.duracionSeg) + '</td>' +
     '<td>' + s.distanciaM + 'm</td>' +
     '<td>' + s.tss + '</td>' +
@@ -5888,6 +5912,18 @@ function renderEspacioAlmacenamiento() {
   const plan = calcularPlanDePoda(sesiones, n);
   el.textContent = sesiones.length + ' sesiones guardadas, ~' + kbActual + ' KB' +
     (plan.cantidadAfectada > 0 ? ' — ' + plan.cantidadAfectada + ' más viejas que las últimas ' + n + ' que se podrían archivar (~' + (plan.bytesLiberados / 1024).toFixed(1) + ' KB liberables)' : ' — nada para archivar con las últimas ' + n + ' conservadas');
+  const elSeleccion = document.getElementById('resumenSeleccionPoda');
+  const btnSeleccion = document.getElementById('btnPodarSeleccionadas');
+  if (elSeleccion && btnSeleccion) {
+    if (sesionesSeleccionadasPoda.size) {
+      const planSeleccion = calcularPlanDePodaPorIds(sesiones, [...sesionesSeleccionadasPoda]);
+      elSeleccion.textContent = sesionesSeleccionadasPoda.size + ' marcada' + (sesionesSeleccionadasPoda.size === 1 ? '' : 's') + ' en la tabla de abajo (~' + (planSeleccion.bytesLiberados / 1024).toFixed(1) + ' KB liberables)';
+      btnSeleccion.style.display = 'inline-block';
+    } else {
+      elSeleccion.textContent = '';
+      btnSeleccion.style.display = 'none';
+    }
+  }
 }
 // ejecuta la poda DE VERDAD — muestra los números reales antes de tocar nada, y solo hace algo si
 // se confirma. A pedido de Hugo: nunca automática, siempre explícita.
@@ -5910,6 +5946,61 @@ function archivarSesionesViejas() {
   renderEspacioAlmacenamiento();
   renderHistorial();
 }
+let sesionesSeleccionadasPoda = new Set(); // ids marcados con la casilla en Historial, para podar a mano — a pedido de Hugo, alternativa a "las últimas N" cuando quiere elegir puntuales
+function toggleSeleccionPoda(id) {
+  if (sesionesSeleccionadasPoda.has(id)) sesionesSeleccionadasPoda.delete(id);
+  else sesionesSeleccionadasPoda.add(id);
+  renderEspacioAlmacenamiento();
+}
+// mismo cálculo que calcularPlanDePoda(), pero por una lista EXPLÍCITA de ids en vez de "las
+// últimas N" — a pedido de Hugo, para poder elegir sesiones puntuales desde la casilla en
+// Historial en vez de que la app decida solo por antigüedad/cantidad. Pura, mismo criterio de
+// "no cuenta como afectada si ya no tiene ningún campo pesado".
+function calcularPlanDePodaPorIds(sesiones, idsAPodar) {
+  const idsSet = new Set(idsAPodar || []);
+  let bytesAntes = 0, bytesDespues = 0, cantidadAfectada = 0;
+  const resultado = (sesiones || []).map(s => {
+    const pesoAntes = JSON.stringify(s).length;
+    bytesAntes += pesoAntes;
+    const fueSeleccionada = idsSet.has(s.id);
+    const tienePesoQueSacar = CAMPOS_PESADOS_SESION.some(campo => s[campo] && s[campo].length > 0);
+    if (fueSeleccionada && tienePesoQueSacar) {
+      const podada = { ...s };
+      CAMPOS_PESADOS_SESION.forEach(campo => { podada[campo] = []; });
+      bytesDespues += JSON.stringify(podada).length;
+      cantidadAfectada++;
+      return podada;
+    }
+    bytesDespues += pesoAntes;
+    return s;
+  });
+  return { sesiones: resultado, cantidadAfectada, bytesAntes, bytesDespues, bytesLiberados: bytesAntes - bytesDespues };
+}
+// ejecuta la poda DE VERDAD sobre las sesiones marcadas con la casilla — mismos cuidados que
+// archivarSesionesViejas(): números reales en un confirm() antes de tocar nada, nunca automática.
+function archivarSesionesSeleccionadas() {
+  if (!sesionesSeleccionadasPoda.size) { toast('No marcaste ninguna sesión'); return; }
+  const sesiones = lsGet(K_SESIONES, []);
+  const plan = calcularPlanDePodaPorIds(sesiones, [...sesionesSeleccionadasPoda]);
+  if (plan.cantidadAfectada === 0) {
+    toast('Las sesiones marcadas ya no tienen datos crudos para archivar — nada que hacer');
+    sesionesSeleccionadasPoda.clear();
+    renderEspacioAlmacenamiento();
+    renderHistorial();
+    return;
+  }
+  const kbLiberados = (plan.bytesLiberados / 1024).toFixed(1);
+  const palabraSesiones = plan.cantidadAfectada === 1 ? 'sesión' : 'sesiones'; // "sesión"+"es" da "sesiónes", mal — el plural pierde la tilde, así que arman la palabra completa cada vez en vez de concatenar un sufijo
+  const mensaje = 'Se van a recortar ' + plan.cantidadAfectada + ' ' + palabraSesiones + ' que marcaste — se conserva el resumen (fecha, duración, distancia, TSS, pulso), se descartan los registros crudos punto por punto.\n\n' +
+    'Se liberarían aproximadamente: ' + kbLiberados + ' KB\n\n' +
+    'Esto no se puede deshacer (los registros crudos se pierden — hacé un backup en JSON antes si los querés conservar). ¿Continuar?';
+  if (!confirm(mensaje)) { toast('Archivado cancelado'); return; }
+  lsSet(K_SESIONES, plan.sesiones);
+  sesionesSeleccionadasPoda.clear();
+  toast('Listo — ' + plan.cantidadAfectada + ' ' + palabraSesiones + ' archivada' + (plan.cantidadAfectada === 1 ? '' : 's') + ', ~' + kbLiberados + ' KB liberados');
+  renderEspacioAlmacenamiento();
+  renderHistorial();
+}
 function eliminarSesion(id) {
   const sesiones = lsGet(K_SESIONES, []);
   const sesion = sesiones.find(s => s.id === id);
@@ -5921,6 +6012,7 @@ function eliminarSesion(id) {
   // la sesión ya no exista) y la saca de fantasma si era la elegida
   lsSet(K_FORMA_COMPARTIDA, lsGet(K_FORMA_COMPARTIDA, []).filter(r => r.id !== id));
   if (lsGet(K_FANTASMA_ID, null) === id) localStorage.removeItem(K_FANTASMA_ID);
+  sesionesSeleccionadasPoda.delete(id); // si estaba marcada para podar, ya no existe — no dejar el id colgado en la selección
   toast('Sesión eliminada');
   renderHistorial();
 }
