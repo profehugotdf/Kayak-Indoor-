@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v100</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v101</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2476,6 +2476,30 @@
         N". eliminarSesion() ahora también saca el id de la selección
         si estaba marcada, para no dejar un id colgado apuntando a una
         sesión que ya no existe.
+   v101: Hugo pidió una mejora "espectacular" de apariencia para los
+         kayakistas y el entorno, en sesión en vivo Y carrera virtual.
+         Encontré que dibujarEscenaLago()/dibujarCascoKayak()/
+         dibujarKayakistaDesdeD() ya son COMPARTIDAS entre las dos
+         vistas (además del editor y el fantasma) — mejorarlas ahí
+         rinde en todos lados a la vez, sin tocar cada vista por
+         separado.
+         dibujarEscenaLago(): gradiente de cielo más rico (4 paradas en
+         vez de 2), resplandor cálido tipo sol bajo, nubes lentas a la
+         deriva (con reloj propio vía performance.now(), sin agregar
+         parámetro nuevo — no hace falta tocar ninguno de los ~8
+         lugares que llaman a esta función), ondas de agua animadas
+         (antes 6 líneas fijas, ahora serpentean con seno + tiempo
+         real), destellos titilantes en el agua.
+         dibujarCascoKayak(): gradiente en vez de color plano (más
+         volumen), línea de brillo central sugiriendo la quilla, estela
+         con dos trazos de opacidad decreciente en vez de uno — mismos
+         puntos de la curva del casco, no se tocó la silueta.
+         dibujarKayakistaDesdeD(): cabeza con gradiente radial (antes
+         color plano), brillo lateral sutil sobre el torso (capa
+         aparte, sin tocar segmentoGrueso() que es compartida con los
+         brazos), tiras de chaleco salvavidas simples. Ninguna posición,
+         proporción ni ángulo de pose se tocó — todo lo agregado es
+         puramente visual, encima de la geometría ya afinada.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -6254,11 +6278,38 @@ function segmentoGrueso(ctx, x1, y1, x2, y2, w1, w2, color) {
 // escena de fondo: cielo, línea de horizonte con lomas/árboles simplificados, agua. Referencia:
 // el video que mandó Hugo (vista trasera, lago en calma, orillas arboladas, cielo gris claro).
 function dibujarEscenaLago(ctx, w, h, horizonY) {
+  const t = performance.now() / 1000; // reloj propio, sin parámetro nuevo — así no hace falta tocar ninguno de los ~8 lugares que ya llaman a esta función (sesión en vivo, carrera virtual con varios kayakistas, editor, fantasma)
   const cieloGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
-  cieloGrad.addColorStop(0, '#c9c4b8');
-  cieloGrad.addColorStop(1, '#dcd7c9');
+  cieloGrad.addColorStop(0, '#a9c2d4');
+  cieloGrad.addColorStop(0.45, '#c9d3c8');
+  cieloGrad.addColorStop(0.8, '#e0d3b8');
+  cieloGrad.addColorStop(1, '#ecd9b0');
   ctx.fillStyle = cieloGrad;
   ctx.fillRect(0, 0, w, horizonY);
+
+  // resplandor suave cerca del horizonte, del lado en que "está el sol" — a pedido de mejorar
+  // la apariencia, un lago real casi siempre tiene un punto más cálido en el cielo
+  const solGrad = ctx.createRadialGradient(w * 0.78, horizonY * 0.92, 0, w * 0.78, horizonY * 0.92, horizonY * 0.55);
+  solGrad.addColorStop(0, 'rgba(255,238,200,0.55)');
+  solGrad.addColorStop(1, 'rgba(255,238,200,0)');
+  ctx.fillStyle = solGrad;
+  ctx.fillRect(0, 0, w, horizonY);
+
+  // nubes lentas — un puñado de óvalos superpuestos que derivan despacio con el tiempo real,
+  // dan vida al cielo sin costar casi nada de dibujo
+  function nube(cx, cy, r) {
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    [[-1, 0.05], [-0.45, -0.25], [0.3, -0.15], [0.85, 0.05], [0.15, 0.15]].forEach(([dx, dy]) => {
+      ctx.beginPath();
+      ctx.ellipse(cx + dx * r, cy + dy * r, r * 0.62, r * 0.42, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+  const rNube = h * 0.03;
+  [[0.22, 55], [0.58, 90], [0.85, 40]].forEach(([fx, periodo], i) => {
+    const x = ((fx * w + t * (5 + i * 1.5)) % (w + rNube * 4)) - rNube * 2;
+    nube(x, horizonY * (0.18 + i * 0.09), rNube * (0.8 + i * 0.2));
+  });
 
   // lomas verdes justo en el horizonte
   ctx.fillStyle = '#7a9569';
@@ -6281,17 +6332,41 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
   [0.06, 0.14, 0.20].forEach((fx, i) => arbol(w * fx, horizonY - rArbol * 0.6, rArbol * (0.8 + i * 0.15), '#5c8a54'));
   [0.94, 0.86, 0.80].forEach((fx, i) => arbol(w * fx, horizonY - rArbol * 0.6, rArbol * (0.8 + i * 0.15), '#5c8a54'));
 
-  // agua
+  // agua — gradiente más rico (antes 2 paradas) y con el mismo tono cálido del cielo reflejado
+  // cerca del horizonte, como pasa de verdad con el agua en calma
   const aguaGrad = ctx.createLinearGradient(0, horizonY, 0, h);
-  aguaGrad.addColorStop(0, '#7f8f97');
-  aguaGrad.addColorStop(1, '#4b5a63');
+  aguaGrad.addColorStop(0, '#93998f');
+  aguaGrad.addColorStop(0.12, '#7f8f97');
+  aguaGrad.addColorStop(0.5, '#5f7079');
+  aguaGrad.addColorStop(1, '#414f58');
   ctx.fillStyle = aguaGrad;
   ctx.fillRect(0, horizonY, w, h - horizonY);
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+
+  // ondas animadas — antes eran 6 líneas horizontales fijas; ahora cada una serpentea con el
+  // tiempo real (una onda senoidal larga y suave), así el agua se ve viva incluso antes de que
+  // arranque a remar
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
   ctx.lineWidth = 1;
   for (let i = 0; i < 6; i++) {
     const y = horizonY + (h - horizonY) * (0.15 + i * 0.15);
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += 14) {
+      const yy = y + Math.sin(x * 0.02 + t * 1.1 + i * 1.3) * 2.2;
+      if (x === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
+
+  // destellos de sol en el agua — puntitos brillantes que titilan, concentrados del lado del
+  // resplandor del cielo
+  for (let i = 0; i < 10; i++) {
+    const fx = 0.6 + (i * 0.421) % 0.38;
+    const fy = 0.08 + (i * 0.277) % 0.75;
+    const parpadeo = 0.3 + 0.3 * Math.abs(Math.sin(t * 2.3 + i * 2.1));
+    ctx.fillStyle = 'rgba(255,250,225,' + parpadeo.toFixed(2) + ')';
+    ctx.beginPath();
+    ctx.ellipse(w * fx, horizonY + (h - horizonY) * fy, 2.2, 0.9, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 // casco del kayak visto desde atrás: ANCHO cerca de la cabina (donde se sienta, pegado al
@@ -6299,25 +6374,41 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
 // revés (punta pegada al torso, ancho lejos), Hugo lo marcó viendo la captura.
 function dibujarCascoKayak(ctx, cx, cabinaY, s) {
   const anchoCabina = 0.55 * s, largoPopa = 1.15 * s;
-  ctx.fillStyle = '#c7cdd1';
+  // gradiente en vez de color plano — le da un aire de plástico brillante al casco, más
+  // dimensión que un relleno liso (misma silueta, no se tocó ningún punto de la curva)
+  const cascoGrad = ctx.createLinearGradient(cx - anchoCabina, cabinaY, cx + anchoCabina, cabinaY);
+  cascoGrad.addColorStop(0, shadeHex('#c7cdd1', 0.82));
+  cascoGrad.addColorStop(0.5, '#e4e8ea');
+  cascoGrad.addColorStop(1, shadeHex('#c7cdd1', 0.82));
+  ctx.fillStyle = cascoGrad;
   ctx.beginPath();
   ctx.moveTo(cx - anchoCabina, cabinaY);
   ctx.quadraticCurveTo(cx - anchoCabina * 0.9, cabinaY + largoPopa * 0.55, cx, cabinaY + largoPopa);
   ctx.quadraticCurveTo(cx + anchoCabina * 0.9, cabinaY + largoPopa * 0.55, cx + anchoCabina, cabinaY);
   ctx.closePath();
   ctx.fill();
+  // línea de brillo central, sutil — sugiere la quilla y refuerza el volumen del casco
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = Math.max(1, s * 0.015);
+  ctx.beginPath();
+  ctx.moveTo(cx, cabinaY + largoPopa * 0.08);
+  ctx.quadraticCurveTo(cx, cabinaY + largoPopa * 0.5, cx, cabinaY + largoPopa * 0.85);
+  ctx.stroke();
   ctx.fillStyle = shadeHex('#c7cdd1', 0.75);
   ctx.beginPath();
   ctx.ellipse(cx, cabinaY + 0.22 * s, anchoCabina * 0.65, 0.20 * s, 0, 0, Math.PI * 2);
   ctx.fill();
-  // estela, arrancando desde la punta de popa (lo más cerca de cámara)
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = Math.max(1, s * 0.02);
-  [-1, 1].forEach(sgn => {
-    ctx.beginPath();
-    ctx.moveTo(cx, cabinaY + largoPopa);
-    ctx.quadraticCurveTo(cx + sgn * 0.9 * s, cabinaY + largoPopa + 0.8 * s, cx + sgn * 2.1 * s, cabinaY + largoPopa + 1.5 * s);
-    ctx.stroke();
+  // estela, arrancando desde la punta de popa (lo más cerca de cámara) — dos trazos con
+  // opacidad decreciente en vez de uno solo, da más sensación de espuma real disipándose
+  [0.35, 0.6].forEach((op, i) => {
+    ctx.strokeStyle = 'rgba(255,255,255,' + op + ')';
+    ctx.lineWidth = Math.max(1, s * (0.02 - i * 0.006));
+    [-1, 1].forEach(sgn => {
+      ctx.beginPath();
+      ctx.moveTo(cx, cabinaY + largoPopa);
+      ctx.quadraticCurveTo(cx + sgn * 0.9 * s, cabinaY + largoPopa + 0.8 * s, cx + sgn * (2.1 + i * 0.6) * s, cabinaY + largoPopa + (1.5 + i * 0.7) * s);
+      ctx.stroke();
+    });
   });
 }
 // salpicadura de salida de pala: columna de espuma + gotas, como en el video de referencia.
@@ -6429,10 +6520,38 @@ function dibujarKayakistaDesdeD(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey
 
   // torso (por encima de la pala Y de los brazos)
   segmentoGrueso(ctx, cx, hipY, shCenterX, shY, prop.anchoTorsoCadera * s, prop.anchoTorsoHombros * s, jersey);
-  // cabeza (por encima de todo)
-  ctx.fillStyle = skin;
+  // brillo lateral sutil sobre el torso — sugiere luz viniendo de arriba/costado sin tocar
+  // segmentoGrueso() (compartida con los brazos, no la quiero cambiar). Una franja angosta y
+  // semitransparente alcanza para dar volumen sin competir con el color del jersey.
+  ctx.save();
+  ctx.globalAlpha = 0.16;
+  ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.arc(shCenterX, shY - 0.34 * s, 0.24 * s, 0, Math.PI * 2);
+  ctx.moveTo(shCenterX - prop.anchoTorsoHombros * s * 0.32, shY + prop.alturaTorso * s * 0.08);
+  ctx.quadraticCurveTo(cx - prop.anchoTorsoCadera * s * 0.22, hipY - prop.alturaTorso * s * 0.35, cx - prop.anchoTorsoCadera * s * 0.1, hipY - prop.alturaTorso * s * 0.05);
+  ctx.quadraticCurveTo(cx - prop.anchoTorsoCadera * s * 0.35, hipY - prop.alturaTorso * s * 0.3, shCenterX - prop.anchoTorsoHombros * s * 0.42, shY + prop.alturaTorso * s * 0.15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  // tiras de chaleco salvavidas — dos líneas cortas desde los hombros, detalle simple que ayuda
+  // a leer "chaleco" en vez de una remera lisa, sin agregar geometría nueva al torso en sí
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = Math.max(1, s * 0.025);
+  ctx.lineCap = 'round';
+  [shDerX, shIzqX].forEach(shX => {
+    ctx.beginPath();
+    ctx.moveTo(shX * 0.5 + shCenterX * 0.5, shY + prop.alturaTorso * s * 0.05);
+    ctx.lineTo(shX * 0.2 + shCenterX * 0.8, hipY - prop.alturaTorso * s * 0.55);
+    ctx.stroke();
+  });
+  // cabeza (por encima de todo) — gradiente radial en vez de color plano, misma posición y radio
+  const headX = shCenterX, headY = shY - 0.34 * s, headR = 0.24 * s;
+  const headGrad = ctx.createRadialGradient(headX - headR * 0.3, headY - headR * 0.35, headR * 0.1, headX, headY, headR);
+  headGrad.addColorStop(0, shadeHex(skin, 1.25));
+  headGrad.addColorStop(1, shadeHex(skin, 0.85));
+  ctx.fillStyle = headGrad;
+  ctx.beginPath();
+  ctx.arc(headX, headY, headR, 0, Math.PI * 2);
   ctx.fill();
 
   // espuma: posición y escala vienen de los datos de cada lado (splashX/splashY/splashEscala,
