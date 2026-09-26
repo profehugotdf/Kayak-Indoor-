@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v101</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v103</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2500,6 +2500,42 @@
          brazos), tiras de chaleco salvavidas simples. Ninguna posición,
          proporción ni ángulo de pose se tocó — todo lo agregado es
          puramente visual, encima de la geometría ya afinada.
+   v102: Hugo preguntó cómo se vería con más mejoras — en vez de
+         describirlo, lo implementé directamente (segunda ronda).
+         Nueva dibujarReflejo(): vuelca la figura verticalmente desde
+         gyBase (la línea del casco, fija) y la redibuja con alfa 0.22
+         recortada para no pasarse por encima de esa línea — reusa
+         dibujarKayakistaDesdeD() entera (una sola llamada), no duplica
+         geometría. Conectada en los 5 lugares donde se dibuja un
+         kayakista real (propio y otros en Carrera Virtual, fantasma y
+         propio en Sesión) — a propósito NO en los 2 del Editor de
+         animación, para no meter ruido visual justo donde Hugo
+         necesita precisión ajustando la pose.
+         dibujarSplash(): dos anillos de onda expandiéndose desde cada
+         salpicadura, tamaño atado a la escala de la espuma.
+         Hojas de pala: gradiente (antes negro plano) sugiriendo la
+         curvatura cóncava real, más una nervadura central sutil.
+   v103: Hugo vio una vista previa animada (fuera de la app) y pidió
+         pasarla a la app SIN casco protector y respetando la técnica
+         del Editor. Todo lo agregado es aditivo sobre la geometría de
+         la pose: ningún ángulo, proporción ni punto de los 8 instantes
+         cambió.
+         dibujarEscenaLago(): la loma verde y los arbolitos redondos
+         pasan a montañas en 3 capas (dos con picos nevados), pinos a
+         los costados con su reflejo invertido en el agua, camino de
+         luz del sol, ondas con perspectiva (finas/lentas al fondo,
+         anchas/rápidas cerca de cámara), destellos sobre el camino de
+         luz. Perfiles determinísticos, sin azar, para que no tiemblen.
+         dibujarCascoKayak(): casco rojo con gradiente (antes gris),
+         elásticos cruzados en la cubierta de popa, sombra sobre el
+         agua, pozo de cabina oscuro. Misma silueta exacta. La estela
+         ahora se dibuja ANTES que el casco, para que no lo cruce.
+         dibujarKayakistaDesdeD(): banda amarilla en cada hoja de pala
+         (en el marco rotado de la hoja, sigue el ángulo de la pose),
+         guantes en las muñecas que define la pose, y chaleco con dos
+         franjas reflectivas calculadas perpendiculares al eje real del
+         torso (cadera→hombros con la rotación del Editor), en vez de
+         las dos tiras de v101. Cabeza sin casco, como pidió Hugo.
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -4965,6 +5001,7 @@ function renderCarrera() {
     const d = { der: interpolarLadoEnSecuenciaK(p.corredor.fase, 'der'), izq: interpolarLadoEnSecuenciaK(p.corredor.fase, 'izq') };
     const rotacion = interpolarRotacionEnSecuenciaK(p.corredor.fase);
     if (i === idxCamara) {
+      dibujarReflejo(ctx, w / 2, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
       dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
       return;
     }
@@ -4986,6 +5023,7 @@ function renderCarrera() {
     const xPos = w / 2 + persp.xOffset * SEPARACION_EXTRA * ladoAlterno;
     ctx.save();
     ctx.globalAlpha = 0.55;
+    dibujarReflejo(ctx, xPos, h * 0.62 + persp.yOffset, s * persp.escala, d.der, d.izq, rotacion, p.corredor.color, proporciones);
     dibujarKayakistaDesdeD(ctx, xPos, h * 0.62 + persp.yOffset, s * persp.escala, d.der, d.izq, rotacion, p.corredor.color, proporciones);
     ctx.restore();
     // cartelito de metros: cuánto le gana/pierde ESTE corredor a la CÁMARA puntualmente — sigue
@@ -5186,9 +5224,11 @@ function renderSesionVivo() {
     const rotacionFantasma = interpolarRotacionEnSecuenciaK(tGlobalFantasma);
     ctx.save();
     ctx.globalAlpha = 0.42;
+    dibujarReflejo(ctx, w / 2 + persp.xOffset, h * 0.62 + persp.yOffset, s * persp.escala, dDerFantasma, dIzqFantasma, rotacionFantasma, '#8a94a3', proporciones);
     dibujarKayakistaDesdeD(ctx, w / 2 + persp.xOffset, h * 0.62 + persp.yOffset, s * persp.escala, dDerFantasma, dIzqFantasma, rotacionFantasma, '#8a94a3', proporciones);
     ctx.restore();
   }
+  dibujarReflejo(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
   dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
   dibujarBadgeFantasma(ctx, w, gap);
 }
@@ -6311,62 +6351,91 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
     nube(x, horizonY * (0.18 + i * 0.09), rNube * (0.8 + i * 0.2));
   });
 
-  // lomas verdes justo en el horizonte
-  ctx.fillStyle = '#7a9569';
-  ctx.beginPath();
-  ctx.moveTo(0, horizonY);
-  ctx.quadraticCurveTo(w * 0.25, horizonY - h * 0.02, w * 0.5, horizonY);
-  ctx.quadraticCurveTo(w * 0.75, horizonY + h * 0.015, w, horizonY - h * 0.01);
-  ctx.lineTo(w, horizonY);
-  ctx.closePath();
-  ctx.fill();
-
-  // arbolitos simples a los costados
-  function arbol(x, y, r, col) {
+  // v103 — montañas en tres capas con picos nevados (antes: una loma verde plana). Perfil
+  // determinístico (senos fijos por capa, sin azar), así no "tiemblan" entre cuadros. Es fondo
+  // puro: no depende de la pose ni de nada del Editor.
+  const capasMont = [[0.10, 0.20, '#8c9fb3', 1], [0.06, 0.13, '#6f8499', 2], [0.02, 0.07, '#4d6275', 3]];
+  capasMont.forEach(([base, amp, col, sem]) => {
+    const pts = [];
     ctx.fillStyle = col;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x - r * 0.6, y + r * 0.15, r * 0.75, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + r * 0.6, y + r * 0.15, r * 0.7, 0, Math.PI * 2); ctx.fill();
-  }
-  const rArbol = h * 0.045;
-  [0.06, 0.14, 0.20].forEach((fx, i) => arbol(w * fx, horizonY - rArbol * 0.6, rArbol * (0.8 + i * 0.15), '#5c8a54'));
-  [0.94, 0.86, 0.80].forEach((fx, i) => arbol(w * fx, horizonY - rArbol * 0.6, rArbol * (0.8 + i * 0.15), '#5c8a54'));
+    ctx.beginPath();
+    ctx.moveTo(0, horizonY);
+    for (let x = 0; x <= w; x += Math.max(6, w / 40)) {
+      const y = horizonY - h * base * 0.55 - Math.abs(Math.sin(x / w * 4.5 * sem + sem)) * h * amp * 0.45 - Math.sin(x / w * 15 * sem) * h * 0.006;
+      pts.push([x, y]);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, horizonY);
+    ctx.closePath();
+    ctx.fill();
+    if (sem < 3) { // nieve solo en las dos capas del fondo — la más cercana queda sin nieve, más baja
+      const cumbre = horizonY - h * base * 0.55 - h * amp * 0.45 * 0.72;
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      pts.forEach(([x, y], i) => {
+        if (y < cumbre && i > 0 && i < pts.length - 1) {
+          const r = h * 0.012;
+          ctx.beginPath(); ctx.moveTo(x - r, y + r * 0.9); ctx.lineTo(x, y); ctx.lineTo(x + r, y + r * 0.9); ctx.closePath(); ctx.fill();
+        }
+      });
+    }
+  });
 
-  // agua — gradiente más rico (antes 2 paradas) y con el mismo tono cálido del cielo reflejado
-  // cerca del horizonte, como pasa de verdad con el agua en calma
+  // agua — gradiente con el tono cálido del cielo reflejado cerca del horizonte
   const aguaGrad = ctx.createLinearGradient(0, horizonY, 0, h);
-  aguaGrad.addColorStop(0, '#93998f');
-  aguaGrad.addColorStop(0.12, '#7f8f97');
-  aguaGrad.addColorStop(0.5, '#5f7079');
-  aguaGrad.addColorStop(1, '#414f58');
+  aguaGrad.addColorStop(0, '#9aaab3');
+  aguaGrad.addColorStop(0.12, '#7f96a3');
+  aguaGrad.addColorStop(0.5, '#56707e');
+  aguaGrad.addColorStop(1, '#2f4a5a');
   ctx.fillStyle = aguaGrad;
   ctx.fillRect(0, horizonY, w, h - horizonY);
 
-  // ondas animadas — antes eran 6 líneas horizontales fijas; ahora cada una serpentea con el
-  // tiempo real (una onda senoidal larga y suave), así el agua se ve viva incluso antes de que
-  // arranque a remar
-  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 6; i++) {
-    const y = horizonY + (h - horizonY) * (0.15 + i * 0.15);
+  // camino de luz del sol sobre el agua (mismo lado que el resplandor del cielo)
+  const solX = w * 0.78;
+  ctx.fillStyle = 'rgba(255,240,200,0.10)';
+  ctx.beginPath();
+  ctx.moveTo(solX - w * 0.03, horizonY); ctx.lineTo(solX + w * 0.03, horizonY);
+  ctx.lineTo(solX + w * 0.22, h); ctx.lineTo(solX - w * 0.22, h);
+  ctx.closePath(); ctx.fill();
+
+  // pinos a los costados + su reflejo invertido en el agua (el centro queda libre para los kayaks)
+  const pinos = [];
+  for (let i = 0; i < 26; i++) {
+    const x = (i * 0.0477 % 1) * w;
+    if (x > w * 0.3 && x < w * 0.7) continue;
+    pinos.push([x, h * (0.022 + (i * 0.013) % 0.02)]);
+  }
+  ctx.fillStyle = '#3f6b45';
+  pinos.forEach(([x, ph]) => { ctx.beginPath(); ctx.moveTo(x - ph * 0.35, horizonY); ctx.lineTo(x, horizonY - ph); ctx.lineTo(x + ph * 0.35, horizonY); ctx.closePath(); ctx.fill(); });
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  pinos.forEach(([x, ph]) => { ctx.beginPath(); ctx.moveTo(x - ph * 0.35, horizonY); ctx.lineTo(x, horizonY + ph * 0.8); ctx.lineTo(x + ph * 0.35, horizonY); ctx.closePath(); ctx.fill(); });
+  ctx.restore();
+
+  // ondas con perspectiva: finas y lentas cerca del horizonte, más anchas/rápidas/visibles cerca
+  // de la cámara — da profundidad al lago. Cortas y desplazándose, no líneas de borde a borde.
+  for (let i = 0; i < 18; i++) {
+    const f = i / 18;
+    const y = horizonY + (h - horizonY) * f * f + 3;
+    const amp = 0.8 + f * 3.5, largo = w * (0.04 + f * 0.14);
+    const x0 = ((i * 0.2281 * w + t * (w * (0.02 + f * 0.09))) % (w + largo)) - largo;
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.07 + f * 0.11).toFixed(3) + ')';
+    ctx.lineWidth = 1 + f * 1.2;
     ctx.beginPath();
-    for (let x = 0; x <= w; x += 14) {
-      const yy = y + Math.sin(x * 0.02 + t * 1.1 + i * 1.3) * 2.2;
-      if (x === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+    for (let k = 0; k <= largo; k += 6) {
+      const yy = y + Math.sin(k * 0.08 + t * 2 + i) * amp;
+      if (k === 0) ctx.moveTo(x0 + k, yy); else ctx.lineTo(x0 + k, yy);
     }
     ctx.stroke();
   }
 
-  // destellos de sol en el agua — puntitos brillantes que titilan, concentrados del lado del
-  // resplandor del cielo
-  for (let i = 0; i < 10; i++) {
-    const fx = 0.6 + (i * 0.421) % 0.38;
-    const fy = 0.08 + (i * 0.277) % 0.75;
-    const parpadeo = 0.3 + 0.3 * Math.abs(Math.sin(t * 2.3 + i * 2.1));
-    ctx.fillStyle = 'rgba(255,250,225,' + parpadeo.toFixed(2) + ')';
-    ctx.beginPath();
-    ctx.ellipse(w * fx, horizonY + (h - horizonY) * fy, 2.2, 0.9, 0, 0, Math.PI * 2);
-    ctx.fill();
+  // destellos sobre el camino de luz
+  for (let i = 0; i < 18; i++) {
+    const fy = (i * 0.271) % 1;
+    const x = solX + (((i * 0.137) % 0.34) - 0.17) * w * (0.4 + fy);
+    const y = horizonY + (h - horizonY) * fy * 0.9 + 4;
+    const a = Math.max(0, Math.sin(t * 3 + i * 1.7)) * 0.55;
+    ctx.fillStyle = 'rgba(255,250,225,' + a.toFixed(2) + ')';
+    ctx.fillRect(x - 3 * (1 + fy), y, 6 * (1 + fy), 1.4);
   }
 }
 // casco del kayak visto desde atrás: ANCHO cerca de la cabina (donde se sienta, pegado al
@@ -6374,35 +6443,15 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
 // revés (punta pegada al torso, ancho lejos), Hugo lo marcó viendo la captura.
 function dibujarCascoKayak(ctx, cx, cabinaY, s) {
   const anchoCabina = 0.55 * s, largoPopa = 1.15 * s;
-  // gradiente en vez de color plano — le da un aire de plástico brillante al casco, más
-  // dimensión que un relleno liso (misma silueta, no se tocó ningún punto de la curva)
-  const cascoGrad = ctx.createLinearGradient(cx - anchoCabina, cabinaY, cx + anchoCabina, cabinaY);
-  cascoGrad.addColorStop(0, shadeHex('#c7cdd1', 0.82));
-  cascoGrad.addColorStop(0.5, '#e4e8ea');
-  cascoGrad.addColorStop(1, shadeHex('#c7cdd1', 0.82));
-  ctx.fillStyle = cascoGrad;
+  // v103 — sombra suave sobre el agua debajo del casco, antes que todo lo demás
+  ctx.fillStyle = 'rgba(0,20,35,0.22)';
   ctx.beginPath();
-  ctx.moveTo(cx - anchoCabina, cabinaY);
-  ctx.quadraticCurveTo(cx - anchoCabina * 0.9, cabinaY + largoPopa * 0.55, cx, cabinaY + largoPopa);
-  ctx.quadraticCurveTo(cx + anchoCabina * 0.9, cabinaY + largoPopa * 0.55, cx + anchoCabina, cabinaY);
-  ctx.closePath();
+  ctx.ellipse(cx, cabinaY + largoPopa * 0.55, anchoCabina * 1.35, largoPopa * 0.32, 0, 0, Math.PI * 2);
   ctx.fill();
-  // línea de brillo central, sutil — sugiere la quilla y refuerza el volumen del casco
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = Math.max(1, s * 0.015);
-  ctx.beginPath();
-  ctx.moveTo(cx, cabinaY + largoPopa * 0.08);
-  ctx.quadraticCurveTo(cx, cabinaY + largoPopa * 0.5, cx, cabinaY + largoPopa * 0.85);
-  ctx.stroke();
-  ctx.fillStyle = shadeHex('#c7cdd1', 0.75);
-  ctx.beginPath();
-  ctx.ellipse(cx, cabinaY + 0.22 * s, anchoCabina * 0.65, 0.20 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // estela, arrancando desde la punta de popa (lo más cerca de cámara) — dos trazos con
-  // opacidad decreciente en vez de uno solo, da más sensación de espuma real disipándose
+  // estela doble (antes iba al final; ahora debajo del casco, así no lo cruza por encima)
   [0.35, 0.6].forEach((op, i) => {
     ctx.strokeStyle = 'rgba(255,255,255,' + op + ')';
-    ctx.lineWidth = Math.max(1, s * (0.02 - i * 0.006));
+    ctx.lineWidth = Math.max(1, s * (0.03 - i * 0.01));
     [-1, 1].forEach(sgn => {
       ctx.beginPath();
       ctx.moveTo(cx, cabinaY + largoPopa);
@@ -6410,6 +6459,39 @@ function dibujarCascoKayak(ctx, cx, cabinaY, s) {
       ctx.stroke();
     });
   });
+  // casco rojo con gradiente lateral (antes gris claro) — misma silueta, ningún punto de la
+  // curva cambió, así no se mueve nada respecto de las proporciones del Editor
+  const cascoGrad = ctx.createLinearGradient(cx - anchoCabina, cabinaY, cx + anchoCabina, cabinaY);
+  cascoGrad.addColorStop(0, '#b5261e');
+  cascoGrad.addColorStop(0.5, '#f25a3c');
+  cascoGrad.addColorStop(1, '#b5261e');
+  ctx.fillStyle = cascoGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx - anchoCabina, cabinaY);
+  ctx.quadraticCurveTo(cx - anchoCabina * 0.9, cabinaY + largoPopa * 0.55, cx, cabinaY + largoPopa);
+  ctx.quadraticCurveTo(cx + anchoCabina * 0.9, cabinaY + largoPopa * 0.55, cx + anchoCabina, cabinaY);
+  ctx.closePath();
+  ctx.fill();
+  // elásticos cruzados sobre la cubierta de popa
+  ctx.strokeStyle = 'rgba(20,20,20,0.55)';
+  ctx.lineWidth = Math.max(1, s * 0.022);
+  for (let i = 1; i <= 2; i++) {
+    const a = anchoCabina * (0.7 - i * 0.15), y1 = cabinaY + largoPopa * 0.2 * i, y2 = y1 + largoPopa * 0.09;
+    ctx.beginPath(); ctx.moveTo(cx - a, y1); ctx.lineTo(cx + a, y2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + a, y1); ctx.lineTo(cx - a, y2); ctx.stroke();
+  }
+  // línea de brillo central (quilla)
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = Math.max(1, s * 0.015);
+  ctx.beginPath();
+  ctx.moveTo(cx, cabinaY + largoPopa * 0.08);
+  ctx.quadraticCurveTo(cx, cabinaY + largoPopa * 0.5, cx, cabinaY + largoPopa * 0.85);
+  ctx.stroke();
+  // pozo de cabina, oscuro
+  ctx.fillStyle = '#1b1b1b';
+  ctx.beginPath();
+  ctx.ellipse(cx, cabinaY + 0.22 * s, anchoCabina * 0.65, 0.20 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
 }
 // salpicadura de salida de pala: columna de espuma + gotas, como en el video de referencia.
 // splashEscala multiplica todo el tamaño de la espuma (0 = no se dibuja).
@@ -6435,6 +6517,16 @@ function dibujarSplash(ctx, x, y, s, escala) {
   ctx.beginPath();
   ctx.ellipse(x, y + 0.04 * sp, 0.22 * sp, 0.06 * sp, 0, 0, Math.PI * 2);
   ctx.fill();
+  // anillos de onda expandiéndose en el agua desde el punto de la palada — a más escala de
+  // espuma (palada más reciente/fuerte), anillo más grande, como si se estuviera expandiendo
+  // recién. Puramente decorativo, no afecta ninguna posición real.
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = Math.max(1, sp * 0.02);
+  [0.35, 0.6].forEach(radioFactor => {
+    ctx.beginPath();
+    ctx.ellipse(x, y + 0.04 * sp, 0.22 * sp + radioFactor * sp, (0.06 * sp + radioFactor * sp) * 0.32, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  });
 }
 
 // proporciones del cuerpo/equipo — NO cambian entre instantes de la palada (a diferencia de
@@ -6456,6 +6548,23 @@ let proporciones = { ...PROPORCIONES_DEFAULT_K, ...lsGet(K_PROPORCIONES, {}) };
 // torso. Vista desde atrás, siguiendo al kayak (misma cámara que el video de referencia).
 // splashLado: 'der' | 'izq' | null — de qué lado dibujar la salpicadura de salida.
 // prop: proporciones de cuerpo/equipo (alturaTorso, anchos, largoPertiga, largoPala, anchoPala).
+// reflejo del kayak+kayakista en el agua en calma — a pedido de Hugo, ligado al video de
+// referencia (lago quieto, agua sin oleaje). Vuelca la misma figura verticalmente desde la línea
+// del casco (gyBase, que no se mueve con la pose) y la redibuja con opacidad baja, recortada para
+// que nunca aparezca por ENCIMA de esa línea. Se llama ANTES de la figura real (en cada lugar que
+// ya llama a dibujarKayakistaDesdeD), para que el reflejo quede por debajo, tapado donde
+// corresponda por el casco/kayakista de verdad.
+function dibujarReflejo(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey, prop) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(-99999, gyBase, 199998, 99999); // recorte generoso hacia abajo — no hace falta conocer el ancho/alto real del canvas acá
+  ctx.clip();
+  ctx.globalAlpha = 0.22;
+  ctx.translate(0, gyBase * 2);
+  ctx.scale(1, -1);
+  dibujarKayakistaDesdeD(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey, prop);
+  ctx.restore();
+}
 function dibujarKayakistaDesdeD(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey, prop) {
   prop = prop || PROPORCIONES_DEFAULT_K;
   const skin = '#e8934c';
@@ -6499,10 +6608,27 @@ function dibujarKayakistaDesdeD(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angulo);
-    ctx.fillStyle = '#20242b';
+    // gradiente en vez de negro plano — sugiere la curvatura cóncava real de una hoja de pala,
+    // más brillo cerca del borde donde pegaría la luz
+    const palaGrad = ctx.createLinearGradient(-prop.anchoPala * s * escala, 0, prop.anchoPala * s * escala, 0);
+    palaGrad.addColorStop(0, '#15181d');
+    palaGrad.addColorStop(0.5, '#2b3038');
+    palaGrad.addColorStop(1, '#15181d');
+    ctx.fillStyle = palaGrad;
     ctx.beginPath();
     ctx.ellipse(0, 0, prop.anchoPala * s * escala, prop.largoPala * s * escala, 0, 0, Math.PI * 2);
     ctx.fill();
+    // nervadura central sutil (refuerzo real de las palas de fibra) — una línea más clara
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = Math.max(0.5, s * escala * 0.015);
+    ctx.beginPath();
+    ctx.moveTo(0, -prop.largoPala * s * escala * 0.8);
+    ctx.lineTo(0, prop.largoPala * s * escala * 0.8);
+    ctx.stroke();
+    // v103 — banda amarilla cruzando la hoja (como las palas reales de competición), en el mismo
+    // marco rotado de la hoja: sigue exactamente el ángulo que da la pose del Editor
+    ctx.fillStyle = '#e8c21c';
+    ctx.fillRect(-prop.anchoPala * s * escala * 0.7, -prop.largoPala * s * escala * 0.12, prop.anchoPala * s * escala * 1.4, prop.largoPala * s * escala * 0.24);
     ctx.restore();
   });
 
@@ -6514,6 +6640,9 @@ function dibujarKayakistaDesdeD(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey
     const wrX = shX + d.wrX * s, wrY = shY + d.wrY * s;
     segmentoGrueso(ctx, shX, shY, elX, elY, 0.20 * s, 0.15 * s, skin);
     segmentoGrueso(ctx, elX, elY, wrX, wrY, 0.15 * s, 0.11 * s, skin);
+    // v103 — guante: círculo oscuro exactamente en la muñeca que define la pose
+    ctx.fillStyle = '#23272e';
+    ctx.beginPath(); ctx.arc(wrX, wrY, 0.085 * s, 0, Math.PI * 2); ctx.fill();
   }
   brazo(shDerX, dDer);
   brazo(shIzqX, dIzq);
@@ -6533,17 +6662,31 @@ function dibujarKayakistaDesdeD(ctx, cx, gyBase, s, dDer, dIzq, rotacion, jersey
   ctx.closePath();
   ctx.fill();
   ctx.restore();
-  // tiras de chaleco salvavidas — dos líneas cortas desde los hombros, detalle simple que ayuda
-  // a leer "chaleco" en vez de una remera lisa, sin agregar geometría nueva al torso en sí
-  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
-  ctx.lineWidth = Math.max(1, s * 0.025);
-  ctx.lineCap = 'round';
-  [shDerX, shIzqX].forEach(shX => {
+  // v103 — chaleco con dos franjas reflectivas amarillas. Se calculan SOBRE el eje real del
+  // torso (de cadera a hombros, con la rotación de la pose): cada franja cruza el torso
+  // perpendicular a ese eje y con el ancho interpolado entre cadera y hombros — así acompañan la
+  // rotación del Editor en vez de quedar horizontales fijas.
+  {
+    const ex = shCenterX - cx, ey = shY - hipY, el = Math.hypot(ex, ey) || 1;
+    const nx = -ey / el, ny = ex / el;
+    ctx.strokeStyle = '#f4c21b';
+    ctx.lineWidth = Math.max(1, s * 0.065);
+    ctx.lineCap = 'butt';
+    [0.35, 0.62].forEach(f => {
+      const px = cx + ex * f, py = hipY + ey * f;
+      const medio = (prop.anchoTorsoCadera + (prop.anchoTorsoHombros - prop.anchoTorsoCadera) * f) * s * 0.46;
+      ctx.beginPath();
+      ctx.moveTo(px - nx * medio, py - ny * medio);
+      ctx.lineTo(px + nx * medio, py + ny * medio);
+      ctx.stroke();
+    });
+    ctx.lineCap = 'round';
+    // cuello del chaleco, oscuro, justo debajo de la cabeza
+    ctx.fillStyle = '#1d2530';
     ctx.beginPath();
-    ctx.moveTo(shX * 0.5 + shCenterX * 0.5, shY + prop.alturaTorso * s * 0.05);
-    ctx.lineTo(shX * 0.2 + shCenterX * 0.8, hipY - prop.alturaTorso * s * 0.55);
-    ctx.stroke();
-  });
+    ctx.ellipse(shCenterX, shY - 0.03 * s, 0.13 * s, 0.07 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
   // cabeza (por encima de todo) — gradiente radial en vez de color plano, misma posición y radio
   const headX = shCenterX, headY = shY - 0.34 * s, headR = 0.24 * s;
   const headGrad = ctx.createRadialGradient(headX - headR * 0.3, headY - headR * 0.35, headR * 0.1, headX, headY, headR);
