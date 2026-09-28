@@ -116,7 +116,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v103</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v104</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2536,6 +2536,20 @@
          franjas reflectivas calculadas perpendiculares al eje real del
          torso (cadera→hombros con la rotación del Editor), en vez de
          las dos tiras de v101. Cabeza sin casco, como pidió Hugo.
+   v104: Hugo mandó captura: sin remar, el odómetro seguía sumando con el
+         velocímetro clavado en 150 RPM. Causa: con el volante quieto el
+         sensor manda notificaciones SIN vueltas nuevas, calcularRPM...
+         devuelve null, handleCSC sale temprano, y cscUltimoRPM quedaba
+         congelado en la última lectura. Nuevo cscTUltimoRPMValido +
+         rpmVigente() (pura): pasados 2500ms sin vuelta nueva, RPM = 0
+         (null si nunca hubo sensor → sigue el respaldo por cadencia).
+         Hugo pidió además comportamiento de kayak real ("avanza unos
+         metros por inercia y se detiene"): aplicarInercia() (pura) —
+         subir de velocidad es instantáneo, bajar decae exponencial con
+         tau=3s (≈4m de planeo desde 1.3 m/s), corte a 0 bajo 0.05 m/s.
+         tick() usa las dos; sesionActiva.velAnterior guarda el estado.
+         rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
+         segundos quieto (RPM 0) no cuentan como "clampeados".
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
@@ -3202,6 +3216,30 @@ function eliminarPuntoCalibRPMPorRPM(rpmPromedio) {
 // punto de calibración cargado (más directo, responde al esfuerzo real); si no hay ningún punto
 // todavía, cae de vuelta a la cadencia (lo que ya usaba la app antes de esto, sigue funcionando
 // igual para quien no tenga el sensor conectado o no haya calibrado por RPM todavía).
+// v104 — BUG real que reportó Hugo con captura: sin remar, el odómetro seguía sumando metros
+// con el velocímetro clavado en 150 RPM. Causa: cuando el volante para, el sensor sigue mandando
+// notificaciones pero SIN vueltas nuevas → calcularRPMDesdeEventosCSC() devuelve null → handleCSC
+// sale temprano y cscUltimoRPM queda CONGELADO en la última lectura, para siempre. Esta función
+// devuelve el RPM que vale usar AHORA: el último si llegó una vuelta nueva hace menos de maxMs,
+// 0 si no (el volante está quieto de verdad), null si nunca hubo lectura (sin sensor → que siga
+// cayendo al respaldo de cadencia, como siempre). 2500ms: mismo vencimiento que la cadencia por
+// cámara, y a ~1 notificación/seg deja pasar 2 notificaciones "vacías" antes de dar por parado.
+function rpmVigente(rpmUltimo, tUltimoValido, ahoraMs, maxMs) {
+  if (rpmUltimo == null || tUltimoValido == null) return null;
+  return (ahoraMs - tUltimoValido) <= (maxMs || 2500) ? rpmUltimo : 0;
+}
+// v104 — a pedido de Hugo: "un kayak normal avanza unos metros por inercia y se detiene". Si la
+// velocidad objetivo sube, se aplica directo (la palada acelera al instante); si baja, la velocidad
+// decae exponencial con constante tauSeg — el bote planea. Distancia recorrida al soltar ≈ v0·tau:
+// con tau=3s y ~1.3 m/s de crucero, ~4m. Por debajo de 0.05 m/s se corta a 0 para que no quede
+// sumando centímetros eternos. Pura, dtSeg = tiempo desde el tick anterior (1 en tick()).
+function aplicarInercia(velObjetivo, velAnterior, dtSeg, tauSeg) {
+  const obj = velObjetivo || 0, ant = velAnterior || 0;
+  if (obj >= ant) return obj;
+  const planeo = ant * Math.exp(-(dtSeg || 1) / (tauSeg || 3));
+  const v = Math.max(obj, planeo);
+  return (obj === 0 && v < 0.05) ? 0 : v;
+}
 function elegirVelocidadEstimada(rpmActual, puntosCalibRPM, cadencia, puntosCalibCadencia) {
   const velRPM = velocidadEstimadaDesdeRPM(rpmActual, puntosCalibRPM);
   if (velRPM != null) return { velocidad: velRPM, fuente: 'rpm' };
@@ -3463,6 +3501,7 @@ let dispositivoCadenciaBLE = null, cscUltimaManivela = null, cscUltimaRueda = nu
 let cscRevsAlUltimoPico = null; // vueltas acumuladas del volante al momento de la última palada detectada
 let cscEstadoPaladas = {}; // detector de picos sobre el RPM del sensor — ver comentario en handleCSC
 let cscUltimoRPM = null; // RPM crudo del eje, para mostrar aparte de la cadencia de paladas real
+let cscTUltimoRPMValido = null; // Date.now() de la última notificación que trajo vueltas NUEVAS de verdad — ver rpmVigente()
 
 /* ============================================================
    DETECTOR DE MÍNIMO LOCAL — para el volante con rodamiento unidireccional
@@ -3563,7 +3602,7 @@ async function conectarSensorCadenciaBLE() {
     estadoEl.className = 'estado-conexion';
     const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['cycling_speed_and_cadence'] }] });
     dispositivoCadenciaBLE = device;
-    cscUltimaManivela = null; cscUltimaRueda = null; cscEstadoPaladas = {}; cscUltimoRPM = null; cscRevsAlUltimoPico = null;
+    cscUltimaManivela = null; cscUltimaRueda = null; cscEstadoPaladas = {}; cscUltimoRPM = null; cscTUltimoRPMValido = null; cscRevsAlUltimoPico = null;
     cadenciaBLEUltimaRx = Date.now();
     cadenciaBLEDesconexionManejada = false;
     device.addEventListener('gattserverdisconnected', manejarDesconexionCadenciaBLE);
@@ -3651,6 +3690,7 @@ function handleCSC(event) {
   }
   if (rpm == null) return;
   cscUltimoRPM = rpm;
+  cscTUltimoRPMValido = Date.now();
   const rpmEl = document.getElementById('hudRPM');
   if (rpmEl) rpmEl.textContent = Math.round(rpm);
   const rpmSesionEl = document.getElementById('hudRPMSesion');
@@ -5334,11 +5374,15 @@ function tick() {
   if (!sesionActiva) return;
   const puntosCalib = lsGet(K_CALIBRACION, []);
   const puntosCalibRPM = lsGet(K_CALIBRACION_RPM, []);
-  const { velocidad: vel, fuente } = elegirVelocidadEstimada(cscUltimoRPM, puntosCalibRPM, actual.cadencia, puntosCalib);
+  const rpmAhora = rpmVigente(cscUltimoRPM, cscTUltimoRPMValido, Date.now(), 2500); // v104 — nunca más el último valor congelado
+  const { velocidad: velObjetivo, fuente } = elegirVelocidadEstimada(rpmAhora, puntosCalibRPM, actual.cadencia, puntosCalib);
+  const vel = aplicarInercia(velObjetivo, sesionActiva.velAnterior, 1, 3); // v104 — planeo al dejar de remar
+  sesionActiva.velAnterior = vel;
+  if (rpmAhora === 0) { const elR = document.getElementById('hudRPMSesion'); if (elR) elR.textContent = '0'; }
   sesionActiva.distanciaM += vel; // 1 tick = 1 segundo
   // cuenta cuántos segundos de la sesión quedaron "clampeados" (RPM fuera del rango calibrado,
   // así que la velocidad de ese segundo no es una interpolación real) — ver estaClampeadoRPM()
-  if (fuente === 'rpm' && estaClampeadoRPM(cscUltimoRPM, puntosCalibRPM)) {
+  if (fuente === 'rpm' && rpmAhora > 0 && estaClampeadoRPM(rpmAhora, puntosCalibRPM)) {
     sesionActiva.segundosClampeados = (sesionActiva.segundosClampeados || 0) + 1;
   }
   if (actual.pulso > 0) sesionActiva.pulsos.push(actual.pulso);
@@ -5353,7 +5397,7 @@ function tick() {
   puntosSesion.push({
     t: tSeg, distAcum: sesionActiva.distanciaM, pulso: actual.pulso || null,
     cadencia: cadenciaAlgunaVezReportada ? actual.cadencia : null,
-    rpmCrudo: cscUltimoRPM,
+    rpmCrudo: rpmAhora, // el RPM que se usó de verdad este segundo (0 si el volante estaba quieto), no el último congelado
     cadenciaBLE: cscEstadoPaladas.cadencia != null ? cscEstadoPaladas.cadencia : null,
     cadenciaCamara: camEstadoMarcador.cadencia != null ? camEstadoMarcador.cadencia : (camEstado.cadencia != null ? camEstado.cadencia : null),
     velocidad: vel, // m/s de ESTE segundo puntual (no acumulada) — a pedido de Hugo, para verla en vivo y tenerla registrada sin depender de calcular deltas de distAcum después
