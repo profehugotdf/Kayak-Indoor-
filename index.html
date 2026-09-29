@@ -20,8 +20,12 @@
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0;padding:0;background:var(--bg);color:var(--texto);font-family:var(--sans);
-    height:100%; overflow-x:hidden;}
+  /* v105 — antes: html,body{height:100%; overflow-x:hidden}. Esa combinación convierte al BODY en
+     su propio contenedor de scroll (en vez de la página), y en Chrome/Brave Android, al esconderse
+     la barra del navegador, los toques quedan desplazados respecto de los botones: "no responden".
+     Ahora scrollea el documento normal; overflow-x:hidden solo en html (se aplica al viewport). */
+  html{overflow-x:hidden;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--texto);font-family:var(--sans);}
   body{padding-bottom:max(24px, env(safe-area-inset-bottom, 24px));}
   button{font-family:inherit; cursor:pointer;}
   input{font-family:inherit;}
@@ -116,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v104</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v105</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2550,6 +2554,15 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v105: Hugo: los botones no responden con la barra del navegador
+         escondida — ahora también en el medio de la pantalla, no solo
+         abajo, o sea que el arreglo de v98 (safe-area en el padding
+         inferior) no era la causa real. Causa: html,body{height:100%;
+         overflow-x:hidden} hacía que el BODY fuera el contenedor de
+         scroll; en Chrome/Brave Android, al esconderse la barra, el
+         hit-testing de los toques queda desplazado. Ahora scrollea el
+         documento: se sacó height:100% y overflow-x:hidden quedó solo
+         en html. El padding con safe-area de v98 se mantiene (no daña).
    ============================================================ */
 
 const LS_PREFIX = 'kayak_';
