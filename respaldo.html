@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Respaldo Kayak Indoor</title>
+<style>
+  body{margin:0;padding:24px;background:#0f1216;color:#e6e9ee;font-family:-apple-system,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;}
+  h1{font-size:20px;margin:0 0 12px;}
+  p{font-size:14px;color:#a9b1bb;}
+  button{width:100%;padding:16px;margin-top:16px;border:0;border-radius:12px;background:#4fd8c4;color:#0f1216;font-size:16px;font-weight:700;}
+  #estado{margin-top:16px;font-size:14px;color:#e6e9ee;white-space:pre-line;}
+</style>
+</head>
+<body>
+<h1>Respaldo de Kayak Indoor</h1>
+<p>Descarga una copia completa de todo lo que Kayak Indoor tiene guardado en este navegador
+(sesiones con todo su detalle, calibraciones, Editor y ajustes). Solo lee, no modifica nada.
+El archivo se puede importar después desde la app (Historial → Espacio de almacenamiento →
+Importar respaldo).</p>
+<button id="btn">💾 Descargar respaldo</button>
+<div id="estado"></div>
+<script>
+// Página independiente, sin dependencias. Tiene que estar en la MISMA carpeta que la app
+// (profehugotdf.github.io/Kayak-Indoor-/) para ver los mismos datos del navegador.
+// Lee las claves kayak_ de localStorage y, si ya existiera la base interna de la v106 o
+// posterior (IndexedDB 'kayak_indoor'), toma de ahí las sesiones completas.
+function leerBase() {
+  return new Promise(ok => {
+    if (!window.indexedDB) return ok(null);
+    let req;
+    try { req = indexedDB.open('kayak_indoor'); } catch (e) { return ok(null); }
+    req.onupgradeneeded = () => { try { req.transaction.abort(); } catch (e) {} ok(null); }; // no existe: no la crea
+    req.onerror = () => ok(null);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('kv')) { db.close(); return ok(null); }
+      const g = db.transaction('kv', 'readonly').objectStore('kv').get('kayak_sesiones');
+      g.onsuccess = () => { db.close(); ok(g.result || null); };
+      g.onerror = () => { db.close(); ok(null); };
+    };
+  });
+}
+document.getElementById('btn').onclick = async () => {
+  const estado = document.getElementById('estado');
+  const claves = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.indexOf('kayak_') === 0) {
+      try { claves[k] = JSON.parse(localStorage.getItem(k)); } catch (e) { claves[k] = localStorage.getItem(k); }
+    }
+  }
+  const deBase = await leerBase();
+  if (Array.isArray(deBase) && deBase.length) claves.kayak_sesiones = deBase;
+  const sesiones = Array.isArray(claves.kayak_sesiones) ? claves.kayak_sesiones : [];
+  const conDetalle = sesiones.filter(s => s && Array.isArray(s.puntos) && s.puntos.length).length;
+  const datos = { app: 'kayak-indoor', formato: 1, fecha: new Date().toISOString(), claves };
+  const texto = JSON.stringify(datos);
+  const blob = new Blob([texto], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'kayak_respaldo_' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  estado.textContent = '✅ Descargado: ' + sesiones.length + ' sesiones (' + conDetalle + ' con detalle por segundo), '
+    + Object.keys(claves).length + ' claves, ' + (texto.length / 1024).toFixed(0) + ' KB.\n'
+    + 'Fijate en Descargas que el archivo esté y no pese 0 KB antes de subir la versión nueva.';
+};
+</script>
+</body>
+</html>
