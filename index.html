@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v105</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v106</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -173,6 +173,19 @@
       <input type="text" inputmode="decimal" id="inputMetaTiempo" placeholder="mm:ss" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);" oninput="guardarMetaValor()">
       <input type="number" inputmode="decimal" id="inputMetaDistancia" placeholder="metros" style="display:none; width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); font-family:var(--mono);" oninput="guardarMetaValor()">
       <p class="nota" id="notaMeta" style="margin-top:8px;">Al llegar a la meta, la sesión termina y se guarda sola.</p>
+    </div>
+
+    <div class="card" id="cardRuta">
+      <h2>🗺️ Recorrido</h2>
+      <select id="selRuta" onchange="elegirRuta(this.value)" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);"></select>
+      <p class="nota" id="infoRuta" style="margin-top:6px;"></p>
+      <div id="previewRuta" style="display:none; margin-top:6px;">
+        <input type="range" id="sliderRuta" min="0" max="1000" value="0" step="5" oninput="moverPreviewRuta(this.value)" style="width:100%; touch-action:pan-y;">
+        <div class="fila">
+          <button class="btn chico" id="btnPlayRuta" onclick="togglePlayRuta()">▶ Recorrer sin remar</button>
+          <button class="btn chico" onclick="borrarRutaActual()">🗑️ Borrar recorrido</button>
+        </div>
+      </div>
     </div>
 
     <div class="card" style="position:relative;">
@@ -2554,6 +2567,15 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v106: Hugo pidió el paisaje real para kayak, como en Bici Indoor. Rumbo
+         ("🛶 Entrenar en Kayak Indoor" en una ruta o track de kayak) manda
+         la ruta con las orillas (distancia a la tierra a cada lado cada
+         25 m, altura de la barranca, color satelital), las montañas reales
+         del horizonte y los cerros con nombre. Tarjeta "Recorrido" en
+         Sesión (elegir/borrar, vista previa con deslizador y ▶ Recorrer
+         sin remar), mapita con avance. dibujarEscenaLago() partida en
+         cielo/montañas/agua/pinos/ondas (mismo dibujo) para reusar.
+         Rutas en IndexedDB (kayak_indoor_rutas), no en localStorage.
    v105: Hugo: los botones no responden con la barra del navegador
          escondida — ahora también en el medio de la pantalla, no solo
          abajo, o sea que el arreglo de v98 (safe-area en el padding
@@ -5253,8 +5275,9 @@ function renderSesionVivo() {
   const w = canvas.clientWidth || canvas.width, h = canvas.height;
   canvas.width = w; canvas.height = h;
   const horizonY = h * 0.28;
-  dibujarEscenaLago(ctx, w, h, horizonY);
-  dibujarBoyas(ctx, w, h, horizonY, sesionActiva ? sesionActiva.distanciaM : 0);
+  if (rutaActiva) dibujarEscenaRuta(ctx, w, h, horizonY, distanciaParaRuta()); // v106: recorrido de Rumbo con su paisaje
+  else dibujarEscenaLago(ctx, w, h, horizonY);
+  dibujarBoyas(ctx, w, h, horizonY, sesionActiva ? sesionActiva.distanciaM : (rutaActiva ? rutaPreviewD : 0));
   const dDer = interpolarLadoEnSecuenciaK(tGlobalVivo, 'der');
   const dIzq = interpolarLadoEnSecuenciaK(tGlobalVivo, 'izq');
   const rotacion = interpolarRotacionEnSecuenciaK(tGlobalVivo);
@@ -5284,7 +5307,276 @@ function renderSesionVivo() {
   dibujarReflejo(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
   dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
   dibujarBadgeFantasma(ctx, w, gap);
+  if (rutaActiva) dibujarMapitaRuta(ctx, w, h, distanciaParaRuta());
 }
+
+/* ============================================================
+   v106 — RECORRIDOS DE RUMBO CON PAISAJE REAL
+   Rumbo manda una ruta o un track de kayak (enlace #rumbo=…) con: los puntos cada ~25 m, las orillas a cada lado
+   (distancia hasta la tierra, altura de la barranca o loma, color de la foto satelital), las montañas reales del
+   horizonte y los cerros con nombre. La distancia remada mueve la cámara por la ruta: la vista mira hacia adelante
+   por el recorrido, las orillas se acercan y se alejan, y las montañas del fondo son las de verdad.
+   Se guarda en IndexedDB (no en localStorage: kayak_sesiones ya pesa bastante).
+   ============================================================ */
+const K_RUTA_ACTIVA = LS_PREFIX + 'ruta_activa';
+let rutaActiva = null;          // la ruta elegida, ya decodificada
+let rutaPreviewD = 0;           // dónde está la cámara sin sesión (vista previa)
+let rutaPlayRAF = null, rutaPlayLast = 0;
+const RUTA_CAM_H = 4;           // altura de la cámara sobre el agua (m): un poco arriba y atrás del kayakista
+function idbRutas(op, key, val) {
+  return new Promise((res, rej) => {
+    if (!window.indexedDB) { rej(new Error('este navegador no tiene IndexedDB')); return; }
+    const r = indexedDB.open('kayak_indoor_rutas', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('rutas');
+    r.onerror = () => rej(r.error);
+    r.onsuccess = () => {
+      const db = r.result, tx = db.transaction('rutas', op === 'get' || op === 'keys' ? 'readonly' : 'readwrite'), st = tx.objectStore('rutas');
+      const q = op === 'get' ? st.get(key) : op === 'put' ? st.put(val, key) : op === 'del' ? st.delete(key) : st.getAllKeys();
+      q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+    };
+  });
+}
+function b64aU8(s) { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+function distanciaGeo(a, b) {
+  const R = 6371008.8, r = Math.PI / 180, dLa = (b[0] - a[0]) * r, dLo = (b[1] - a[1]) * r;
+  const x = Math.sin(dLa / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+// pura: de lo que manda Rumbo a lo que usa el dibujo (metros en un plano local: x al este, y al norte)
+function decodificarRuta(o) {
+  const ll = o.ll, n = ll.length, cum = [0];
+  for (let i = 1; i < n; i++) cum.push(cum[i - 1] + distanciaGeo(ll[i - 1], ll[i]));
+  const lat0 = ll[0][0], lon0 = ll[0][1], kx = Math.cos(lat0 * Math.PI / 180) * 111320, ky = 111320;
+  return {
+    nombre: o.name, ll, cum, L: cum[n - 1], loop: !!o.loop, lat0, lon0, kx, ky,
+    xy: ll.map(p => [(p[1] - lon0) * kx, (p[0] - lat0) * ky]),
+    sh: o.shore && o.shore.d ? b64aU8(o.shore.d) : null,
+    hz: o.hz && o.hz.d ? Object.assign({}, o.hz, { u: b64aU8(o.hz.d) }) : null,
+    peaks: (o.peaks || []).filter(p => p && p.e > 0),
+  };
+}
+// pura: índice (con fracción) del punto de la ruta a la distancia d
+function indiceEnRuta(R, d) {
+  const c = R.cum, n = c.length;
+  if (d <= 0) return 0; if (d >= c[n - 1]) return n - 1;
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= d) lo = m; else hi = m; }
+  return lo + (d - c[lo]) / ((c[hi] - c[lo]) || 1);
+}
+function puntoEnRuta(R, d) {
+  const k = indiceEnRuta(R, d), i = Math.floor(k), j = Math.min(R.xy.length - 1, i + 1), t = k - i;
+  return [R.xy[i][0] + (R.xy[j][0] - R.xy[i][0]) * t, R.xy[i][1] + (R.xy[j][1] - R.xy[i][1]) * t];
+}
+// distancia sobre la ruta: si es un circuito (o se pasó del final), vuelve a empezar
+function distanciaEnRuta(R, d) { return R.L > 0 ? ((d % R.L) + R.L) % R.L : 0; }
+// rumbo de la cámara (radianes desde el norte, horario): mira hacia adelante 20-90 m, así las curvas no la sacuden
+function rumboCamara(R, d) {
+  const p = puntoEnRuta(R, d); let x = 0, y = 0;
+  for (const a of [20, 50, 90]) {
+    let q; const da = d + a;
+    if (da <= R.L) q = puntoEnRuta(R, da);
+    else if (R.loop) q = puntoEnRuta(R, da - R.L);
+    else { const u = puntoEnRuta(R, R.L), v = puntoEnRuta(R, Math.max(0, R.L - 30)); q = [u[0] + (u[0] - v[0]) * a / 30, u[1] + (u[1] - v[1]) * a / 30]; }
+    const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy) || 1; x += dx / l; y += dy / l;
+  }
+  return Math.atan2(x, y);
+}
+function mezclarHex(a, b, t) { const A = parseInt(a.slice(1), 16), B = parseInt(b.slice(1), 16), m = (x, y) => Math.round(x + (y - x) * t);
+  return '#' + ((1 << 24) | (m(A >> 16 & 255, B >> 16 & 255) << 16) | (m(A >> 8 & 255, B >> 8 & 255) << 8) | m(A & 255, B & 255)).toString(16).slice(1); }
+// ---- montañas reales (mismo formato y criterio que Bici Indoor v165) ----
+const HZ_EX = 1.5, HZ_MAX = 13;
+const hzAng = a => a <= 0 ? a * HZ_EX : HZ_MAX * Math.tanh(a * HZ_EX / HZ_MAX);
+function hzSample(hz, d, az) {
+  const k = Math.max(0, Math.min(hz.n - 1, d / hz.sp)), i0 = Math.floor(k), i1 = Math.min(hz.n - 1, i0 + 1), t = k - i0;
+  let a = az * 180 / Math.PI % 360; if (a < 0) a += 360; const ak = a / (360 / hz.na), a0 = Math.floor(ak) % hz.na, a1 = (a0 + 1) % hz.na, u = ak - Math.floor(ak), U = hz.u, na = hz.na;
+  const v = f => { const A = U[(i0 * na + a0) * 7 + f] * (1 - u) + U[(i0 * na + a1) * 7 + f] * u, B = U[(i1 * na + a0) * 7 + f] * (1 - u) + U[(i1 * na + a1) * 7 + f] * u; return A * (1 - t) + B * t; };
+  const ang = x => (x - 60) * 0.25;
+  return [ang(v(0)), ang(v(1)), v(2) * 25, v(3) * 100, ang(v(4)), v(5) * 25, v(6) * 100];
+}
+function dibujarHorizonteReal(ctx, w, horizonY, az, f, R, d) {
+  const hz = R.hz, step = 4, cols = [], toD = 180 / Math.PI, camE = 1.6;
+  for (let px = 0; px <= w + step; px += step) cols.push([px, hzSample(hz, d, az + Math.atan((px - w / 2) / f))]);
+  const Y = a => horizonY - f * Math.tan(Math.max(-15, hzAng(a)) / toD), base = horizonY + 1;
+  const capa = (i, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, base); for (const [px, v] of cols) ctx.lineTo(px, Math.min(base, Y(v[i]))); ctx.lineTo(w + step, base); ctx.closePath(); ctx.fill(); };
+  const nieve = (ai, ei, di) => { if (!hz.snow) return; let run = [];
+    const flush = () => { if (run.length > 1) { ctx.beginPath(); ctx.moveTo(run[0][0], run[0][1]); for (const p of run) ctx.lineTo(p[0], p[1]); for (let k = run.length - 1; k >= 0; k--) ctx.lineTo(run[k][0], run[k][2]); ctx.closePath(); ctx.fill(); } run = []; };
+    ctx.fillStyle = '#eef3f7';
+    for (const [px, v] of cols) { const e = v[ei], dd = v[di];
+      if (e > hz.snow && dd > 0) { const ys = Math.min(base, Y(v[ai])), yb = Math.min(base, Math.max(ys + 1, Y(Math.atan((hz.snow - camE) / dd) * toD))); run.push([px, ys, yb]); } else flush(); }
+    flush(); };
+  capa(4, mezclarHex('#8c9fb3', '#c9d3c8', 0.4)); nieve(4, 5, 6);
+  capa(1, '#6f8499'); nieve(1, 2, 3);
+  capa(0, '#4d6275');
+  // cerros con nombre
+  if (R.peaks.length) {
+    const p0 = puntoEnRuta(R, d), lat = R.lat0 + p0[1] / R.ky, lon = R.lon0 + p0[0] / R.kx, kc = Math.cos(lat * Math.PI / 180), out = [];
+    for (const p of R.peaks) {
+      const dy = (p.la - lat) * 111320, dx = (p.lo - lon) * 111320 * kc, dist = Math.hypot(dx, dy); if (dist < 400 || dist > 22000) continue;
+      let rel = Math.atan2(dx, dy) - az; rel = Math.atan2(Math.sin(rel), Math.cos(rel)); if (Math.abs(rel) > 0.62) continue;
+      const ang = Math.atan((p.e - camE - dist * dist * 0.87 / 12742000) / dist) * toD, v = hzSample(hz, d, az + rel), cielo = Math.max(v[0], v[1], v[4]);
+      if (ang < cielo - 1.5) continue;
+      out.push({ x: w / 2 + f * Math.tan(rel), y: Y(Math.max(ang, cielo)), p });
+    }
+    out.sort((a, b) => b.p.e - a.p.e); const vistos = [];
+    ctx.font = '600 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+    for (const o of out) { if (vistos.length >= 3) break; if (vistos.some(s => Math.abs(s.x - o.x) < 90 && Math.abs(s.y - o.y) < 26)) continue; if (o.y < 6) continue; vistos.push(o);
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(o.x, o.y - 3); ctx.lineTo(o.x - 4, o.y - 10); ctx.lineTo(o.x + 4, o.y - 10); ctx.closePath(); ctx.fill();
+      const tx = o.p.n + ' · ' + Math.round(o.p.e) + ' m', ty = o.y - 14 < 12 ? o.y + 20 : o.y - 14;
+      ctx.strokeStyle = 'rgba(20,30,40,.75)'; ctx.lineWidth = 3; ctx.strokeText(tx, o.x, ty); ctx.fillText(tx, o.x, ty); }
+    ctx.textAlign = 'start';
+  }
+}
+// pura: la orilla de un costado en el punto k → {d (m, null si no hay tierra a menos de 2 km), alto (m), color [r,g,b]}
+function orillaEn(R, k, lado) {
+  const o = k * 10, U = R.sh, dv = U[o + (lado > 0 ? 0 : 1)], q = o + (lado > 0 ? 4 : 7);
+  return { d: dv === 255 ? null : dv * 8, alto: U[o + (lado > 0 ? 2 : 3)], color: [U[q], U[q + 1], U[q + 2]] };
+}
+// ---- orillas en perspectiva: de lejos hacia cerca (lo cercano tapa lo lejano) ----
+function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
+  const n = R.xy.length, cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)];
+  const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 2), H = RUTA_CAM_H, t = performance.now() / 1000;
+  const cieloHex = '#c9d3c8';
+  for (const lado of [1, -1]) {
+    const pts = [];
+    for (let s = 0; s < n; s++) {
+      let k = k0 + s, extra = 0;
+      if (k >= n) { if (!R.loop) break; k -= n; extra = R.L; }
+      if (R.cum[k] + extra - d > 3200) break;
+      const a = R.xy[Math.max(0, k - 2)], b = R.xy[Math.min(n - 1, k + 2)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+      const nx = -dy / l * lado, ny = dx / l * lado, o = orillaEn(R, k, lado);
+      if (o.d == null) { pts.push(null); continue; }
+      const qx = R.xy[k][0] + nx * o.d - cam[0], qy = R.xy[k][1] + ny * o.d - cam[1], fw = qx * F[0] + qy * F[1], rt = qx * Rt[0] + qy * Rt[1];
+      if (fw < 4) { pts.push(null); continue; }
+      // bosque: si la orilla es verde (y no es arena ni roca clara), los árboles suman ~8 m
+      const [r, g, bb] = o.color, verde = g > r * 1.02 && g > bb * 0.95 && r + g + bb < 420;
+      const alto = Math.max(1.2, o.alto + (verde ? 7 + 3 * Math.sin(k * 1.7 + lado) : 0));
+      const niebla = Math.min(0.75, fw / 3200);
+      const col = mezclarHex('#' + ((1 << 24) | (Math.min(255, r * 1.1) << 16) | (Math.min(255, g * 1.1) << 8) | Math.min(255, bb * 1.1)).toString(16).slice(1), cieloHex, niebla);
+      pts.push({ x: w / 2 + f * rt / fw, yA: horizonY + f * H / fw, yT: horizonY + f * (H - alto) / fw, col, fw });
+    }
+    const fuera = lado > 0 ? -2 * w : 3 * w;
+    for (let i = pts.length - 2; i >= 0; i--) {
+      const a = pts[i], b = pts[i + 1]; if (!a || !b) continue;
+      // reflejo de la orilla en el agua
+      ctx.globalAlpha = 0.22; ctx.fillStyle = a.col;
+      ctx.beginPath(); ctx.moveTo(a.x, a.yA); ctx.lineTo(b.x, b.yA); ctx.lineTo(b.x, 2 * b.yA - b.yT); ctx.lineTo(a.x, 2 * a.yA - a.yT); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+      // la tierra de ahí para afuera (lo de arriba de la orilla)
+      ctx.fillStyle = a.col;
+      ctx.beginPath(); ctx.moveTo(a.x, a.yT); ctx.lineTo(b.x, b.yT); ctx.lineTo(fuera, b.yT); ctx.lineTo(fuera, a.yT); ctx.closePath(); ctx.fill();
+      // el frente de la orilla (barranca o árboles), un poco más oscuro
+      ctx.fillStyle = mezclarHex(a.col, '#1d2a22', 0.35 * (1 - Math.min(1, a.fw / 2500)));
+      ctx.beginPath(); ctx.moveTo(a.x, a.yA); ctx.lineTo(b.x, b.yA); ctx.lineTo(b.x, b.yT); ctx.lineTo(a.x, a.yT); ctx.closePath(); ctx.fill();
+      // espuma en la línea del agua, solo cerca
+      if (a.fw < 400) { ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 * (1 - a.fw / 400) * (0.7 + 0.3 * Math.sin(t * 2 + i))).toFixed(3) + ')'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(a.x, a.yA); ctx.lineTo(b.x, b.yA); ctx.stroke(); }
+    }
+  }
+}
+function dibujarEscenaRuta(ctx, w, h, horizonY, dTotal) {
+  const R = rutaActiva, t = performance.now() / 1000, d = distanciaEnRuta(R, dTotal);
+  const f = w * 0.65, az = rumboCamara(R, d);
+  dibujarCieloLago(ctx, w, h, horizonY, t);
+  if (R.hz) { try { dibujarHorizonteReal(ctx, w, horizonY, az, f, R, d); } catch (e) { dibujarMontanasLago(ctx, w, h, horizonY); } }
+  else dibujarMontanasLago(ctx, w, h, horizonY);
+  dibujarAguaLago(ctx, w, h, horizonY);
+  dibujarOndasLago(ctx, w, h, horizonY, t);
+  if (R.sh) { try { dibujarOrillas(ctx, w, h, horizonY, R, d, az, f); } catch (e) {} }
+  else dibujarPinosLago(ctx, w, h, horizonY);
+}
+// mapita con la ruta y dónde vas, y cuánto falta
+function dibujarMapitaRuta(ctx, w, h, dTotal) {
+  const R = rutaActiva, d = distanciaEnRuta(R, dTotal), S = Math.min(84, h * 0.34), x0 = 8, y0 = 8;
+  if (!R._bb) { let a = 1e9, b = -1e9, c = 1e9, e = -1e9; for (const [x, y] of R.xy) { a = Math.min(a, x); b = Math.max(b, x); c = Math.min(c, y); e = Math.max(e, y); } R._bb = [a, b, c, e]; }
+  const [a, b, c, e] = R._bb, sc = (S - 12) / Math.max(1, b - a, e - c), ox = x0 + S / 2 - (a + b) / 2 * sc, oy = y0 + S / 2 + (c + e) / 2 * sc;
+  ctx.fillStyle = 'rgba(10,20,26,0.45)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, S, S, 8) : ctx.rect(x0, y0, S, S); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.6; ctx.beginPath();
+  const st = Math.max(1, Math.floor(R.xy.length / 200));
+  R.xy.forEach(([x, y], i) => { if (i % st && i !== R.xy.length - 1) return; const px = ox + x * sc, py = oy - y * sc; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+  ctx.stroke();
+  const p = puntoEnRuta(R, d);
+  ctx.fillStyle = '#ff7a2f'; ctx.beginPath(); ctx.arc(ox + p[0] * sc, oy - p[1] * sc, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
+  const vuelta = Math.floor(Math.max(0, dTotal) / R.L) + 1;
+  ctx.font = '700 11px system-ui,sans-serif'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+  const txt = (d / 1000).toFixed(2).replace('.', ',') + ' / ' + (R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (vuelta > 1 ? ' · vuelta ' + vuelta : '');
+  ctx.strokeText(txt, x0, y0 + S + 13); ctx.fillText(txt, x0, y0 + S + 13);
+}
+function distanciaParaRuta() { return sesionActiva ? sesionActiva.distanciaM : rutaPreviewD; }
+// ---- elegir, borrar, vista previa ----
+async function cargarRutaActiva() {
+  const nombre = lsGet(K_RUTA_ACTIVA, null);
+  rutaActiva = null;
+  if (nombre) { try { const o = await idbRutas('get', nombre); if (o) rutaActiva = decodificarRuta(o); } catch (e) {} }
+  await renderCardRuta();
+  renderSesionVivo();
+}
+async function renderCardRuta() {
+  const sel = document.getElementById('selRuta'); if (!sel) return;
+  let nombres = []; try { nombres = (await idbRutas('keys')) || []; } catch (e) {}
+  const act = rutaActiva ? rutaActiva.nombre : '';
+  sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + n.replace(/</g, '&lt;') + '</option>').join('');
+  const R = rutaActiva;
+  document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
+  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
+  const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
+  document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
+}
+async function elegirRuta(nombre) {
+  lsSet(K_RUTA_ACTIVA, nombre || null); rutaPreviewD = 0; pararPlayRuta();
+  await cargarRutaActiva();
+}
+async function borrarRutaActual() {
+  if (!rutaActiva) return;
+  if (!confirm('¿Borrar el recorrido "' + rutaActiva.nombre + '"? Las sesiones ya remadas no se tocan.')) return;
+  try { await idbRutas('del', rutaActiva.nombre); } catch (e) {}
+  await elegirRuta('');
+  toast('Recorrido borrado');
+}
+function moverPreviewRuta(v) { rutaPreviewD = +v; if (!sesionActiva) renderSesionVivo(); }
+function pararPlayRuta() { if (rutaPlayRAF) cancelAnimationFrame(rutaPlayRAF); rutaPlayRAF = null; const b = document.getElementById('btnPlayRuta'); if (b) b.textContent = '▶ Recorrer sin remar'; }
+function togglePlayRuta() {
+  if (rutaPlayRAF) { pararPlayRuta(); return; }
+  if (!rutaActiva || sesionActiva) return;
+  document.getElementById('btnPlayRuta').textContent = '⏸ Pausa';
+  rutaPlayLast = 0;
+  const paso = ts => {
+    if (!rutaActiva || sesionActiva) { pararPlayRuta(); return; }
+    const dt = rutaPlayLast ? Math.min(0.1, (ts - rutaPlayLast) / 1000) : 0; rutaPlayLast = ts;
+    rutaPreviewD = distanciaEnRuta(rutaActiva, rutaPreviewD + dt * 40); // ~144 km/h: para mirar la ruta rápido
+    document.getElementById('sliderRuta').value = Math.round(rutaPreviewD);
+    renderSesionVivo();
+    rutaPlayRAF = requestAnimationFrame(paso);
+  };
+  rutaPlayRAF = requestAnimationFrame(paso);
+}
+// ---- lo que manda Rumbo ----
+async function rumboImport() {
+  const m = (location.hash || '').match(/^#rumbo=([zj])([A-Za-z0-9_-]+)/); if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const u8 = b64aU8(m[2]); let txt;
+    if (m[1] === 'z') { if (!window.DecompressionStream) throw new Error('este navegador no puede descomprimir: actualizá Chrome');
+      txt = await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text(); }
+    else txt = new TextDecoder().decode(u8);
+    const o = JSON.parse(txt);
+    if (!o || !o.name) throw new Error('datos incompletos');
+    if (!Array.isArray(o.ll) && o.gpx) { // una ruta armada para Bici: se usan solo los puntos
+      o.ll = [...o.gpx.matchAll(/lat="([-\d.]+)" lon="([-\d.]+)"/g)].map(x => [+x[1], +x[2]]); o.name = o.name.replace(/\.gpx$/i, '');
+    }
+    if (!o.ll || o.ll.length < 2) throw new Error('la ruta no tiene puntos');
+    await idbRutas('put', o.name, o);
+    lsSet(K_RUTA_ACTIVA, o.name); rutaPreviewD = 0;
+    await cargarRutaActiva();
+    cambiarTabSinEvento('sesion');
+    const R = rutaActiva;
+    toast('🧭 Recorrido de Rumbo: ' + o.name + ' · ' + (R.L / 1000).toFixed(1).replace('.', ',') + ' km');
+  } catch (e) { toast('No pude abrir lo que mandó Rumbo: ' + e.message); }
+}
+function cambiarTabSinEvento(nombre) {
+  const b = [...document.querySelectorAll('nav.tabs button')].find(x => (x.getAttribute('onclick') || '').includes("'" + nombre + "'"));
+  if (b) b.click();
+}
+window.addEventListener('hashchange', rumboImport);
 
 /* ============================================================
    META DE SESIÓN — a pedido de Hugo: terminar sola por tiempo o distancia
@@ -5362,7 +5654,9 @@ function iniciarSesion() {
     // pedido de Hugo, que notó saltos de cadencia (60 a 80) que no eran reales y no se podían
     // explicar sin ver la señal cruda, mismo motivo que llevó a agregar logCSC en v64
     segundosClampeados: 0, // cuántos segundos de la sesión tuvieron RPM fuera del rango calibrado — ver estaClampeadoRPM()
+    ruta: rutaActiva ? rutaActiva.nombre : null, // v106: recorrido de Rumbo en el que se remó (solo informativo)
   };
+  pararPlayRuta();
   camFrameContador = 0;
   tUltimaDeteccionCamara = null; // que una sesión nueva no arranque mostrando "detectando bien" con una marca de hace rato, de una sesión/prueba anterior
   puntosSesion = [];
@@ -6376,6 +6670,14 @@ function segmentoGrueso(ctx, x1, y1, x2, y2, w1, w2, color) {
 // el video que mandó Hugo (vista trasera, lago en calma, orillas arboladas, cielo gris claro).
 function dibujarEscenaLago(ctx, w, h, horizonY) {
   const t = performance.now() / 1000; // reloj propio, sin parámetro nuevo — así no hace falta tocar ninguno de los ~8 lugares que ya llaman a esta función (sesión en vivo, carrera virtual con varios kayakistas, editor, fantasma)
+  // v106: partida en pedazos (cielo, montañas, agua, ondas) para reusarlos en las rutas de Rumbo; el dibujo es el mismo
+  dibujarCieloLago(ctx, w, h, horizonY, t);
+  dibujarMontanasLago(ctx, w, h, horizonY);
+  dibujarAguaLago(ctx, w, h, horizonY);
+  dibujarPinosLago(ctx, w, h, horizonY);
+  dibujarOndasLago(ctx, w, h, horizonY, t);
+}
+function dibujarCieloLago(ctx, w, h, horizonY, t) {
   const cieloGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
   cieloGrad.addColorStop(0, '#a9c2d4');
   cieloGrad.addColorStop(0.45, '#c9d3c8');
@@ -6408,6 +6710,8 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
     nube(x, horizonY * (0.18 + i * 0.09), rNube * (0.8 + i * 0.2));
   });
 
+}
+function dibujarMontanasLago(ctx, w, h, horizonY) {
   // v103 — montañas en tres capas con picos nevados (antes: una loma verde plana). Perfil
   // determinístico (senos fijos por capa, sin azar), así no "tiemblan" entre cuadros. Es fondo
   // puro: no depende de la pose ni de nada del Editor.
@@ -6437,6 +6741,8 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
     }
   });
 
+}
+function dibujarAguaLago(ctx, w, h, horizonY) {
   // agua — gradiente con el tono cálido del cielo reflejado cerca del horizonte
   const aguaGrad = ctx.createLinearGradient(0, horizonY, 0, h);
   aguaGrad.addColorStop(0, '#9aaab3');
@@ -6454,6 +6760,8 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
   ctx.lineTo(solX + w * 0.22, h); ctx.lineTo(solX - w * 0.22, h);
   ctx.closePath(); ctx.fill();
 
+}
+function dibujarPinosLago(ctx, w, h, horizonY) {
   // pinos a los costados + su reflejo invertido en el agua (el centro queda libre para los kayaks)
   const pinos = [];
   for (let i = 0; i < 26; i++) {
@@ -6468,6 +6776,9 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
   pinos.forEach(([x, ph]) => { ctx.beginPath(); ctx.moveTo(x - ph * 0.35, horizonY); ctx.lineTo(x, horizonY + ph * 0.8); ctx.lineTo(x + ph * 0.35, horizonY); ctx.closePath(); ctx.fill(); });
   ctx.restore();
 
+}
+function dibujarOndasLago(ctx, w, h, horizonY, t) {
+  const solX = w * 0.78;
   // ondas con perspectiva: finas y lentas cerca del horizonte, más anchas/rápidas/visibles cerca
   // de la cámara — da profundidad al lago. Cortas y desplazándose, no líneas de borde a borde.
   for (let i = 0; i < 18; i++) {
@@ -6883,6 +7194,7 @@ renderHistorial();
 renderFantasmaEnSesion();
 renderSesionVivo();
 actualizarUIMeta();
+cargarRutaActiva().then(rumboImport); // v106
 document.querySelector('.editor-momento-btn[data-momento="traccionD"]').classList.add('sel');
 </script>
 </body>
