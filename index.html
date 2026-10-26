@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v109</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v110</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -658,6 +658,8 @@
         acá se ven corriendo juntas, cada una a partir de su propio track guardado.</p>
     </div>
     <div class="card" id="cardCarreraActiva" style="display:none;">
+      <div class="fila" style="margin-bottom:6px; align-items:center;"><span class="nota" style="flex:none;">Escenario:</span>
+        <select id="selRutaCarrera" onchange="elegirRutaCarrera(this.value)" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2,#1c2630); color:inherit;"></select></div>
       <div id="selectorCamaraCarrera" class="fila" style="flex-wrap:wrap;"></div>
       <canvas id="canvasCarrera" height="260"></canvas>
       <div id="listaPosicionesCarrera" style="margin-top:10px;"></div>
@@ -2567,6 +2569,13 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v110: CARRERA VIRTUAL EN UN RECORRIDO (Hugo: "¿y en kayak?", después de
+         pedir la carrera virtual de los fantasmas sobre un recorrido de Rumbo
+         en Correr). Arriba de la carrera, "Escenario": el lago de siempre o
+         cualquier recorrido guardado (los de Rumbo, con sus orillas, montañas
+         reales y mapita). La cámara va por el recorrido a la distancia de su
+         corredor; si la carrera es más larga, se dan vueltas. Arranca con el
+         recorrido que esté elegido en Sesión.
    v109: lo usan otras personas (primo, hermano, compañeros): se sacaron
          del texto visible las referencias a Hugo y a su banda en particular.
    v108: Hugo mandó capturas de la punta de la península de Ushuaia y de
@@ -5007,8 +5016,25 @@ function verCarreraVirtual() {
   document.getElementById('sliderCarrera').max = carreraDuracionMax;
   document.getElementById('sliderCarrera').value = 0;
   renderSelectorCamaraCarrera();
+  rutaCarrera = rutaActiva; poblarRutasCarrera(); // v110: arranca con el recorrido elegido en Sesión
   cambiarTab('carrera');
 }
+// v110: escenario de la carrera virtual: el lago o un recorrido guardado (los de Rumbo, con su paisaje)
+let rutaCarrera = null;
+async function poblarRutasCarrera() {
+  const sel = document.getElementById('selRutaCarrera'); if (!sel) return;
+  let nombres = []; try { nombres = (await idbRutas('keys')) || []; } catch (e) { errLogKy(e); }
+  const act = rutaCarrera ? rutaCarrera.nombre : '';
+  sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + String(n).replace(/</g, '&lt;') + '</option>').join('');
+}
+async function elegirRutaCarrera(nombre) {
+  rutaCarrera = null;
+  if (nombre) { try { const o = await idbRutas('get', nombre); if (o) rutaCarrera = decodificarRuta(o); } catch (e) { errLogKy(e); toast('No pude abrir ese recorrido'); } }
+  renderCarrera();
+}
+function errLogKy(e) { try { console.warn(e); } catch (_) {} }
+// dibuja con el recorrido de la carrera como si fuera el de la sesión (las funciones del recorrido leen rutaActiva)
+function conRutaCarrera(fn) { const prev = rutaActiva; rutaActiva = rutaCarrera; try { fn(); } finally { rutaActiva = prev; } }
 function elegirCamaraCarrera(idx) {
   carreraCamaraIdx = idx;
   renderSelectorCamaraCarrera();
@@ -5082,7 +5108,8 @@ function renderCarrera() {
   const posiciones = carreraCorredores.map(c => ({ corredor: c, distancia: distanciaFantasmaEnT(c.sesion.puntos, carreraT) }));
   const idxCamara = Math.min(carreraCamaraIdx, posiciones.length - 1);
   const distanciaCamara = posiciones[idxCamara] ? posiciones[idxCamara].distancia : 0;
-  dibujarEscenaLago(ctx, w, h, horizonY);
+  if (rutaCarrera) conRutaCarrera(() => dibujarEscenaRuta(ctx, w, h, horizonY, distanciaCamara)); // v110
+  else dibujarEscenaLago(ctx, w, h, horizonY);
   dibujarBoyas(ctx, w, h, horizonY, distanciaCamara); // sensación de avance — a pedido de Hugo, calcado de la sesión en vivo
   const s = h * 0.30;
   // el corredor "cámara" se dibuja al centro, de frente, sin transparencia — mismo lugar que el
@@ -5131,6 +5158,7 @@ function renderCarrera() {
     ctx.fillText(lbl, xPos, h * 0.62 + persp.yOffset - s * persp.escala * 1.15);
     ctx.textAlign = 'start';
   });
+  if (rutaCarrera) conRutaCarrera(() => dibujarMapitaRuta(ctx, w, h, distanciaCamara)); // v110: dónde va la cámara en el recorrido
   const lista = document.getElementById('listaPosicionesCarrera');
   if (lista) {
     const ordenadas = [...posiciones].sort((a, b) => b.distancia - a.distancia);
