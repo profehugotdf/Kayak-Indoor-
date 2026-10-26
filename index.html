@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v107</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v108</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2567,6 +2567,13 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v108: Hugo mandó capturas de la punta de la península de Ushuaia y de
+         playa Ixtapa: seguían "paredes" (la ladera fija de 90 m y el
+         llano plano de v107 se veían como bloques). Ahora Rumbo manda el
+         perfil real del terreno tierra adentro (0-700 m desde la orilla,
+         7 alturas por costado) y se dibuja como una franja de terreno con
+         luz del norte y el color satelital, de lejos hacia cerca. Las
+         rutas viejas (sin perfil) usan una loma armada con la altura.
    v107: Hugo mandó captura de una ruta real: "paredes en medio del agua".
          Causas: (1) la tierra de afuera de la orilla se rellenaba en la
          pantalla hacia el costado, y en las curvas eso barría por encima
@@ -5361,6 +5368,8 @@ function decodificarRuta(o) {
     nombre: o.name, ll, cum, L: cum[n - 1], loop: !!o.loop, lat0, lon0, kx, ky,
     xy: ll.map(p => [(p[1] - lon0) * kx, (p[0] - lat0) * ky]),
     sh: o.shore && o.shore.d ? b64aU8(o.shore.d) : null,
+    pf: o.shore && o.shore.p ? b64aU8(o.shore.p) : null,             // v108: perfil del terreno tierra adentro (7 alturas por costado, cada 2 m)
+    off: o.shore && o.shore.off ? o.shore.off : null,
     hz: o.hz && o.hz.d ? Object.assign({}, o.hz, { u: b64aU8(o.hz.d) }) : null,
     peaks: (o.peaks || []).filter(p => p && p.e > 0),
   };
@@ -5457,61 +5466,83 @@ function filtrarOrillas(R) {
       ds.sort((a, b) => a - b); hs.sort((a, b) => a - b);
       d[k] = ds[ds.length >> 1]; alto[k] = Math.min(400, hs[hs.length >> 1]);
     }
-    out.push({ d, alto });
+    // perfil tierra adentro, promediado con los vecinos (±2 puntos) que tienen orilla; sin perfil (rutas de v106),
+    // una loma armada con la altura: sube en los primeros 120 m y baja un poco después
+    const NR = 7, prof = new Float32Array(n * NR), forma = [0, 0.35, 0.7, 1, 1, 0.9, 0.8];
+    for (let k = 0; k < n; k++) {
+      if (isNaN(d[k])) continue;
+      for (let j = 0; j < NR; j++) {
+        if (!R.pf) { prof[k * NR + j] = alto[k] * forma[j]; continue; }
+        let sum = 0, c = 0;
+        for (let q = Math.max(0, k - 2); q <= Math.min(n - 1, k + 2); q++) { if (U[q * 10 + lado] === 255) continue; sum += R.pf[q * 14 + lado * 7 + j] * 2; c++; }
+        prof[k * NR + j] = c ? sum / c : 0;
+      }
+    }
+    out.push({ d, alto, prof });
   }
   R.orF = out;
   return out;
 }
 // ---- orillas en perspectiva ----
-// v107: todo en el mundo real (antes la tierra "de ahí para afuera" se rellenaba en la pantalla hacia el costado, y en
-// las curvas eso barría por encima del agua). Cada orilla es una ladera: del agua (altura 0) sube hasta la cresta, 90 m
-// tierra adentro, con la altura del relieve (+ árboles si es verde), y sigue un llano de 500 m más. Se dibuja de lejos
-// hacia cerca, así lo cercano tapa lo lejano.
-const ORILLA_CRESTA_M = 90, ORILLA_LLANO_M = 500;
+// v108: el terreno de verdad. Desde cada punto de la ruta, hacia cada costado, Rumbo manda la altura del terreno a 0, 25,
+// 60, 120, 220, 400 y 700 m tierra adentro desde la orilla: con eso se arma una franja de terreno (como el 3D de Rumbo,
+// pero liviana) y cada cuadrito se pinta con el color satelital y una luz que viene del norte, así las laderas se ven
+// como laderas. Antes (v107) era una ladera fija de 90 m y un llano plano detrás: de cerca parecía una pared.
+const ORILLA_OFF_DEF = [0, 25, 60, 120, 220, 400, 700];
+const LUZ = (() => { const v = [-0.35, 0.75, 0.6], l = Math.hypot(...v); return v.map(x => x / l); })();
 function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
+  if (!R.orF) filtrarOrillas(R);
   const n = R.xy.length, cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)];
-  const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 3), H = RUTA_CAM_H, t = performance.now() / 1000, cieloHex = '#c9d3c8';
+  const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 3), H = RUTA_CAM_H, t = performance.now() / 1000, cielo = [201, 211, 200];
+  const OFF = R.off || ORILLA_OFF_DEF, NR = OFF.length;
   const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
   const quads = [];
   for (const lado of [1, -1]) {
-    const pts = [];
+    const FO = R.orF[lado > 0 ? 0 : 1], muestras = [];
     for (let s = 0; s < n; s++) {
       let k = k0 + s, extra = 0;
       if (k >= n) { if (!R.loop) break; k -= n; extra = R.L; }
-      if (R.cum[k] + extra - d > 3200) break;
+      const adel = R.cum[k] + extra - d;
+      if (adel > 3200) break;
+      if ((adel > 2200 && k % 4) || (adel > 1200 && k % 2)) continue;   // lejos, menos detalle
+      if (isNaN(FO.d[k])) { muestras.push(null); continue; }
       const a = R.xy[Math.max(0, k - 3)], b = R.xy[Math.min(n - 1, k + 3)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
-      const nx = -dy / l * lado, ny = dx / l * lado, o = orillaEn(R, k, lado), B = R.xy[k];
-      if (o.d == null) { pts.push(null); continue; }
-      const [r, g, bb] = o.color, verde = g > r * 1.02 && g > bb * 0.95 && r + g + bb < 420;
-      const arboles = verde ? 7 + 2 * Math.sin(k * 1.7 + lado) : 0, cresta = Math.max(1.5, o.alto + arboles);
-      const at = dd => [B[0] + nx * dd, B[1] + ny * dd];
-      const Wp = at(o.d), Cp = at(o.d + ORILLA_CRESTA_M), Op = at(o.d + ORILLA_CRESTA_M + ORILLA_LLANO_M);
-      const A = proy(Wp[0], Wp[1], 0), A2 = proy(Wp[0], Wp[1], Math.min(cresta, arboles + 1.5)), C = proy(Cp[0], Cp[1], cresta), O = proy(Op[0], Op[1], cresta * 0.85);
-      const base = '#' + ((1 << 24) | (Math.min(255, r * 1.1) << 16) | (Math.min(255, g * 1.1) << 8) | Math.min(255, bb * 1.1)).toString(16).slice(1);
-      pts.push({ A, A2, C, O, d: o.d, base });
+      const nx = -dy / l * lado, ny = dx / l * lado, B = R.xy[k], q = k * 10 + (lado > 0 ? 4 : 7), U = R.sh;
+      const col = [U[q], U[q + 1], U[q + 2]], verde = col[1] > col[0] * 1.02 && col[1] > col[2] * 0.95 && col[0] + col[1] + col[2] < 420;
+      const W = [];
+      for (let j = 0; j < NR; j++) {
+        const dd = FO.d[k] + OFF[j], z = FO.prof[k * NR + j] + (verde && j > 0 ? 6 : 0);
+        W.push([B[0] + nx * dd, B[1] + ny * dd, j === 0 ? 0 : z]);
+      }
+      muestras.push({ W, P: W.map(p => proy(p[0], p[1], p[2])), dist: FO.d[k], col, verde });
     }
-    for (let i = 0; i + 1 < pts.length; i++) {
-      const a = pts[i], b = pts[i + 1]; if (!a || !b) continue;
-      if (Math.abs(a.d - b.d) > 60 + 0.4 * Math.min(a.d, b.d)) continue;      // salto grande: entrada, cabo o isla; no se une
-      if (Math.min(a.A.fw, b.A.fw) < 4) continue;
-      const fw = (a.A.fw + b.A.fw) / 2, niebla = Math.min(0.75, fw / 3200), col = mezclarHex(a.base, cieloHex, niebla);
-      quads.push({ fw, a, b, col, cara: mezclarHex(col, '#1d2a22', 0.3 * (1 - Math.min(1, fw / 2500))) });
+    for (let i = 0; i + 1 < muestras.length; i++) {
+      const a = muestras[i], b = muestras[i + 1]; if (!a || !b) continue;
+      if (Math.abs(a.dist - b.dist) > 60 + 0.4 * Math.min(a.dist, b.dist)) continue;   // entrada, cabo o isla: no se une
+      for (let j = 0; j + 1 < NR; j++) {
+        const p = [a.P[j], b.P[j], b.P[j + 1], a.P[j + 1]];
+        if (p[0].fw < 4 || p[1].fw < 4 || p[2].fw < 4 || p[3].fw < 4) continue;
+        // luz: normal del cuadrito (siempre hacia arriba)
+        const A = a.W[j], u = [b.W[j][0] - A[0], b.W[j][1] - A[1], b.W[j][2] - A[2]], v = [a.W[j + 1][0] - A[0], a.W[j + 1][1] - A[1], a.W[j + 1][2] - A[2]];
+        let nn = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]; const ln = Math.hypot(...nn) || 1; nn = nn.map(x => x / ln); if (nn[2] < 0) nn = nn.map(x => -x);
+        const luz = 0.62 + 0.55 * Math.max(0, nn[0] * LUZ[0] + nn[1] * LUZ[1] + nn[2] * LUZ[2]) - (j === 0 && a.verde ? 0.18 : 0);
+        const fw = (p[0].fw + p[1].fw + p[2].fw + p[3].fw) / 4, nb = Math.min(0.8, fw / 3600);
+        const c = a.col.map((x, m) => Math.round(Math.min(255, x * 1.08 * luz) * (1 - nb) + cielo[m] * nb));
+        quads.push({ fw, p, c: 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')' });
+        if (j === 0 && fw < 1500) { // reflejo de la primera franja en el agua
+          const r = [a.W[0], b.W[0], b.W[1], a.W[1]].map(P => proy(P[0], P[1], -P[2] * 0.6));
+          quads.push({ fw: fw + 0.01, p: r, c: 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.16)', reflejo: true });
+        }
+      }
+      if (a.P[0].fw < 400 && b.P[0].fw > 4 && a.P[0].fw > 4) quads.push({ fw: a.P[0].fw - 0.01, espuma: [a.P[0], b.P[0]], i });
     }
   }
-  quads.sort((p, q) => q.fw - p.fw);
-  const poly = (ps, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(ps[0].x, ps[0].y); for (let i = 1; i < ps.length; i++) ctx.lineTo(ps[i].x, ps[i].y); ctx.closePath(); ctx.fill(); };
+  quads.sort((x, y) => y.fw - x.fw);
+  ctx.lineJoin = 'round';
   for (const q of quads) {
-    const { a, b } = q;
-    // reflejo en el agua (la ladera dada vuelta)
-    ctx.globalAlpha = 0.14;
-    poly([a.A, b.A, { x: b.A.x + (b.C.x - b.A.x) * 0.5, y: b.A.y + (b.A.y - b.C.y) * 0.5 }, { x: a.A.x + (a.C.x - a.A.x) * 0.5, y: a.A.y + (a.A.y - a.C.y) * 0.5 }], q.col);
-    ctx.globalAlpha = 1;
-    if (a.O.fw > 4 && b.O.fw > 4 && a.C.fw > 4 && b.C.fw > 4) {
-      poly([a.C, b.C, b.O, a.O], q.col);                 // el llano de arriba
-      poly([a.A, b.A, b.C, a.C], q.cara);                // la ladera
-    }
-    poly([a.A, b.A, b.A2, a.A2], mezclarHex(q.cara, '#16231b', 0.25)); // la línea de árboles o la barranca baja, pegada al agua
-    if (q.fw < 400) { ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 * (1 - q.fw / 400) * (0.7 + 0.3 * Math.sin(t * 2 + a.d))).toFixed(3) + ')'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(a.A.x, a.A.y); ctx.lineTo(b.A.x, b.A.y); ctx.stroke(); }
+    if (q.espuma) { ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 * (1 - q.fw / 400) * (0.7 + 0.3 * Math.sin(t * 2 + q.i))).toFixed(3) + ')'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(q.espuma[0].x, q.espuma[0].y); ctx.lineTo(q.espuma[1].x, q.espuma[1].y); ctx.stroke(); continue; }
+    const p = q.p; ctx.fillStyle = q.c; ctx.beginPath(); ctx.moveTo(p[0].x, p[0].y); ctx.lineTo(p[1].x, p[1].y); ctx.lineTo(p[2].x, p[2].y); ctx.lineTo(p[3].x, p[3].y); ctx.closePath(); ctx.fill();
+    if (!q.reflejo) { ctx.strokeStyle = q.c; ctx.lineWidth = 0.8; ctx.stroke(); } // tapa las rayitas entre cuadritos
   }
 }
 function dibujarEscenaRuta(ctx, w, h, horizonY, dTotal) {
