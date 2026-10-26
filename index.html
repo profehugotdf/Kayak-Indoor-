@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v106</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v107</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2567,6 +2567,16 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v107: Hugo mandó captura de una ruta real: "paredes en medio del agua".
+         Causas: (1) la tierra de afuera de la orilla se rellenaba en la
+         pantalla hacia el costado, y en las curvas eso barría por encima
+         del agua; (2) puntos sueltos con la orilla a 30 m y el de al lado
+         a 1,5 km se unían con una pared cruzando el agua; (3) la altura
+         de la loma se dibujaba como pared vertical pegada al agua.
+         Ahora: todo en coordenadas reales (ladera de 90 m del agua a la
+         cresta, llano detrás), mediana de 7 puntos en distancia y altura
+         (filtrarOrillas), no se unen saltos grandes, y orden de lejos a
+         cerca de los dos lados juntos.
    v106: Hugo pidió el paisaje real para kayak, como en Bici Indoor. Rumbo
          ("🛶 Entrenar en Kayak Indoor" en una ruta o track de kayak) manda
          la ruta con las orillas (distancia a la tierra a cada lado cada
@@ -5427,49 +5437,81 @@ function dibujarHorizonteReal(ctx, w, horizonY, az, f, R, d) {
   }
 }
 // pura: la orilla de un costado en el punto k → {d (m, null si no hay tierra a menos de 2 km), alto (m), color [r,g,b]}
+// v107: distancia y altura ya filtradas (ver filtrarOrillas): el relieve cerca de la costa trae saltos de un punto a otro
 function orillaEn(R, k, lado) {
-  const o = k * 10, U = R.sh, dv = U[o + (lado > 0 ? 0 : 1)], q = o + (lado > 0 ? 4 : 7);
-  return { d: dv === 255 ? null : dv * 8, alto: U[o + (lado > 0 ? 2 : 3)], color: [U[q], U[q + 1], U[q + 2]] };
+  if (!R.orF) filtrarOrillas(R);
+  const F = R.orF[lado > 0 ? 0 : 1], U = R.sh, q = k * 10 + (lado > 0 ? 4 : 7);
+  return { d: isNaN(F.d[k]) ? null : F.d[k], alto: F.alto[k], color: [U[q], U[q + 1], U[q + 2]] };
 }
-// ---- orillas en perspectiva: de lejos hacia cerca (lo cercano tapa lo lejano) ----
+// pura: mediana de 7 puntos (unos 175 m) para la distancia a la orilla y la altura: saca los picos sueltos (un muelle,
+// un error del relieve) que, unidos con el punto de al lado, se veían como paredes cruzando el agua
+function filtrarOrillas(R) {
+  const n = R.xy.length, U = R.sh, out = [];
+  for (const lado of [0, 1]) {
+    const d = new Float32Array(n), alto = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      const ds = [], hs = [];
+      for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, k + 3); j++) { const v = U[j * 10 + lado]; if (v !== 255) { ds.push(v * 8); hs.push(U[j * 10 + 2 + lado]); } }
+      const tot = Math.min(n - 1, k + 3) - Math.max(0, k - 3) + 1;
+      if (ds.length * 2 <= tot) { d[k] = NaN; alto[k] = 0; continue; }
+      ds.sort((a, b) => a - b); hs.sort((a, b) => a - b);
+      d[k] = ds[ds.length >> 1]; alto[k] = Math.min(400, hs[hs.length >> 1]);
+    }
+    out.push({ d, alto });
+  }
+  R.orF = out;
+  return out;
+}
+// ---- orillas en perspectiva ----
+// v107: todo en el mundo real (antes la tierra "de ahí para afuera" se rellenaba en la pantalla hacia el costado, y en
+// las curvas eso barría por encima del agua). Cada orilla es una ladera: del agua (altura 0) sube hasta la cresta, 90 m
+// tierra adentro, con la altura del relieve (+ árboles si es verde), y sigue un llano de 500 m más. Se dibuja de lejos
+// hacia cerca, así lo cercano tapa lo lejano.
+const ORILLA_CRESTA_M = 90, ORILLA_LLANO_M = 500;
 function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
   const n = R.xy.length, cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)];
-  const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 2), H = RUTA_CAM_H, t = performance.now() / 1000;
-  const cieloHex = '#c9d3c8';
+  const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 3), H = RUTA_CAM_H, t = performance.now() / 1000, cieloHex = '#c9d3c8';
+  const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
+  const quads = [];
   for (const lado of [1, -1]) {
     const pts = [];
     for (let s = 0; s < n; s++) {
       let k = k0 + s, extra = 0;
       if (k >= n) { if (!R.loop) break; k -= n; extra = R.L; }
       if (R.cum[k] + extra - d > 3200) break;
-      const a = R.xy[Math.max(0, k - 2)], b = R.xy[Math.min(n - 1, k + 2)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
-      const nx = -dy / l * lado, ny = dx / l * lado, o = orillaEn(R, k, lado);
+      const a = R.xy[Math.max(0, k - 3)], b = R.xy[Math.min(n - 1, k + 3)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+      const nx = -dy / l * lado, ny = dx / l * lado, o = orillaEn(R, k, lado), B = R.xy[k];
       if (o.d == null) { pts.push(null); continue; }
-      const qx = R.xy[k][0] + nx * o.d - cam[0], qy = R.xy[k][1] + ny * o.d - cam[1], fw = qx * F[0] + qy * F[1], rt = qx * Rt[0] + qy * Rt[1];
-      if (fw < 4) { pts.push(null); continue; }
-      // bosque: si la orilla es verde (y no es arena ni roca clara), los árboles suman ~8 m
       const [r, g, bb] = o.color, verde = g > r * 1.02 && g > bb * 0.95 && r + g + bb < 420;
-      const alto = Math.max(1.2, o.alto + (verde ? 7 + 3 * Math.sin(k * 1.7 + lado) : 0));
-      const niebla = Math.min(0.75, fw / 3200);
-      const col = mezclarHex('#' + ((1 << 24) | (Math.min(255, r * 1.1) << 16) | (Math.min(255, g * 1.1) << 8) | Math.min(255, bb * 1.1)).toString(16).slice(1), cieloHex, niebla);
-      pts.push({ x: w / 2 + f * rt / fw, yA: horizonY + f * H / fw, yT: horizonY + f * (H - alto) / fw, col, fw });
+      const arboles = verde ? 7 + 2 * Math.sin(k * 1.7 + lado) : 0, cresta = Math.max(1.5, o.alto + arboles);
+      const at = dd => [B[0] + nx * dd, B[1] + ny * dd];
+      const Wp = at(o.d), Cp = at(o.d + ORILLA_CRESTA_M), Op = at(o.d + ORILLA_CRESTA_M + ORILLA_LLANO_M);
+      const A = proy(Wp[0], Wp[1], 0), A2 = proy(Wp[0], Wp[1], Math.min(cresta, arboles + 1.5)), C = proy(Cp[0], Cp[1], cresta), O = proy(Op[0], Op[1], cresta * 0.85);
+      const base = '#' + ((1 << 24) | (Math.min(255, r * 1.1) << 16) | (Math.min(255, g * 1.1) << 8) | Math.min(255, bb * 1.1)).toString(16).slice(1);
+      pts.push({ A, A2, C, O, d: o.d, base });
     }
-    const fuera = lado > 0 ? -2 * w : 3 * w;
-    for (let i = pts.length - 2; i >= 0; i--) {
+    for (let i = 0; i + 1 < pts.length; i++) {
       const a = pts[i], b = pts[i + 1]; if (!a || !b) continue;
-      // reflejo de la orilla en el agua
-      ctx.globalAlpha = 0.22; ctx.fillStyle = a.col;
-      ctx.beginPath(); ctx.moveTo(a.x, a.yA); ctx.lineTo(b.x, b.yA); ctx.lineTo(b.x, 2 * b.yA - b.yT); ctx.lineTo(a.x, 2 * a.yA - a.yT); ctx.closePath(); ctx.fill();
-      ctx.globalAlpha = 1;
-      // la tierra de ahí para afuera (lo de arriba de la orilla)
-      ctx.fillStyle = a.col;
-      ctx.beginPath(); ctx.moveTo(a.x, a.yT); ctx.lineTo(b.x, b.yT); ctx.lineTo(fuera, b.yT); ctx.lineTo(fuera, a.yT); ctx.closePath(); ctx.fill();
-      // el frente de la orilla (barranca o árboles), un poco más oscuro
-      ctx.fillStyle = mezclarHex(a.col, '#1d2a22', 0.35 * (1 - Math.min(1, a.fw / 2500)));
-      ctx.beginPath(); ctx.moveTo(a.x, a.yA); ctx.lineTo(b.x, b.yA); ctx.lineTo(b.x, b.yT); ctx.lineTo(a.x, a.yT); ctx.closePath(); ctx.fill();
-      // espuma en la línea del agua, solo cerca
-      if (a.fw < 400) { ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 * (1 - a.fw / 400) * (0.7 + 0.3 * Math.sin(t * 2 + i))).toFixed(3) + ')'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(a.x, a.yA); ctx.lineTo(b.x, b.yA); ctx.stroke(); }
+      if (Math.abs(a.d - b.d) > 60 + 0.4 * Math.min(a.d, b.d)) continue;      // salto grande: entrada, cabo o isla; no se une
+      if (Math.min(a.A.fw, b.A.fw) < 4) continue;
+      const fw = (a.A.fw + b.A.fw) / 2, niebla = Math.min(0.75, fw / 3200), col = mezclarHex(a.base, cieloHex, niebla);
+      quads.push({ fw, a, b, col, cara: mezclarHex(col, '#1d2a22', 0.3 * (1 - Math.min(1, fw / 2500))) });
     }
+  }
+  quads.sort((p, q) => q.fw - p.fw);
+  const poly = (ps, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(ps[0].x, ps[0].y); for (let i = 1; i < ps.length; i++) ctx.lineTo(ps[i].x, ps[i].y); ctx.closePath(); ctx.fill(); };
+  for (const q of quads) {
+    const { a, b } = q;
+    // reflejo en el agua (la ladera dada vuelta)
+    ctx.globalAlpha = 0.14;
+    poly([a.A, b.A, { x: b.A.x + (b.C.x - b.A.x) * 0.5, y: b.A.y + (b.A.y - b.C.y) * 0.5 }, { x: a.A.x + (a.C.x - a.A.x) * 0.5, y: a.A.y + (a.A.y - a.C.y) * 0.5 }], q.col);
+    ctx.globalAlpha = 1;
+    if (a.O.fw > 4 && b.O.fw > 4 && a.C.fw > 4 && b.C.fw > 4) {
+      poly([a.C, b.C, b.O, a.O], q.col);                 // el llano de arriba
+      poly([a.A, b.A, b.C, a.C], q.cara);                // la ladera
+    }
+    poly([a.A, b.A, b.A2, a.A2], mezclarHex(q.cara, '#16231b', 0.25)); // la línea de árboles o la barranca baja, pegada al agua
+    if (q.fw < 400) { ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 * (1 - q.fw / 400) * (0.7 + 0.3 * Math.sin(t * 2 + a.d))).toFixed(3) + ')'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(a.A.x, a.A.y); ctx.lineTo(b.A.x, b.A.y); ctx.stroke(); }
   }
 }
 function dibujarEscenaRuta(ctx, w, h, horizonY, dTotal) {
