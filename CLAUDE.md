@@ -14,6 +14,7 @@ Kayak ergómetro casero de Hugo:
 - Versión visible: `<span class="ver">vNNN</span>`. Va con historial largo en un comentario al principio del script, una entrada por versión. Seguir ese formato.
 - Claves: prefijo `kayak_` (`LS_PREFIX`). `kayak_sesiones` es la que lee Mi plan. Las rutas de Rumbo van en IndexedDB `kayak_indoor_rutas`, no en localStorage.
 - `dibujarEscenaLago()` está partida en cielo, montañas, agua, pinos y ondas: la usan la sesión, Carrera, el Editor y el fantasma. Con un recorrido de Rumbo, `dibujarEscenaRuta()` reemplaza montañas y pinos por el horizonte real (`hzSample`, igual que Bici v165) y por las orillas (`dibujarOrillas`). Las orillas son una franja de terreno con el perfil real a 0–700 m tierra adentro, con luz y bruma.
+- v111: 🌬️ clima real del recorrido (Open-Meteo): se ve en la escena del recorrido (sesión y carrera virtual); opcional, `velConViento()` cambia la velocidad según el viento (no toca la calibración). Claves `kayak_wx` y `kayak_wx_ultimos`. El bloque `wxTraer`/`wxRelativo`/`wxCielo`/`wxAire`/`wxEspuma`/`wxFlecha` es **el mismo que en Bici**.
 - Lo que se dibuja con canvas se prueba con un canvas simulado o con Playwright + `toDataURL`. Lo que es lógica pura (`aplicarInercia`, `rpmVigente`, `filtrarOrillas`…) va con Node.
 - **Nunca cambiar la pose ni las proporciones del Editor** salvo que Hugo lo pida explícitamente.
 
