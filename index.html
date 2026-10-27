@@ -5724,7 +5724,7 @@ function wxFlecha(ctx, x, y, W, rel) {
   ctx.restore();
 }
 // --- v111: el clima en Kayak. El dato se guarda por recorrido (WX.ruta = nombre) y solo se usa en ese recorrido.
-let WX = null;
+var WX = null;
 const K_WX = LS_PREFIX + 'wx', K_WX_LAST = LS_PREFIX + 'wx_ultimos';
 function wxCfg() { return lsGet(K_WX, {}) || {}; }
 function wxGuardarCfg(o) { try { lsSet(K_WX, Object.assign(wxCfg(), o)); } catch (e) { toast('No se pudo guardar el ajuste del clima: ' + e.message); } }
