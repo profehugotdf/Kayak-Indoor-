@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v111</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v112</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -195,6 +195,30 @@
             <div class="fila" style="gap:6px; margin-top:6px;"><input type="number" id="wxManV" placeholder="km/h" min="0" max="120" step="1" style="width:80px; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);">
               <select id="wxManD" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);"><option value="0">del norte</option><option value="45">del noreste</option><option value="90">del este</option><option value="135">del sudeste</option><option value="180">del sur</option><option value="225">del sudoeste</option><option value="270">del oeste</option><option value="315">del noroeste</option></select>
               <button class="btn chico" style="width:auto;" onclick="wxManualUsar()">Usar</button></div></details>
+        </div>
+        <!-- v112: muelles, veleros y más -->
+        <div id="elemBox" style="margin-top:10px; padding-top:8px; border-top:1px solid var(--borde);">
+          <div style="font-weight:700;">⚓ Muelles, veleros y más</div>
+          <p class="nota" style="margin:4px 0;">Mové el deslizador hasta donde está y tocá "Poner acá". Se ven en la sesión, la carrera virtual y la vista previa, y quedan guardados en este recorrido.</p>
+          <div class="fila" style="gap:6px;">
+            <select id="elemTipo" onchange="elemTipoCambio()" style="flex:1; min-width:0; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);">
+              <option value="muelle">🪵 Muelle</option><option value="velero" selected>⛵ Velero con velas</option><option value="fondeado">⚓ Velero fondeado</option><option value="lancha">🚤 Lancha</option><option value="boya">🔴 Boya</option></select>
+            <select id="elemLado" style="flex:1; min-width:0; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);">
+              <option value="auto">Orilla más cercana</option><option value="1">Izquierda</option><option value="-1">Derecha</option></select>
+          </div>
+          <p class="nota" style="margin:2px 0 4px;">Lado: elegí el costado, o dejá "Orilla más cercana" para que lo ponga del lado de la tierra. Izquierda y derecha, mirando hacia donde avanza la ruta.</p>
+          <div class="fila" style="gap:6px;">
+            <input type="number" id="elemLat" placeholder="Distancia a la ruta (m) — vacío: automática" min="0" max="2000" step="1" inputmode="decimal" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);">
+          </div>
+          <div id="elemLargoBox" style="display:none; margin-top:6px;">
+            <input type="number" id="elemLargo" placeholder="Largo del muelle (m) — vacío: 30" min="4" max="200" step="1" inputmode="decimal" style="width:100%; box-sizing:border-box; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);">
+          </div>
+          <input type="text" id="elemNombre" placeholder="Nombre (opcional, se ve cuando te acercás)" maxlength="30" style="width:100%; box-sizing:border-box; margin-top:6px; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);">
+          <div class="fila" style="margin-top:6px;">
+            <button class="btn chico" id="btnElemAgregar" onclick="elemAgregar()">➕ Poner acá</button>
+            <button class="btn chico" id="btnElemCancelar" onclick="elemCancelarEdicion()" style="display:none;">Cancelar</button>
+          </div>
+          <div id="elemLista"></div>
         </div>
       </div>
     </div>
@@ -2580,6 +2604,27 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v112: MUELLES, VELEROS, LANCHAS Y BOYAS EN EL RECORRIDO (Hugo: "agregar
+         elementos al escenario como muelles o veleros, por ejemplo en la
+         Bahía de Ushuaia donde entreno en un circuito frente al club cuando lo
+         hago outdoor; ¿en Rumbo al generar la ruta o en Kayak Indoor?").
+         Elegí Kayak Indoor: Rumbo no tiene los barcos fondeados y Hugo sabe
+         dónde está cada cosa; así además no hay que tocar el paquete #rumbo=
+         ni Bici/Correr. Tarjeta Recorrido > "⚓ Muelles, veleros y más": se
+         mueve el deslizador hasta el lugar y "Poner acá" (tipo, lado o "la
+         orilla más cercana", distancia a la ruta opcional, largo del muelle,
+         nombre opcional). Se pueden ver (te deja 45 m antes), editar y borrar.
+         Se guardan por nombre de recorrido en localStorage kayak_ruta_elementos
+         (aparte de la ruta en IndexedDB: si Rumbo vuelve a mandar el mismo
+         recorrido, no se pierden; si la ruta cambia, se reacomodan al punto
+         más cercano usando lat/lon). Se dibujan en dibujarEscenaRuta (sesión,
+         carrera virtual, vista previa) después de las orillas, en perspectiva
+         real con la misma cámara: muelle con pilotes, tablada y sombra;
+         veleros con casco, cabina, mástil, estays y velas (o fondeado, con la
+         mayor enrollada); lancha; boya; todos con reflejo y balanceo suave, y
+         las proas hacia el viento si el clima del recorrido está activo.
+         También salen en el mapita. Sin nada personal en el código: no viene
+         ningún elemento de fábrica.
    v111: VIENTO Y CLIMA REALES DEL RECORRIDO (Hugo: "que tome la info
          meteorológica actual del circuito elegido, tanto para Bici Indoor como
          para Kayak Indoor, y representarla en las animaciones lo más realista
@@ -5782,6 +5827,303 @@ function dibujarEscenaRuta(ctx, w, h, horizonY, dTotal) {
   if (Wc) wxEspuma(ctx, 0, w, horizonY + 2, h, Wc, t); // v111: ovejitas con viento
   if (R.sh) { try { dibujarOrillas(ctx, w, h, horizonY, R, d, az, f); } catch (e) {} }
   else dibujarPinosLago(ctx, w, h, horizonY);
+  try { dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f); } catch (e) { elemErrorDibujo(e); } // v112: muelles, veleros, lanchas y boyas
+}
+/* ============================================================
+   v112 — MUELLES, VELEROS Y MÁS EN EL RECORRIDO
+   Se ponen a mano en Kayak Indoor (no vienen de Rumbo): vos sabés dónde está cada cosa en tu circuito, y Rumbo no
+   tiene los barcos fondeados. Se guardan por nombre de recorrido en localStorage (kayak_ruta_elementos: es poco
+   texto), aparte de la ruta: si Rumbo vuelve a mandar el mismo recorrido, los elementos se quedan.
+   Cada elemento: {id, tipo, d (m sobre la ruta), lado (+1 izquierda / -1 derecha de la marcha, igual que
+   dibujarOrillas), lat (m desde el eje de la ruta, null = automático), largo (solo muelle), nombre, ll (lat/lon del
+   punto de la ruta, para reacomodarlo si Rumbo cambia un poco la ruta)}.
+   ============================================================ */
+const K_ELEMS = LS_PREFIX + 'ruta_elementos';
+const ELEM_TIPOS = {
+  muelle:   { icono: '🪵', nombre: 'Muelle' },
+  velero:   { icono: '⛵', nombre: 'Velero con velas' },
+  fondeado: { icono: '⚓', nombre: 'Velero fondeado (sin velas)' },
+  lancha:   { icono: '🚤', nombre: 'Lancha' },
+  boya:     { icono: '🔴', nombre: 'Boya' },
+};
+const ELEM_MAX = 80;            // por recorrido
+let elemVersion = 0;            // sube cada vez que cambian: invalida el caché de cada ruta
+let elemEditandoId = null;
+let elemErrAvisado = false;
+function elemLeerTodo() { const o = lsGet(K_ELEMS, {}); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; }
+function elemGuardarLista(nombre, lista) {
+  const todo = elemLeerTodo();
+  if (lista && lista.length) todo[nombre] = lista; else delete todo[nombre];
+  try { lsSet(K_ELEMS, todo); } catch (e) { toast('No pude guardar los elementos: ' + e.message); return false; }
+  elemVersion++; return true;
+}
+function elemSemilla(id) { let s = 0; for (const c of String(id)) s = (s * 31 + c.charCodeAt(0)) >>> 0; return s; }
+// pura: si Rumbo cambió la ruta (el punto donde se puso ya no cae sobre ella), lo pasa al punto más cercano
+function elemReAnclar(R, e) {
+  if (!e.ll) return e;
+  const p = puntoEnRuta(R, Math.max(0, Math.min(R.L, e.d))), qx = (e.ll[1] - R.lon0) * R.kx, qy = (e.ll[0] - R.lat0) * R.ky;
+  if (Math.hypot(p[0] - qx, p[1] - qy) <= 20) return e;
+  let mejor = -1, md = 1e18;
+  for (let i = 0; i < R.xy.length; i++) { const dd = (R.xy[i][0] - qx) ** 2 + (R.xy[i][1] - qy) ** 2; if (dd < md) { md = dd; mejor = i; } }
+  if (mejor < 0 || Math.sqrt(md) > 150) return e;   // la ruta cambió demasiado: no lo muevo a cualquier lado
+  return Object.assign({}, e, { d: R.cum[mejor] });
+}
+// los elementos del recorrido R (con caché hasta que algo cambie)
+function elemsDeRuta(R) {
+  if (!R) return [];
+  if (R._elV === elemVersion && R._elems) return R._elems;
+  const arr = (elemLeerTodo()[R.nombre] || []).filter(e => e && ELEM_TIPOS[e.tipo] && isFinite(e.d) && (e.lado === 1 || e.lado === -1));
+  R._elems = arr.map(e => elemReAnclar(R, e)); R._elV = elemVersion;
+  return R._elems;
+}
+// pura: distancia a la orilla de ese costado en el punto d (m), o null si la ruta no trae orillas / no hay tierra cerca
+function elemOrillaEn(R, d, lado) {
+  if (!R.sh) return null;
+  const k = Math.max(0, Math.min(R.xy.length - 1, Math.round(indiceEnRuta(R, d))));
+  return orillaEn(R, k, lado).d;
+}
+// pura: el costado con la orilla más cercana (lo que se usa si no elegís lado); sin datos de orillas, la derecha
+function elemLadoAuto(R, d) {
+  const i = elemOrillaEn(R, d, 1), r = elemOrillaEn(R, d, -1);
+  if (i == null && r == null) return -1;
+  if (i == null) return -1; if (r == null) return 1;
+  return i < r ? 1 : -1;
+}
+// pura: a qué distancia del eje de la ruta queda (m). Un muelle nace en la orilla; lo demás, a mitad de camino hacia ella
+function elemLateral(e, orillaD) {
+  if (e.lat != null && isFinite(e.lat)) return Math.max(e.tipo === 'boya' ? 5 : 10, e.lat);
+  if (e.tipo === 'muelle') return orillaD != null ? orillaD : 70;
+  if (e.tipo === 'boya') return 12;
+  return orillaD != null ? Math.max(25, Math.min(140, orillaD * 0.5)) : 60;
+}
+// pura: dónde queda en el plano local (m, x al este, y al norte): punto de la ruta, tangente, normal hacia su costado y posición
+function elemMundo(R, e) {
+  const d = Math.max(0, Math.min(R.L, e.d)), a = puntoEnRuta(R, Math.max(0, d - 10)), b = puntoEnRuta(R, Math.min(R.L, d + 10)), P = puntoEnRuta(R, d);
+  let tx = b[0] - a[0], ty = b[1] - a[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+  const nx = -ty * e.lado, ny = tx * e.lado;     // mismo criterio que dibujarOrillas
+  const orilla = elemOrillaEn(R, d, e.lado), lat = elemLateral(e, orilla);
+  let largo = 0;
+  if (e.tipo === 'muelle') largo = Math.max(4, Math.min(e.largo > 0 ? e.largo : 30, lat - 10));   // no llega a pisar la ruta
+  return { P, t: [tx, ty], n: [nx, ny], lat, orilla, largo, pos: [P[0] + nx * lat, P[1] + ny * lat] };
+}
+function elemMundoC(R, e) { return e._m || (e._m = elemMundo(R, e)); }
+
+// ---- el dibujo ----
+function tonoHex(hex, k) { const n = parseInt(hex.slice(1), 16), c = x => Math.max(0, Math.min(255, Math.round(x * k))); return 'rgb(' + c(n >> 16 & 255) + ',' + c(n >> 8 & 255) + ',' + c(n & 255) + ')'; }
+const ELEM_CASCOS = {
+  velero: { zD: 1.0, D: [[4.8, 0], [2.2, 1.45], [-3.8, 1.35], [-4.6, 0.9], [-4.6, -0.9], [-3.8, -1.35], [2.2, -1.45]],
+            W: [[4.3, 0], [2.0, 1.15], [-3.6, 1.0], [-4.3, 0.6], [-4.3, -0.6], [-3.6, -1.0], [2.0, -1.15]] },
+  lancha: { zD: 0.8, D: [[2.9, 0], [1.2, 1.0], [-2.6, 1.05], [-2.6, -1.05], [1.2, -1.0]],
+            W: [[2.6, 0], [1.1, 0.8], [-2.5, 0.8], [-2.5, -0.8], [1.1, -0.8]] },
+};
+// pura: el barco en coordenadas propias (u hacia la proa, v hacia estribor, z sobre el agua, en metros)
+function elemArmarBarco(tipo, semilla) {
+  const m = ELEM_CASCOS[tipo === 'lancha' ? 'lancha' : 'velero'];
+  const franja = tipo === 'lancha' ? ['#d9642b', '#1f4e8c', '#2b2f36'][semilla % 3] : ['#1f4e8c', '#8a1f2d', '#1d6b4f', '#2b2f36', '#b9791f'][semilla % 5];
+  const casco = tipo === 'lancha' ? '#f1efe9' : '#f3f4f6';
+  const zD = m.zD, zW = -0.05, tM = 0.3, zM = zW + (zD - zW) * tM, N = m.D.length, caras = [];
+  const M = m.D.map((p, i) => [m.W[i][0] + (p[0] - m.W[i][0]) * tM, m.W[i][1] + (p[1] - m.W[i][1]) * tM]);
+  const normal = (a, b) => { let nu = b[1] - a[1], nv = -(b[0] - a[0]); const l = Math.hypot(nu, nv) || 1; nu /= l; nv /= l;
+    if (nu * (a[0] + b[0]) / 2 + nv * (a[1] + b[1]) / 2 < 0) { nu = -nu; nv = -nv; } return [nu, nv]; };
+  for (let i = 0; i < N; i++) {
+    const j = (i + 1) % N, n = normal(m.D[i], m.D[j]);
+    caras.push({ p: [[m.D[i][0], m.D[i][1], zD], [m.D[j][0], m.D[j][1], zD], [M[j][0], M[j][1], zM], [M[i][0], M[i][1], zM]], c: casco, n });
+    caras.push({ p: [[M[i][0], M[i][1], zM], [M[j][0], M[j][1], zM], [m.W[j][0], m.W[j][1], zW], [m.W[i][0], m.W[i][1], zW]], c: franja, n });
+  }
+  caras.push({ p: m.D.map(q => [q[0], q[1], zD]), c: '#cbbd9d', n: null });
+  const caja = (u0, u1, v, z0, z1, col, techo) => {
+    caras.push({ p: [[u0, -v, z1], [u1, -v, z1], [u1, v, z1], [u0, v, z1]], c: techo, n: null });
+    caras.push({ p: [[u0, v, z0], [u1, v, z0], [u1, v, z1], [u0, v, z1]], c: col, n: [0, 1] });
+    caras.push({ p: [[u0, -v, z0], [u1, -v, z0], [u1, -v, z1], [u0, -v, z1]], c: col, n: [0, -1] });
+    caras.push({ p: [[u1, -v, z0], [u1, v, z0], [u1, v, z1], [u1, -v, z1]], c: col, n: [1, 0] });
+    caras.push({ p: [[u0, -v, z0], [u0, v, z0], [u0, v, z1], [u0, -v, z1]], c: col, n: [-1, 0] });
+  };
+  const velas = [], lineas = []; let zTop = zD + 0.8;
+  if (tipo === 'lancha') {
+    caja(-1.3, 0.7, 0.75, zD, zD + 1.1, '#e4e9ed', '#cfd6db');
+    lineas.push({ a: [-1.0, 0, zD + 1.1], b: [-1.0, 0, zD + 2.7], c: '#59636b', w: 0.07 });
+    zTop = zD + 2.7;
+  } else {
+    caja(-2.4, 1.2, 0.85, zD, zD + 0.7, '#ebe7da', '#d9d3c1');
+    const mz = 12.4;
+    lineas.push({ a: [0.6, 0, zD], b: [0.6, 0, mz], c: '#aab2b9', w: 0.2 });
+    lineas.push({ a: [4.6, 0, zD + 0.1], b: [0.6, 0, mz], c: 'rgba(70,80,90,.75)', w: 0.04 });
+    lineas.push({ a: [-4.4, 0, zD], b: [0.6, 0, mz], c: 'rgba(70,80,90,.75)', w: 0.04 });
+    if (tipo === 'velero') {
+      lineas.push({ a: [0.6, 0, 2.0], b: [-3.9, 0, 2.0], c: '#aab2b9', w: 0.15 });
+      velas.push({ p: [[0.6, 0, 2.2], [0.6, 0, 12.0], [-3.7, 0, 2.3]], c: '#f8f8f3' });
+      velas.push({ p: [[4.5, 0, 1.4], [0.9, 0, 11.0], [0.9, 0, 1.7]], c: '#f1f1ea' });
+    } else {   // fondeado: la mayor enrollada sobre la botavara
+      lineas.push({ a: [0.6, 0, 1.7], b: [-3.4, 0, 1.55], c: '#aab2b9', w: 0.15 });
+      lineas.push({ a: [0.5, 0, 1.85], b: [-3.2, 0, 1.7], c: '#24365e', w: 0.32 });
+    }
+    zTop = mz;
+  }
+  return { caras, velas, lineas, zTop };
+}
+function dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f) {
+  const lista = elemsDeRuta(R); if (!lista.length) return;
+  const cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)], H = RUTA_CAM_H, t = performance.now() / 1000;
+  const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
+  const Wc = wxPara(R), vis = [];
+  for (const e of lista) {
+    const m = elemMundoC(R, e), fw = (m.pos[0] - cam[0]) * F[0] + (m.pos[1] - cam[1]) * F[1];
+    if (fw < -25 || fw > 1000) continue;
+    vis.push({ e, m, fw });
+  }
+  vis.sort((a, b) => b.fw - a.fw);
+  const poli = (P, fill, alpha, borde) => {
+    ctx.globalAlpha = alpha; ctx.fillStyle = fill; ctx.beginPath(); P.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+    if (borde) { ctx.strokeStyle = borde; ctx.lineWidth = 0.8; ctx.stroke(); } ctx.globalAlpha = 1;
+  };
+  const etiqueta = (txt, x, y) => { ctx.font = '600 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,30,40,.75)'; ctx.fillStyle = '#fff'; ctx.strokeText(txt, x, y); ctx.fillText(txt, x, y); ctx.textAlign = 'start'; };
+  for (const { e, m, fw } of vis) {
+    const sem = elemSemilla(e.id), ph = (sem % 628) / 100;
+    let topY = null, topX = null;
+    if (e.tipo === 'muelle') {
+      const base = m.lat + 3, punta = m.lat - m.largo, ancho = 1.4, zc = 1.0;
+      const en = (lat, lado, z) => { const q = proy(m.P[0] + m.n[0] * lat + m.t[0] * lado, m.P[1] + m.n[1] * lat + m.t[1] * lado, z); return q; };
+      const A0 = en(base, -ancho, zc), A1 = en(base, ancho, zc), A2 = en(punta, ancho, zc), A3 = en(punta, -ancho, zc);
+      if (Math.min(A0.fw, A1.fw, A2.fw, A3.fw) < 2.5) continue;
+      // sombra sobre el agua y pilotes
+      poli([en(base, -ancho, 0), en(base, ancho, 0), en(punta, ancho, 0), en(punta, -ancho, 0)], '#0a1822', 0.28);
+      const lw = Math.max(1, f * 0.22 / fw), np = Math.max(2, Math.ceil((base - punta) / 4) + 1);
+      for (let i = 0; i < np; i++) {
+        const lat = base - (base - punta) * i / (np - 1);
+        for (const lado of [-ancho + 0.15, ancho - 0.15]) {
+          const a = en(lat, lado, zc), b = en(lat, lado, 0), c = en(lat, lado, -0.8);
+          ctx.strokeStyle = '#4a3a28'; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+          ctx.strokeStyle = 'rgba(74,58,40,.28)'; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.stroke();
+        }
+      }
+      // canto del lado que queda más cerca de la cámara, para que se vea el grosor de la tablada
+      const sA = A0.fw + A3.fw, sB = A1.fw + A2.fw, ladoCerca = sA < sB ? -ancho : ancho;
+      poli([en(base, ladoCerca, zc), en(punta, ladoCerca, zc), en(punta, ladoCerca, 0.68), en(base, ladoCerca, 0.68)], '#6b5233', 1);
+      poli([A0, A1, A2, A3], '#a8845a', 1, '#7a5e3c');
+      if (fw < 160) {   // tablas
+        const nt = Math.min(40, Math.floor((base - punta) / 1.2)); ctx.strokeStyle = 'rgba(90,66,40,.55)'; ctx.lineWidth = 0.7; ctx.beginPath();
+        for (let i = 1; i < nt; i++) { const lat = base - (base - punta) * i / nt, a = en(lat, -ancho, zc), b = en(lat, ancho, zc); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
+        ctx.stroke();
+      }
+      const mid = en((base + punta) / 2, 0, zc); topX = mid.x; topY = mid.y - 6;
+    } else if (e.tipo === 'boya') {
+      const p0 = proy(m.pos[0], m.pos[1], 0.45 + 0.1 * Math.sin(t * 1.3 + ph)); if (p0.fw < 2.5) continue;
+      const r = Math.max(1.5, f * 0.55 / p0.fw), ba = proy(m.pos[0], m.pos[1], 0);
+      ctx.fillStyle = 'rgba(200,30,30,.22)'; ctx.beginPath(); ctx.ellipse(ba.x, ba.y + r * 0.9, r, r * 0.4, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#d63a2f'; ctx.beginPath(); ctx.arc(p0.x, p0.y, r, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse(p0.x, p0.y, r, r * 0.28, 0, 0, 7); ctx.fill();
+      const pt = proy(m.pos[0], m.pos[1], 2.1 + 0.1 * Math.sin(t * 1.3 + ph));
+      ctx.strokeStyle = '#59636b'; ctx.lineWidth = Math.max(1, f * 0.08 / p0.fw); ctx.beginPath(); ctx.moveTo(p0.x, p0.y - r); ctx.lineTo(pt.x, pt.y); ctx.stroke();
+      ctx.fillStyle = '#f5c518'; ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(1.2, r * 0.45), 0, 7); ctx.fill();
+      topX = pt.x; topY = pt.y - 6;
+    } else {
+      const B = elemArmarBarco(e.tipo, sem), th = (Wc ? Wc.dir * Math.PI / 180 : (sem % 628) / 100) + 0.15 * Math.sin(t * 0.35 + ph), zb = 0.08 * Math.sin(t * 1.2 + ph);
+      const sn = Math.sin(th), cs = Math.cos(th);
+      const mu = (u, v, z, esp) => proy(m.pos[0] + u * sn + v * cs, m.pos[1] + u * cs - v * sn, esp ? -(z + zb) : z + zb);
+      const girar = n => [n[0] * sn + n[1] * cs, n[0] * cs - n[1] * sn];   // normal propia → mundo
+      const caras = [];
+      let ok = true;
+      for (const c of B.caras) {
+        const P = c.p.map(q => mu(q[0], q[1], q[2], false)); if (P.some(q => q.fw < 2.5)) { ok = false; break; }
+        let luz = 1;
+        if (c.n) {
+          const nw = girar(c.n);   // el centro de la cara en el mundo, para saber si mira a la cámara
+          let wx = 0, wy = 0; for (const q of c.p) { wx += q[0]; wy += q[1]; } wx /= c.p.length; wy /= c.p.length;
+          const X = m.pos[0] + wx * sn + wy * cs, Y = m.pos[1] + wx * cs - wy * sn;
+          if (nw[0] * (cam[0] - X) + nw[1] * (cam[1] - Y) <= 0) continue;         // de espaldas
+          luz = 0.72 + 0.42 * Math.max(0, nw[0] * LUZ[0] + nw[1] * LUZ[1]);
+        }
+        caras.push({ P, col: tonoHex(c.c, luz), fw: P.reduce((s, q) => s + q.fw, 0) / P.length, c });
+      }
+      if (!ok) continue;
+      // reflejo en el agua
+      for (const c of B.caras) { const P = c.p.map(q => mu(q[0], q[1], q[2], true)); if (P.some(q => q.fw < 2.5)) continue; poli(P, tonoHex(c.c, 0.8), 0.13); }
+      for (const v of B.velas) { const P = v.p.map(q => mu(q[0], q[1], q[2], true)); if (P.some(q => q.fw < 2.5)) continue; poli(P, '#ffffff', 0.1); }
+      caras.sort((a, b) => b.fw - a.fw);
+      for (const c of caras) poli(c.P, c.col, 1);
+      for (const v of B.velas) { const P = v.p.map(q => mu(q[0], q[1], q[2], false)); if (P.some(q => q.fw < 2.5)) continue; poli(P, v.c, 0.97, '#ccd3d9'); }
+      ctx.lineCap = 'round';
+      for (const l of B.lineas) {
+        const a = mu(l.a[0], l.a[1], l.a[2], false), b = mu(l.b[0], l.b[1], l.b[2], false); if (a.fw < 2.5 || b.fw < 2.5) continue;
+        ctx.strokeStyle = l.c; ctx.lineWidth = Math.max(l.w < 0.06 ? 0.7 : 1, f * l.w / a.fw); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+      const pt = mu(0.6, 0, B.zTop, false); topX = pt.x; topY = pt.y - 6;
+    }
+    if (e.nombre && fw > 8 && fw < 260 && topY != null) etiqueta(e.nombre, topX, Math.max(12, topY));
+  }
+}
+function elemErrorDibujo(e) { console.warn(e); if (!elemErrAvisado) { elemErrAvisado = true; toast('No pude dibujar los muelles y veleros: ' + (e && e.message || e)); } }
+
+// ---- la tarjeta ----
+const elemTxt = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+function elemTipoCambio() { const t = document.getElementById('elemTipo').value; document.getElementById('elemLargoBox').style.display = t === 'muelle' ? 'block' : 'none'; }
+function elemUI() {
+  const lista = document.getElementById('elemLista'); if (!lista) return;
+  const R = rutaActiva, arr = R ? elemsDeRuta(R).slice().sort((a, b) => a.d - b.d) : [];
+  lista.innerHTML = arr.length ? arr.map(e => {
+    const T = ELEM_TIPOS[e.tipo], km = (e.d / 1000).toFixed(2).replace('.', ',');
+    return '<div class="fila" style="align-items:center; gap:6px; margin-top:6px;"><div style="flex:1; min-width:0; font-size:.9em;">' + T.icono + ' <b>' + elemTxt(e.nombre || T.nombre) + '</b><br><span style="opacity:.7">' +
+      (e.nombre ? T.nombre + ' · ' : '') + 'km ' + km + ' · ' + (e.lado > 0 ? 'izquierda' : 'derecha') + '</span></div>' +
+      '<button class="btn chico" style="flex:0 0 auto; width:auto; padding:8px 12px;" onclick="elemVer(\'' + e.id + '\')">👁</button>' +
+      '<button class="btn chico" style="flex:0 0 auto; width:auto; padding:8px 12px;" onclick="elemEditar(\'' + e.id + '\')">✏️</button>' +
+      '<button class="btn chico" style="flex:0 0 auto; width:auto; padding:8px 12px;" onclick="elemBorrar(\'' + e.id + '\')">🗑️</button></div>';
+  }).join('') : '<p class="nota" style="margin:6px 0;">Todavía no pusiste ninguno en este recorrido.</p>';
+  const b = document.getElementById('btnElemAgregar'); if (b) b.textContent = elemEditandoId ? '💾 Guardar cambios' : '➕ Poner acá';
+  const c = document.getElementById('btnElemCancelar'); if (c) c.style.display = elemEditandoId ? 'inline-block' : 'none';
+}
+// mueve la vista previa unos metros antes del elemento, así lo ves adelante
+function elemMirarA(d) {
+  const R = rutaActiva; if (!R) return;
+  rutaPreviewD = R.loop ? d - 45 : Math.max(0, d - 45); pararPlayRuta();
+  const sl = document.getElementById('sliderRuta'); if (sl) sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD));
+  renderSesionVivo();
+}
+function elemVer(id) { const e = elemsDeRuta(rutaActiva).find(x => x.id === id); if (e) elemMirarA(e.d); }
+function elemEditar(id) {
+  const e = elemsDeRuta(rutaActiva).find(x => x.id === id); if (!e) return;
+  elemEditandoId = id;
+  document.getElementById('elemTipo').value = e.tipo; document.getElementById('elemLado').value = String(e.lado);
+  document.getElementById('elemLat').value = e.lat != null ? e.lat : ''; document.getElementById('elemLargo').value = e.largo || '';
+  document.getElementById('elemNombre').value = e.nombre || ''; elemTipoCambio(); elemUI(); elemMirarA(e.d);
+  document.getElementById('elemBox').scrollIntoView({ block: 'nearest' });
+  toast('Cambiá lo que quieras y tocá "Guardar cambios". Para moverlo sobre la ruta, borralo y ponelo de nuevo.');
+}
+function elemCancelarEdicion() { elemEditandoId = null; elemUI(); }
+function elemAgregar() {
+  const R = rutaActiva; if (!R) { toast('Elegí un recorrido primero'); return; }
+  if (sesionActiva) { toast('Terminá la sesión para poner o cambiar elementos'); return; }
+  const tipo = document.getElementById('elemTipo').value, ladoSel = document.getElementById('elemLado').value;
+  const latTxt = document.getElementById('elemLat').value.trim().replace(',', '.'), lat = latTxt === '' ? null : parseFloat(latTxt);
+  if (lat !== null && !(lat >= 0 && lat <= 2000)) { toast('La distancia tiene que ser de 0 a 2000 m (o dejala vacía para que sea automática)'); return; }
+  const largoTxt = document.getElementById('elemLargo').value.trim().replace(',', '.'), largo = largoTxt === '' ? 30 : parseFloat(largoTxt);
+  if (tipo === 'muelle' && !(largo >= 4 && largo <= 200)) { toast('El largo del muelle tiene que ser de 4 a 200 m'); return; }
+  const nombre = document.getElementById('elemNombre').value.trim().slice(0, 30);
+  const lista = (elemLeerTodo()[R.nombre] || []).slice();
+  const d = Math.round(distanciaEnRuta(R, rutaPreviewD));
+  let nuevo;
+  if (elemEditandoId) {
+    const i = lista.findIndex(x => x.id === elemEditandoId); if (i < 0) { elemEditandoId = null; elemUI(); return; }
+    const lado = ladoSel === 'auto' ? elemLadoAuto(R, lista[i].d) : +ladoSel;
+    nuevo = Object.assign({}, lista[i], { tipo, lado, lat, largo: tipo === 'muelle' ? largo : null, nombre }); lista[i] = nuevo;
+  } else {
+    if (lista.length >= ELEM_MAX) { toast('Ya hay ' + ELEM_MAX + ' elementos en este recorrido: sacá alguno'); return; }
+    const lado = ladoSel === 'auto' ? elemLadoAuto(R, d) : +ladoSel, P = puntoEnRuta(R, d);
+    nuevo = { id: 'e_' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36), tipo, d, lado, lat, largo: tipo === 'muelle' ? largo : null, nombre,
+      ll: [+(R.lat0 + P[1] / R.ky).toFixed(6), +(R.lon0 + P[0] / R.kx).toFixed(6)] };
+    lista.push(nuevo);
+  }
+  if (!elemGuardarLista(R.nombre, lista)) return;
+  const editaba = !!elemEditandoId; elemEditandoId = null;
+  document.getElementById('elemNombre').value = '';
+  elemUI(); elemMirarA(nuevo.d);
+  toast((editaba ? 'Cambios guardados' : ELEM_TIPOS[tipo].nombre + ' puesto en el km ' + (nuevo.d / 1000).toFixed(2).replace('.', ',')) + (nuevo.lado > 0 ? ' · a la izquierda' : ' · a la derecha'));
+}
+function elemBorrar(id) {
+  const R = rutaActiva; if (!R) return;
+  const lista = (elemLeerTodo()[R.nombre] || []).filter(x => x.id !== id);
+  if (!confirm('¿Sacar este elemento del recorrido?')) return;
+  if (elemGuardarLista(R.nombre, lista)) { if (elemEditandoId === id) elemEditandoId = null; elemUI(); renderSesionVivo(); }
 }
 // mapita con la ruta y dónde vas, y cuánto falta
 function dibujarMapitaRuta(ctx, w, h, dTotal) {
@@ -5793,6 +6135,10 @@ function dibujarMapitaRuta(ctx, w, h, dTotal) {
   const st = Math.max(1, Math.floor(R.xy.length / 200));
   R.xy.forEach(([x, y], i) => { if (i % st && i !== R.xy.length - 1) return; const px = ox + x * sc, py = oy - y * sc; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
   ctx.stroke();
+  for (const e of elemsDeRuta(R)) { // v112: muelles, veleros y boyas en el mapita
+    const m = elemMundoC(R, e), px = ox + m.pos[0] * sc, py = oy - m.pos[1] * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) continue;
+    ctx.fillStyle = e.tipo === 'muelle' ? '#d9a066' : e.tipo === 'boya' ? '#ff5252' : '#ffffff'; ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
+  }
   const p = puntoEnRuta(R, d);
   ctx.fillStyle = '#ff7a2f'; ctx.beginPath(); ctx.arc(ox + p[0] * sc, oy - p[1] * sc, 3.6, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
@@ -5821,6 +6167,7 @@ async function renderCardRuta() {
   document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
+  try { elemEditandoId = null; elemUI(); } catch (e) { console.warn(e); } // v112
 }
 async function elegirRuta(nombre) {
   lsSet(K_RUTA_ACTIVA, nombre || null); rutaPreviewD = 0; pararPlayRuta();
@@ -5828,7 +6175,9 @@ async function elegirRuta(nombre) {
 }
 async function borrarRutaActual() {
   if (!rutaActiva) return;
-  if (!confirm('¿Borrar el recorrido "' + rutaActiva.nombre + '"? Las sesiones ya remadas no se tocan.')) return;
+  const nEl = elemsDeRuta(rutaActiva).length; // v112
+  if (!confirm('¿Borrar el recorrido "' + rutaActiva.nombre + '"' + (nEl ? ' y sus ' + nEl + ' muelles, veleros y boyas' : '') + '? Las sesiones ya remadas no se tocan.')) return;
+  if (nEl) elemGuardarLista(rutaActiva.nombre, []);
   try { await idbRutas('del', rutaActiva.nombre); } catch (e) {}
   await elegirRuta('');
   toast('Recorrido borrado');
