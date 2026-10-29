@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v114</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v115</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -175,6 +175,13 @@
       <p class="nota" id="notaMeta" style="margin-top:8px;">Al llegar a la meta, la sesión termina y se guarda sola.</p>
     </div>
 
+    <!-- v115: la animación va arriba del recorrido, así se ve mientras movés el deslizador -->
+    <div class="card" style="position:relative;">
+      <canvas id="canvasSesionVivo" height="220"></canvas>
+      <canvas id="canvasDebugColorMini" width="48" height="36"
+        style="display:none; position:absolute; right:22px; bottom:22px; width:96px; height:72px; image-rendering:pixelated; border-radius:6px; border:1px solid rgba(255,255,255,0.4); background:#000;"></canvas>
+    </div>
+
     <div class="card" id="cardRuta">
       <h2>🗺️ Recorrido</h2>
       <select id="selRuta" onchange="elegirRuta(this.value)" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto);"></select>
@@ -185,6 +192,8 @@
           <button class="btn chico" id="btnPlayRuta" onclick="togglePlayRuta()">▶ Recorrer sin remar</button>
           <button class="btn chico" onclick="borrarRutaActual()">🗑️ Borrar recorrido</button>
         </div>
+        <div class="fila" style="margin-top:6px;"><button class="btn chico" onclick="escenaCopiarDiagnostico()">📋 Copiar datos de esta vista (para mandarle a Claude si ves algo raro)</button></div>
+        <textarea id="escenaDiag" readonly style="display:none; width:100%; box-sizing:border-box; margin-top:6px; height:90px; font-size:11px; background:var(--panel2); color:var(--texto); border:1px solid var(--borde); border-radius:8px;"></textarea>
         <!-- v111: clima real del recorrido -->
         <div id="wxBox" style="margin-top:10px; padding-top:8px; border-top:1px solid var(--borde);">
           <label class="fila" style="align-items:center; gap:8px;"><input type="checkbox" id="wxOn" onchange="wxCambio()" style="width:22px;height:22px;"> 🌬️ Viento y clima reales del recorrido</label>
@@ -221,12 +230,6 @@
           <div id="elemLista"></div>
         </div>
       </div>
-    </div>
-
-    <div class="card" style="position:relative;">
-      <canvas id="canvasSesionVivo" height="220"></canvas>
-      <canvas id="canvasDebugColorMini" width="48" height="36"
-        style="display:none; position:absolute; right:22px; bottom:22px; width:96px; height:72px; image-rendering:pixelated; border-radius:6px; border:1px solid rgba(255,255,255,0.4); background:#000;"></canvas>
     </div>
 
     <div class="card">
@@ -2604,6 +2607,16 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v115: LA ANIMACIÓN ARRIBA DEL RECORRIDO + DIAGNÓSTICO DE ESCENA (Hugo: "quisiera
+         que la animación esté arriba de la barra de tiempo. Y todavía se
+         ven unos artefactos verdes que pasan por arriba del kayak"). 1) La
+         tarjeta de la animación pasó antes de la de Recorrido: se ve
+         mientras se mueve el deslizador. 2) Los artefactos verdes: con la
+         ruta de prueba (zigzag) no pude separar el error de la geometría
+         real, y sin su ruta no se puede reproducir; se agregó el botón
+         "📋 Copiar datos de esta vista" (escenaDiagnostico) que copia las
+         orillas alrededor del punto de la vista previa, para reproducirlo
+         en la compu. Pendiente hasta tener esos datos.
    v114: BARCOS DE RUMBO Y CUÑAS EN LAS ORILLAS (Hugo, con capturas del
          celular en la bahía: "empezá por esos [veleros, cargueros, cruceros,
          encallados], pero también corregí algunos artefactos del escenario").
@@ -5856,6 +5869,24 @@ function wxEncima(ctx, w, h, horizonY, R, dTotal, vel) {
   const W = wxPara(R); if (!W) return;
   const t = performance.now() / 1000, rel = wxRelativo(W, rumboCamara(R, distanciaEnRuta(R, dTotal)), t);
   wxAire(ctx, w, h, horizonY, W, rel, t, vel || 0); wxFlecha(ctx, w - 36, 36, W, rel);
+}
+// v115: diagnóstico dentro de la app (en el celular no hay herramientas de desarrollador): los datos de orillas alrededor de donde estás parado en la vista previa,
+// para poder reproducir en la compu un artefacto de la escena (cuñas, franjas) sin tener la ruta
+function escenaDiagnostico() {
+  const R = rutaActiva; if (!R) return '';
+  if (!R.orF) filtrarOrillas(R);
+  const d = distanciaEnRuta(R, rutaPreviewD || 0), i = Math.round(indiceEnRuta(R, d)), n = R.xy.length, filas = [];
+  for (let k = Math.max(0, i - 4); k <= Math.min(n - 1, i + 14); k++) {
+    const q = k * 10, f = v => isNaN(v) ? null : Math.round(v);
+    filas.push([k, Math.round(R.cum[k]), Math.round(R.xy[k][0]), Math.round(R.xy[k][1]), f(R.orF[0].d[k]), f(R.orF[0].alto[k]), f(R.orF[1].d[k]), f(R.orF[1].alto[k]), R.sh ? [R.sh[q + 4], R.sh[q + 5], R.sh[q + 6], R.sh[q + 7], R.sh[q + 8], R.sh[q + 9]] : null]);
+  }
+  return JSON.stringify({ v: (document.querySelector('.ver') || {}).textContent, ruta: R.nombre, L: Math.round(R.L), d: Math.round(d), az: Math.round(rumboCamara(R, d) * 180 / Math.PI), hz: !!R.hz, sh: !!R.sh, pf: !!R.pf,
+    elems: (R.elemsRaw || []).map(e => e.k).join(','), 'k,cum,x,y,dIzq,altoIzq,dDer,altoDer,color': filas });
+}
+function escenaCopiarDiagnostico() {
+  const t = escenaDiagnostico(), box = document.getElementById('escenaDiag'); if (!t) { toast('Elegí un recorrido primero'); return; }
+  const mostrar = () => { if (box) { box.style.display = 'block'; box.value = t; box.focus(); box.select(); } };
+  try { navigator.clipboard.writeText(t).then(() => toast('Copiado: pegalo en el chat'), () => { mostrar(); toast('Tocá el cuadro, copiá y pegalo en el chat'); }); } catch (e) { mostrar(); toast('Tocá el cuadro, copiá y pegalo en el chat'); }
 }
 function dibujarEscenaRuta(ctx, w, h, horizonY, dTotal) {
   const R = rutaActiva, t = performance.now() / 1000, d = distanciaEnRuta(R, dTotal);
