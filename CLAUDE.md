@@ -21,6 +21,7 @@ Kayak ergómetro casero de Hugo:
 - v115: la tarjeta de la animación (`canvasSesionVivo`) va **antes** de la de Recorrido (se ve al mover el deslizador). `escenaDiagnostico()` / botón "📋 Copiar datos de esta vista": copia las orillas alrededor del punto de la vista previa, para reproducir artefactos de la escena en la compu sin tener la ruta de Hugo.
 - v117: `filtrarOrillas` marca cada muestra de orilla como válida o no (`F.ok`): la distancia que manda Rumbo es la tierra más cercana en cualquier dirección y se dibuja en perpendicular; si ese punto cae sobre otro tramo de la propia ruta (giros cerrados), se descarta. Evita paneles verdes sobre el agua.
 - v118: `escenaExportar()` / botón "📦 Copiar toda la escena": la escena entera (ruta, orillas, perfil, elementos de Rumbo) como `KAYAKESC:z…`; se abre en Kayak con `#rumbo=z…` (sin el prefijo). Sirve para reproducir artefactos con la ruta real de Hugo.
+- v119: `dibujarOrillas` ya no toma por bosque un gris verdoso (`verde` exige g > 1,2·r) y no dibuja cuadritos del perfil donde la altura es 0 en ambos extremos (agua entre muelles/barcos). `R.mar` = el paquete trae `mar:1` (Rumbo limpió el relieve con la costa de OSM); la tarjeta Recorrido avisa si no.
 - Lo que se dibuja con canvas se prueba con un canvas simulado o con Playwright + `toDataURL`. Lo que es lógica pura (`aplicarInercia`, `rpmVigente`, `filtrarOrillas`…) va con Node.
 - **Nunca cambiar la pose ni las proporciones del Editor** salvo que Hugo lo pida explícitamente.
 

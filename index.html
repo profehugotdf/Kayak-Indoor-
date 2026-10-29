@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v118</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v119</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2608,6 +2608,20 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v119: ARTEFACTOS GRISES CERCA DE LOS MUELLES (Hugo pegó "Copiar toda la
+         escena": "ahí paso por abajo de esos artefactos, creo que son una
+         falla en la topografía"). Reproducido con su escena entera en el km
+         1,8: (1) dibujarOrillas tomaba por bosque cualquier color con el verde
+         apenas más alto que el rojo (umbral 1,02): el gris verdoso del muelle
+         pasaba por arbolado y subía 6 m, y a 25 m de la ruta eso era un
+         triángulo enorme. Ahora el verde tiene que ser claramente verde (1,2).
+         (2) En el perfil tierra adentro una altura 0 es agua (la tierra terminó:
+         muelle, espolón, barco), pero las muestras se unían igual y la franja
+         se estiraba como "tierra" a ras del agua hasta 700 m. Ahora un cuadrito
+         sin tierra en sus dos extremos no se dibuja. (3) Lo que queda (tierra de
+         8 a 14 m pegada a la ruta donde hay cruceros) es relieve de radar: la
+         limpieza con la costa de OpenStreetMap está en Rumbo; el paquete ahora
+         trae mar:1 si Rumbo la aplicó, y la tarjeta Recorrido lo dice.
    v118: botón "📦 Copiar toda la escena" (escenaExportar): ruta, orillas,
          perfil y elementos de Rumbo en un texto comprimido (KAYAKESC:z…),
          abrible con #rumbo=z… . Hugo mandó dos tramos (km 0,87 y 0,90, mirando
@@ -5552,6 +5566,7 @@ function decodificarRuta(o) {
     hz: o.hz && o.hz.d ? Object.assign({}, o.hz, { u: b64aU8(o.hz.d) }) : null,
     peaks: (o.peaks || []).filter(p => p && p.e > 0),
     // v113: muelles, puentes, túneles, terraplenes y desmontes que manda Rumbo, con su posición real (k, n nombre, a altura, m marcado a mano, p [lat,lon]…)
+    mar: !!o.mar,   // v119: Rumbo limpió el relieve con la costa de OpenStreetMap
     elemsRaw: (o.elems || []).filter(e => e && e.k && e.p && e.p.length >= 2).map(e => ({ k: e.k, n: e.n || '', a: e.a > 0 ? e.a : null, man: !!e.m, xy: e.p.map(q => [(q[1] - lon0) * kx, (q[0] - lat0) * ky]) })),
   };
 }
@@ -5706,7 +5721,7 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
       if (isNaN(FO.d[k]) || !FO.ok[k]) { muestras.push(null); continue; }   // v117: sin tierra, o con un punto de orilla que contradice la propia ruta
       const a = R.xy[Math.max(0, k - 3)], b = R.xy[Math.min(n - 1, k + 3)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
       const nx = -dy / l * lado, ny = dx / l * lado, B = R.xy[k], q = k * 10 + (lado > 0 ? 4 : 7), U = R.sh;
-      const col = [U[q], U[q + 1], U[q + 2]], verde = col[1] > col[0] * 1.02 && col[1] > col[2] * 0.95 && col[0] + col[1] + col[2] < 420;
+      const col = [U[q], U[q + 1], U[q + 2]], verde = col[1] > col[0] * 1.2 && col[1] > col[2] * 1.03 && col[0] + col[1] + col[2] < 420;   // v119: antes 1.02: un gris verdoso (hormigón, muelle) pasaba por bosque y subía 6 m
       const W = [];
       for (let j = 0; j < NR; j++) {
         const dd = FO.d[k] + OFF[j], z = FO.prof[k * NR + j] + (verde && j > 0 ? 6 : 0);
@@ -5721,6 +5736,11 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
       for (let j = 0; j + 1 < NR; j++) {
         const p = [a.P[j], b.P[j], b.P[j + 1], a.P[j + 1]];
         if (p[0].fw < 4 || p[1].fw < 4 || p[2].fw < 4 || p[3].fw < 4) continue;
+        // v119: altura 0 en el perfil = agua (la tierra terminó: muelle, espolón, barco). Antes se unían igual las muestras y la franja se estiraba como un
+        // triángulo gris de "tierra" a ras del agua hasta 700 m (Hugo, km 1,8 de su recorrido: "paso por abajo de esos artefactos"). Un cuadrito solo se
+        // dibuja si tiene tierra en los dos extremos (o en el de afuera si es el primero, que sale de la orilla).
+        { const z0 = Math.min(a.W[j][2], b.W[j][2]), z1 = Math.min(a.W[j + 1][2], b.W[j + 1][2]);
+          if (j === 0 ? z1 <= 0 : (z0 <= 0 || z1 <= 0) && Math.max(z0, z1) < 3) continue; }
         // luz: normal del cuadrito (siempre hacia arriba)
         const A = a.W[j], u = [b.W[j][0] - A[0], b.W[j][1] - A[1], b.W[j][2] - A[2]], v = [a.W[j + 1][0] - A[0], a.W[j + 1][1] - A[1], a.W[j + 1][2] - A[2]];
         let nn = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]; const ln = Math.hypot(...nn) || 1; nn = nn.map(x => x / ln); if (nn[2] < 0) nn = nn.map(x => -x);
@@ -5932,7 +5952,7 @@ async function escenaExportar() {
   const R = rutaActiva; if (!R) return '';
   const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i += 8192) b += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   const aLL = (x, y) => [+(R.lat0 + y / R.ky).toFixed(6), +(R.lon0 + x / R.kx).toFixed(6)];
-  const o = { name: R.nombre, loop: !!R.loop, ll: R.xy.map(p => aLL(p[0], p[1])),
+  const o = { name: R.nombre, loop: !!R.loop, mar: R.mar ? 1 : 0, ll: R.xy.map(p => aLL(p[0], p[1])),
     shore: { d: R.sh ? u8b64(R.sh) : undefined, p: R.pf ? u8b64(R.pf) : undefined, off: R.off || undefined },
     elems: (R.elemsRaw || []).map(e => ({ k: e.k, n: e.n, a: e.a, m: e.man ? 1 : 0, p: e.xy.map(q => aLL(q[0], q[1])) })) };
   const json = new TextEncoder().encode(JSON.stringify(o));
@@ -6501,7 +6521,7 @@ async function renderCardRuta() {
   sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + n.replace(/</g, '&lt;') + '</option>').join('');
   const R = rutaActiva;
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
-  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
+  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua)' : ' (sin limpiar con la costa: volvé a mandarla desde Rumbo)') : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
   try { elemEditandoId = null; elemUI(); } catch (e) { console.warn(e); } // v112
