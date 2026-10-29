@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v115</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v116</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2607,6 +2607,10 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v116: el diagnóstico de escena (v115) suma el perfil del terreno tierra
+         adentro (R.pf) y si hay clima: con los datos de Hugo de las
+         primeras muestras (km 0,025) no pude ver verde sobre el kayak
+         porque faltaban las alturas del terreno.
    v115: LA ANIMACIÓN ARRIBA DEL RECORRIDO + DIAGNÓSTICO DE ESCENA (Hugo: "quisiera
          que la animación esté arriba de la barra de tiempo. Y todavía se
          ven unos artefactos verdes que pasan por arriba del kayak"). 1) La
@@ -5878,10 +5882,10 @@ function escenaDiagnostico() {
   const d = distanciaEnRuta(R, rutaPreviewD || 0), i = Math.round(indiceEnRuta(R, d)), n = R.xy.length, filas = [];
   for (let k = Math.max(0, i - 4); k <= Math.min(n - 1, i + 14); k++) {
     const q = k * 10, f = v => isNaN(v) ? null : Math.round(v);
-    filas.push([k, Math.round(R.cum[k]), Math.round(R.xy[k][0]), Math.round(R.xy[k][1]), f(R.orF[0].d[k]), f(R.orF[0].alto[k]), f(R.orF[1].d[k]), f(R.orF[1].alto[k]), R.sh ? [R.sh[q + 4], R.sh[q + 5], R.sh[q + 6], R.sh[q + 7], R.sh[q + 8], R.sh[q + 9]] : null]);
+    filas.push([k, Math.round(R.cum[k]), Math.round(R.xy[k][0]), Math.round(R.xy[k][1]), f(R.orF[0].d[k]), f(R.orF[0].alto[k]), f(R.orF[1].d[k]), f(R.orF[1].alto[k]), R.sh ? [R.sh[q + 4], R.sh[q + 5], R.sh[q + 6], R.sh[q + 7], R.sh[q + 8], R.sh[q + 9]] : null, R.pf ? Array.from(R.pf.subarray(k * 14, k * 14 + 14)) : null]);
   }
   return JSON.stringify({ v: (document.querySelector('.ver') || {}).textContent, ruta: R.nombre, L: Math.round(R.L), d: Math.round(d), az: Math.round(rumboCamara(R, d) * 180 / Math.PI), hz: !!R.hz, sh: !!R.sh, pf: !!R.pf,
-    elems: (R.elemsRaw || []).map(e => e.k).join(','), 'k,cum,x,y,dIzq,altoIzq,dDer,altoDer,color': filas });
+    elems: (R.elemsRaw || []).map(e => e.k).join(','), wx: !!wxPara(R), sesion: !!sesionActiva, off: R.off || null, 'k,cum,x,y,dIzq,altoIzq,dDer,altoDer,color,perfil(izq7,der7; x2 m)': filas });
 }
 function escenaCopiarDiagnostico() {
   const t = escenaDiagnostico(), box = document.getElementById('escenaDiag'); if (!t) { toast('Elegí un recorrido primero'); return; }
