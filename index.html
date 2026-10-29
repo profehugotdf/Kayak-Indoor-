@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v113</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v114</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2604,6 +2604,27 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v114: BARCOS DE RUMBO Y CUÑAS EN LAS ORILLAS (Hugo, con capturas del
+         celular en la bahía: "empezá por esos [veleros, cargueros, cruceros,
+         encallados], pero también corregí algunos artefactos del escenario").
+         1) Barcos: Rumbo manda velero, carguero, crucero, lancha y barco
+         encallado (⚓) en `elems`, marcados con Calcar de popa a proa: de
+         los dos puntos salen posición, rumbo y largo (`a` = largo si se
+         cargó). barcoMundo() (pura), elemArmarBuque() (pura: carguero con
+         contenedores y casa a popa, crucero con cubiertas, encallado
+         escorado y con la proa alta), elemEscalarBarco() (velero y lancha
+         de v112 a su largo real) y dibujarBarcosRumbo(). El dibujo del
+         barco de v112 pasó a elemPintarBarco(), la misma para los dos.
+         Los de v112 puestos a mano siguen igual.
+         2) Cuñas oscuras a los costados (las capturas con la ruta en
+         zigzag, de los espolones del club): en un giro cerrado las
+         normales de la ruta se abren en abanico y dibujarOrillas() unía
+         muestras vecinas con rumbos muy distintos → cuñas enormes. Ahora
+         no une muestras cuyo rumbo cambia más de 0,5 rad (29°). Probé
+         recortar los cuadritos contra el plano cercano y empeoraba (con
+         orillas inventadas se veía tierra que estorba): se dejó como estaba.
+         No pude reproducir la franja blanca del horizonte sin su ruta:
+         pendiente.
    v113: MUELLES, PUENTES Y TERRAPLENES QUE MANDA RUMBO (Hugo, mirando el 3D
          de Rumbo: "¿cómo ubicaría los muelles en la posición correcta? ¿no
          sería bueno poner en Rumbo elementos como costa: muelle, puente,
@@ -5635,11 +5656,12 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
         const dd = FO.d[k] + OFF[j], z = FO.prof[k * NR + j] + (verde && j > 0 ? 6 : 0);
         W.push([B[0] + nx * dd, B[1] + ny * dd, j === 0 ? 0 : z]);
       }
-      muestras.push({ W, P: W.map(p => proy(p[0], p[1], p[2])), dist: FO.d[k], col, verde });
+      muestras.push({ W, P: W.map(p => proy(p[0], p[1], p[2])), dist: FO.d[k], col, verde, ang: Math.atan2(dy, dx) });
     }
     for (let i = 0; i + 1 < muestras.length; i++) {
       const a = muestras[i], b = muestras[i + 1]; if (!a || !b) continue;
       if (Math.abs(a.dist - b.dist) > 60 + 0.4 * Math.min(a.dist, b.dist)) continue;   // entrada, cabo o isla: no se une
+      { let da = Math.abs(a.ang - b.ang); if (da > Math.PI) da = 2 * Math.PI - da; if (da > 0.5) continue; }   // v114: giro cerrado (espolón, muelle de ida y vuelta): las normales se abren en abanico y la franja se veía como una cuña enorme
       for (let j = 0; j + 1 < NR; j++) {
         const p = [a.P[j], b.P[j], b.P[j + 1], a.P[j + 1]];
         if (p[0].fw < 4 || p[1].fw < 4 || p[2].fw < 4 || p[3].fw < 4) continue;
@@ -5981,8 +6003,43 @@ function elemArmarBarco(tipo, semilla) {
   }
   return { caras, velas, lineas, zTop };
 }
+// v114: pinta un barco armado (caras, velas, líneas) en pos [x,y] con rumbo th (rad desde el norte) y flotación zb. Devuelve el punto de arriba para la etiqueta, o null si no se ve entero
+function elemPintarBarco(ctx, f, cam, proy, poli, B, pos, th, zb) {
+      const sn = Math.sin(th), cs = Math.cos(th);
+      const mu = (u, v, z, esp) => proy(pos[0] + u * sn + v * cs, pos[1] + u * cs - v * sn, esp ? -(z + zb) : z + zb);
+      const girar = n => [n[0] * sn + n[1] * cs, n[0] * cs - n[1] * sn];   // normal propia → mundo
+      const caras = [];
+      let ok = true;
+      for (const c of B.caras) {
+        const P = c.p.map(q => mu(q[0], q[1], q[2], false)); if (P.some(q => q.fw < 2.5)) { ok = false; break; }
+        let luz = 1;
+        if (c.n) {
+          const nw = girar(c.n);   // el centro de la cara en el mundo, para saber si mira a la cámara
+          let wx = 0, wy = 0; for (const q of c.p) { wx += q[0]; wy += q[1]; } wx /= c.p.length; wy /= c.p.length;
+          const X = pos[0] + wx * sn + wy * cs, Y = pos[1] + wx * cs - wy * sn;
+          if (nw[0] * (cam[0] - X) + nw[1] * (cam[1] - Y) <= 0) continue;         // de espaldas
+          luz = 0.72 + 0.42 * Math.max(0, nw[0] * LUZ[0] + nw[1] * LUZ[1]);
+        }
+        caras.push({ P, col: tonoHex(c.c, luz), fw: P.reduce((s, q) => s + q.fw, 0) / P.length, c });
+      }
+      if (!ok) return null;
+      // reflejo en el agua
+      for (const c of B.caras) { const P = c.p.map(q => mu(q[0], q[1], q[2], true)); if (P.some(q => q.fw < 2.5)) continue; poli(P, tonoHex(c.c, 0.8), 0.13); }
+      for (const v of B.velas) { const P = v.p.map(q => mu(q[0], q[1], q[2], true)); if (P.some(q => q.fw < 2.5)) continue; poli(P, '#ffffff', 0.1); }
+      caras.sort((a, b) => b.fw - a.fw);
+      for (const c of caras) poli(c.P, c.col, 1);
+      for (const v of B.velas) { const P = v.p.map(q => mu(q[0], q[1], q[2], false)); if (P.some(q => q.fw < 2.5)) continue; poli(P, v.c, 0.97, '#ccd3d9'); }
+      ctx.lineCap = 'round';
+      for (const l of B.lineas) {
+        const a = mu(l.a[0], l.a[1], l.a[2], false), b = mu(l.b[0], l.b[1], l.b[2], false); if (a.fw < 2.5 || b.fw < 2.5) continue;
+        ctx.strokeStyle = l.c; ctx.lineWidth = Math.max(l.w < 0.06 ? 0.7 : 1, f * l.w / a.fw); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+      const pt = mu(0.6 * (B.esc || 1), 0, B.zTop, false); return { x: pt.x, y: pt.y - 6 };
+}
 function dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f) {
   if (R.elemsRaw && R.elemsRaw.length) { try { dibujarElemsRumbo(ctx, w, horizonY, R, d, az, f); } catch (e) { elemErrorDibujo(e); } }   // v113
+  if (R.elemsRaw && R.elemsRaw.length) { try { dibujarBarcosRumbo(ctx, w, horizonY, R, d, az, f); } catch (e) { elemErrorDibujo(e); } }   // v114
   const lista = elemsDeRuta(R); if (!lista.length) return;
   const cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)], H = RUTA_CAM_H, t = performance.now() / 1000;
   const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
@@ -6039,39 +6096,92 @@ function dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f) {
       topX = pt.x; topY = pt.y - 6;
     } else {
       const B = elemArmarBarco(e.tipo, sem), th = (Wc ? Wc.dir * Math.PI / 180 : (sem % 628) / 100) + 0.15 * Math.sin(t * 0.35 + ph), zb = 0.08 * Math.sin(t * 1.2 + ph);
-      const sn = Math.sin(th), cs = Math.cos(th);
-      const mu = (u, v, z, esp) => proy(m.pos[0] + u * sn + v * cs, m.pos[1] + u * cs - v * sn, esp ? -(z + zb) : z + zb);
-      const girar = n => [n[0] * sn + n[1] * cs, n[0] * cs - n[1] * sn];   // normal propia → mundo
-      const caras = [];
-      let ok = true;
-      for (const c of B.caras) {
-        const P = c.p.map(q => mu(q[0], q[1], q[2], false)); if (P.some(q => q.fw < 2.5)) { ok = false; break; }
-        let luz = 1;
-        if (c.n) {
-          const nw = girar(c.n);   // el centro de la cara en el mundo, para saber si mira a la cámara
-          let wx = 0, wy = 0; for (const q of c.p) { wx += q[0]; wy += q[1]; } wx /= c.p.length; wy /= c.p.length;
-          const X = m.pos[0] + wx * sn + wy * cs, Y = m.pos[1] + wx * cs - wy * sn;
-          if (nw[0] * (cam[0] - X) + nw[1] * (cam[1] - Y) <= 0) continue;         // de espaldas
-          luz = 0.72 + 0.42 * Math.max(0, nw[0] * LUZ[0] + nw[1] * LUZ[1]);
-        }
-        caras.push({ P, col: tonoHex(c.c, luz), fw: P.reduce((s, q) => s + q.fw, 0) / P.length, c });
-      }
-      if (!ok) continue;
-      // reflejo en el agua
-      for (const c of B.caras) { const P = c.p.map(q => mu(q[0], q[1], q[2], true)); if (P.some(q => q.fw < 2.5)) continue; poli(P, tonoHex(c.c, 0.8), 0.13); }
-      for (const v of B.velas) { const P = v.p.map(q => mu(q[0], q[1], q[2], true)); if (P.some(q => q.fw < 2.5)) continue; poli(P, '#ffffff', 0.1); }
-      caras.sort((a, b) => b.fw - a.fw);
-      for (const c of caras) poli(c.P, c.col, 1);
-      for (const v of B.velas) { const P = v.p.map(q => mu(q[0], q[1], q[2], false)); if (P.some(q => q.fw < 2.5)) continue; poli(P, v.c, 0.97, '#ccd3d9'); }
-      ctx.lineCap = 'round';
-      for (const l of B.lineas) {
-        const a = mu(l.a[0], l.a[1], l.a[2], false), b = mu(l.b[0], l.b[1], l.b[2], false); if (a.fw < 2.5 || b.fw < 2.5) continue;
-        ctx.strokeStyle = l.c; ctx.lineWidth = Math.max(l.w < 0.06 ? 0.7 : 1, f * l.w / a.fw); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      }
-      ctx.lineCap = 'butt';
-      const pt = mu(0.6, 0, B.zTop, false); topX = pt.x; topY = pt.y - 6;
+      const r = elemPintarBarco(ctx, f, cam, proy, poli, B, m.pos, th, zb); if (!r) continue; topX = r.x; topY = r.y;
     }
     if (e.nombre && fw > 8 && fw < 260 && topY != null) etiqueta(e.nombre, topX, Math.max(12, topY));
+  }
+}
+// ---- v114: barcos que manda Rumbo (⛵ velero, 🚢 carguero, 🛳️ crucero, 🚤 lancha, ⚓ encallado), marcados de popa a proa ----
+// El largo sale de la distancia entre los dos puntos (o del "Largo" que se cargó en Rumbo); si quedó muy corto, el largo típico del tipo.
+const BARCO_LARGO = { velero: 10, lancha: 6, carguero: 180, crucero: 250, encallado: 40 };
+const BARCO_LARGO_BASE = { velero: 9.4, lancha: 5.5 };   // largo del casco modelado en elemArmarBarco
+// pura: escala un barco armado (caras, velas, líneas) por s
+function elemEscalarBarco(B, s) {
+  const q = p => [p[0] * s, p[1] * s, p[2] * s];
+  return { caras: B.caras.map(c => Object.assign({}, c, { p: c.p.map(q) })), velas: B.velas.map(v => Object.assign({}, v, { p: v.p.map(q) })),
+    lineas: B.lineas.map(l => Object.assign({}, l, { a: q(l.a), b: q(l.b), w: l.w * s })), zTop: B.zTop * s, esc: s };
+}
+// pura: buque grande en coordenadas propias (u hacia la proa, v a estribor, z sobre el agua, m). tipo: carguero | crucero | encallado
+function elemArmarBuque(tipo, L, sem) {
+  const D0 = tipo === 'carguero' ? [[.5, 0], [.41, .075], [-.46, .075], [-.5, .06], [-.5, -.06], [-.46, -.075], [.41, -.075]]
+    : tipo === 'crucero' ? [[.5, 0], [.43, .06], [-.46, .06], [-.5, .04], [-.5, -.04], [-.46, -.06], [.43, -.06]]
+    : [[.5, 0], [.32, .11], [-.44, .12], [-.5, .09], [-.5, -.09], [-.44, -.12], [.32, -.11]];
+  const zD = L * (tipo === 'carguero' ? 0.06 : tipo === 'crucero' ? 0.045 : 0.07), zW = -0.05, tM = 0.3, zM = zW + (zD - zW) * tM;
+  const casco = tipo === 'carguero' ? '#2d3b4a' : tipo === 'crucero' ? '#f5f7f9' : '#8a4b2d', franja = tipo === 'carguero' ? '#8a2a22' : tipo === 'crucero' ? '#1d3557' : '#4a2c1c';
+  const D = D0.map(p => [p[0] * L, p[1] * L]), W = D0.map(p => [p[0] * L * 0.96, p[1] * L * 0.88]), N = D.length, caras = [], lineas = [];
+  const M = D.map((p, i) => [W[i][0] + (p[0] - W[i][0]) * tM, W[i][1] + (p[1] - W[i][1]) * tM]);
+  const normal = (a, b) => { let nu = b[1] - a[1], nv = -(b[0] - a[0]); const l = Math.hypot(nu, nv) || 1; nu /= l; nv /= l; if (nu * (a[0] + b[0]) / 2 + nv * (a[1] + b[1]) / 2 < 0) { nu = -nu; nv = -nv; } return [nu, nv]; };
+  for (let i = 0; i < N; i++) {
+    const j = (i + 1) % N, n = normal(D[i], D[j]);
+    caras.push({ p: [[D[i][0], D[i][1], zD], [D[j][0], D[j][1], zD], [M[j][0], M[j][1], zM], [M[i][0], M[i][1], zM]], c: casco, n });
+    caras.push({ p: [[M[i][0], M[i][1], zM], [M[j][0], M[j][1], zM], [W[j][0], W[j][1], zW], [W[i][0], W[i][1], zW]], c: franja, n });
+  }
+  caras.push({ p: D.map(q => [q[0], q[1], zD]), c: tipo === 'carguero' ? '#5b6670' : '#cbbd9d', n: null });
+  const caja = (u0, u1, v, z0, z1, col, techo) => {
+    u0 *= L; u1 *= L; v *= L;
+    caras.push({ p: [[u0, -v, z1], [u1, -v, z1], [u1, v, z1], [u0, v, z1]], c: techo, n: null });
+    caras.push({ p: [[u0, v, z0], [u1, v, z0], [u1, v, z1], [u0, v, z1]], c: col, n: [0, 1] });
+    caras.push({ p: [[u0, -v, z0], [u1, -v, z0], [u1, -v, z1], [u0, -v, z1]], c: col, n: [0, -1] });
+    caras.push({ p: [[u1, -v, z0], [u1, v, z0], [u1, v, z1], [u1, -v, z1]], c: col, n: [1, 0] });
+    caras.push({ p: [[u0, -v, z0], [u0, v, z0], [u0, v, z1], [u0, -v, z1]], c: col, n: [-1, 0] });
+  };
+  const ventanas = (u0, u1, v, z0, z1) => { for (const sg of [1, -1]) caras.push({ p: [[u0 * L, sg * (v * L + 0.05), z0], [u1 * L, sg * (v * L + 0.05), z0], [u1 * L, sg * (v * L + 0.05), z1], [u0 * L, sg * (v * L + 0.05), z1]], c: '#2b3f56', n: [0, sg] }); };
+  let zTop = zD;
+  if (tipo === 'carguero') {
+    const h = L * 0.03; let z = zD;
+    caja(-.45, -.36, .06, z, z += L * 0.05, '#f0f0ee', '#d9d9d6'); caja(-.445, -.375, .055, z, z += L * 0.045, '#f0f0ee', '#d9d9d6'); caja(-.44, -.385, .045, z, z += L * 0.04, '#f0f0ee', '#cfd2d4');
+    caja(-.41, -.39, .02, z, z + L * 0.04, '#8a2a22', '#6f1f19'); zTop = z + L * 0.04;
+    const col = ['#b03a2e', '#1f618d', '#d68910', '#1e8449', '#7d3c98', '#5d6d7e'];
+    for (let i = 0, u = -.31; u < .34; i++, u += .062) { const alto = L * 0.026 * (1 + ((i + sem) % 3 === 0 ? 1 : 0)); caja(u, u + .055, .056, zD, zD + alto, col[(i * 5 + sem) % col.length], '#9aa4ab'); }
+  } else if (tipo === 'crucero') {
+    let z = zD; const t = L * 0.026;
+    caja(-.40, .38, .056, z, z + t, '#f7f8fa', '#e4e8ec'); ventanas(-.39, .37, .056, z + t * 0.35, z + t * 0.7); z += t;
+    caja(-.36, .31, .05, z, z + t, '#f7f8fa', '#e4e8ec'); ventanas(-.35, .30, .05, z + t * 0.35, z + t * 0.7); z += t;
+    caja(-.30, .16, .045, z, z + t, '#f7f8fa', '#e4e8ec'); ventanas(-.29, .15, .045, z + t * 0.35, z + t * 0.7); z += t;
+    caja(-.22, .08, .035, z, z + t * 0.8, '#f7f8fa', '#e9edf0'); z += t * 0.8;
+    caja(-.08, -.03, .022, z, z + t * 1.3, '#1d3557', '#16294a'); caja(.25, .30, .03, z - t * 1.2, z - t * 0.3, '#f7f8fa', '#e4e8ec');
+    zTop = z + t * 1.3;
+  } else {   // encallado: casco herrumbrado con la timonera a popa
+    let z = zD; caja(-.40, -.20, .07, z, z += L * 0.10, '#d8d2c4', '#b9b3a4'); ventanas(-.39, -.21, .07, z - L * 0.07, z - L * 0.04); caja(-.37, -.25, .05, z, z += L * 0.05, '#cfc8b8', '#b0aa9b');
+    lineas.push({ a: [.05 * L, 0, zD], b: [.05 * L, 0, zD + L * 0.22], c: '#59636b', w: 0.25 }); lineas.push({ a: [.05 * L, 0, zD + L * 0.2], b: [.3 * L, 0, zD + 0.01 * L], c: 'rgba(70,80,90,.7)', w: 0.05 });
+    zTop = zD + L * 0.22;
+    // escorado (15°) y con la proa un poco alta, medio hundido de popa
+    const a = 0.26, ca = Math.cos(a), sa = Math.sin(a), tr = q => { const v = q[1] * ca - q[2] * sa, zz = q[1] * sa + q[2] * ca + q[0] * 0.05 - L * 0.012; return [q[0], v, zz]; };
+    for (const c of caras) c.p = c.p.map(tr);
+    for (const l of lineas) { l.a = tr(l.a); l.b = tr(l.b); }
+    zTop = tr([0, 0, zTop])[2];
+  }
+  return { caras, velas: [], lineas, zTop, esc: 1 };
+}
+// pura: de un elemento de Rumbo (e.xy de popa a proa) → { pos, th, L }
+function barcoMundo(e) {
+  const a = e.xy[0], b = e.xy[e.xy.length - 1], dx = b[0] - a[0], dy = b[1] - a[1], largo = Math.hypot(dx, dy);
+  const L = e.a > 0 ? e.a : (largo >= 3 ? largo : BARCO_LARGO[e.k] || 10);
+  return { pos: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], th: largo >= 0.5 ? Math.atan2(dx, dy) : 0, L };
+}
+function dibujarBarcosRumbo(ctx, w, horizonY, R, d, az, f) {
+  const lista = (R.elemsRaw || []).filter(e => BARCO_LARGO[e.k]); if (!lista.length) return;
+  const cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)], H = RUTA_CAM_H, t = performance.now() / 1000;
+  const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
+  const poli = (P, fill, alpha, borde) => { ctx.globalAlpha = alpha; ctx.fillStyle = fill; ctx.beginPath(); P.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+    if (borde) { ctx.strokeStyle = borde; ctx.lineWidth = 0.8; ctx.stroke(); } ctx.globalAlpha = 1; };
+  const vis = [];
+  for (const e of lista) { if (!e._b) e._b = barcoMundo(e); const m = e._b, fw = (m.pos[0] - cam[0]) * F[0] + (m.pos[1] - cam[1]) * F[1]; if (fw < -m.L || fw > 1000 + m.L * 12) continue; vis.push({ e, m, fw }); }
+  vis.sort((a, b) => b.fw - a.fw);
+  for (const { e, m, fw } of vis) {
+    if (!e._B) { const sem = elemSemilla(e.k + (e.n || '') + m.pos[0].toFixed(0) + m.pos[1].toFixed(0)); e._B = (e.k === 'velero' || e.k === 'lancha') ? elemEscalarBarco(elemArmarBarco(e.k, sem), m.L / BARCO_LARGO_BASE[e.k]) : elemArmarBuque(e.k, m.L, sem); }
+    const flota = m.L < 30 ? 0.06 * Math.sin(t * 1.2 + m.pos[0]) : 0, r = elemPintarBarco(ctx, f, cam, proy, poli, e._B, m.pos, m.th, e.k === 'encallado' ? 0 : flota);
+    if (r && e.n && fw > 8 && fw < 260 + m.L * 6) { ctx.font = '600 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,30,40,.75)'; ctx.fillStyle = '#fff'; ctx.strokeText(e.n, r.x, Math.max(12, r.y)); ctx.fillText(e.n, r.x, Math.max(12, r.y)); ctx.textAlign = 'start'; }
   }
 }
 // ---- v113: lo que manda Rumbo (con su posición real): muelles, puentes y terraplenes ----
@@ -6175,13 +6285,13 @@ function elemTipoCambio() { const t = document.getElementById('elemTipo').value;
 // "2 muelles, 1 puente" de lo que mandó Rumbo
 function elemResumenRumbo(R) {
   const c = {}; for (const e of R.elemsRaw || []) c[e.k] = (c[e.k] || 0) + 1;
-  const N = { muelle: ['muelle', 'muelles'], puente: ['puente', 'puentes'], tunel: ['túnel', 'túneles'], terraplen: ['terraplén', 'terraplenes'], desmonte: ['desmonte', 'desmontes'] };
+  const N = { muelle: ['muelle', 'muelles'], puente: ['puente', 'puentes'], tunel: ['túnel', 'túneles'], terraplen: ['terraplén', 'terraplenes'], desmonte: ['desmonte', 'desmontes'], velero: ['velero', 'veleros'], carguero: ['carguero', 'cargueros'], crucero: ['crucero', 'cruceros'], lancha: ['lancha', 'lanchas'], encallado: ['barco encallado', 'barcos encallados'] };
   return Object.entries(c).map(([k, n]) => n + ' ' + (N[k] ? N[k][n > 1 ? 1 : 0] : k)).join(', ') + ' de Rumbo';
 }
 function elemUI() {
   const lista = document.getElementById('elemLista'); if (!lista) return;
   const R = rutaActiva, arr = R ? elemsDeRuta(R).slice().sort((a, b) => a.d - b.d) : [];
-  const deRumbo = R && R.elemsRaw && R.elemsRaw.length ? '<p class="nota" style="margin:6px 0;">🧭 ' + elemResumenRumbo(R) + ': salen solos en su lugar. Se marcan y se corrigen en Rumbo (✍️ Calcar). Los veleros, lanchas y boyas se ponen acá.</p>' : '';
+  const deRumbo = R && R.elemsRaw && R.elemsRaw.length ? '<p class="nota" style="margin:6px 0;">🧭 ' + elemResumenRumbo(R) + ': salen solos en su lugar. Se marcan y se corrigen en Rumbo (✍️ Calcar). Los barcos de Rumbo (✍️ Calcar, de popa a proa) salen solos; los veleros, lanchas y boyas de acá se ponen a mano.</p>' : '';
   lista.innerHTML = deRumbo + (arr.length ? arr.map(e => {
     const T = ELEM_TIPOS[e.tipo], km = (e.d / 1000).toFixed(2).replace('.', ',');
     return '<div class="fila" style="align-items:center; gap:6px; margin-top:6px;"><div style="flex:1; min-width:0; font-size:.9em;">' + T.icono + ' <b>' + elemTxt(e.nombre || T.nombre) + '</b><br><span style="opacity:.7">' +
@@ -6261,6 +6371,10 @@ function dibujarMapitaRuta(ctx, w, h, dTotal) {
     ctx.strokeStyle = e.k === 'muelle' ? '#d9a066' : e.k === 'puente' ? '#cfd8dc' : '#c9a050'; ctx.lineWidth = e.k === 'muelle' ? 1.6 : 2.2; ctx.beginPath(); let o = false;
     for (const [x, y] of e.xy) { const px = ox + x * sc, py = oy - y * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) { o = false; continue; } o ? ctx.lineTo(px, py) : ctx.moveTo(px, py); o = true; }
     ctx.stroke();
+  }
+  for (const e of R.elemsRaw || []) { // v114: barcos de Rumbo
+    if (!BARCO_LARGO[e.k]) continue; const m = e._b || (e._b = barcoMundo(e)), px = ox + m.pos[0] * sc, py = oy - m.pos[1] * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) continue;
+    ctx.fillStyle = e.k === 'encallado' ? '#c0763a' : '#ffffff'; ctx.fillRect(px - 2, py - 2, 4, 4);
   }
   for (const e of elemsDeRuta(R)) { // v112: muelles, veleros y boyas en el mapita
     const m = elemMundoC(R, e), px = ox + m.pos[0] * sc, py = oy - m.pos[1] * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) continue;
