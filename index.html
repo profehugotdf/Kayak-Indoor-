@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v117</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v118</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -192,7 +192,8 @@
           <button class="btn chico" id="btnPlayRuta" onclick="togglePlayRuta()">▶ Recorrer sin remar</button>
           <button class="btn chico" onclick="borrarRutaActual()">🗑️ Borrar recorrido</button>
         </div>
-        <div class="fila" style="margin-top:6px;"><button class="btn chico" onclick="escenaCopiarDiagnostico()">📋 Copiar datos de esta vista (para mandarle a Claude si ves algo raro)</button></div>
+        <div class="fila" style="margin-top:6px;"><button class="btn chico" onclick="escenaCopiarDiagnostico()">📋 Copiar datos de esta vista</button></div>
+        <div class="fila" style="margin-top:6px;"><button class="btn chico" onclick="escenaCopiarTodo()">📦 Copiar toda la escena (con los barcos y muelles)</button></div>
         <textarea id="escenaDiag" readonly style="display:none; width:100%; box-sizing:border-box; margin-top:6px; height:90px; font-size:11px; background:var(--panel2); color:var(--texto); border:1px solid var(--borde); border-radius:8px;"></textarea>
         <!-- v111: clima real del recorrido -->
         <div id="wxBox" style="margin-top:10px; padding-top:8px; border-top:1px solid var(--borde);">
@@ -2607,6 +2608,12 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v118: botón "📦 Copiar toda la escena" (escenaExportar): ruta, orillas,
+         perfil y elementos de Rumbo en un texto comprimido (KAYAKESC:z…),
+         abrible con #rumbo=z… . Hugo mandó dos tramos (km 0,87 y 0,90, mirando
+         al este) "ahí está el artefacto verde", pero con esas muestras sueltas
+         no lo reproduzco: falta lo que viene más adelante en la ruta y los
+         muelles/barcos de Rumbo.
    v117: PANELES VERDES SOBRE EL AGUA (Hugo, con el diagnóstico copiado en
          km 0,44 de su recorrido en la bahía: "varios paneles verdes pasan
          por arriba o cerca del kayak cuando solo debería haber agua").
@@ -5918,6 +5925,28 @@ function escenaDiagnostico() {
   }
   return JSON.stringify({ v: (document.querySelector('.ver') || {}).textContent, ruta: R.nombre, L: Math.round(R.L), d: Math.round(d), az: Math.round(rumboCamara(R, d) * 180 / Math.PI), hz: !!R.hz, sh: !!R.sh, pf: !!R.pf,
     elems: (R.elemsRaw || []).map(e => e.k).join(','), wx: !!wxPara(R), sesion: !!sesionActiva, off: R.off || null, 'k,cum,x,y,dIzq,altoIzq,dDer,altoDer,color,perfil(izq7,der7; x2 m)': filas });
+}
+// v118: la escena completa (ruta, orillas, perfil y elementos de Rumbo) en un solo texto comprimido, para recrearla idéntica en la compu.
+// Mismo formato que el paquete de Rumbo sin horizonte ni cerros: se puede abrir con #rumbo=z… en Kayak.
+async function escenaExportar() {
+  const R = rutaActiva; if (!R) return '';
+  const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i += 8192) b += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const aLL = (x, y) => [+(R.lat0 + y / R.ky).toFixed(6), +(R.lon0 + x / R.kx).toFixed(6)];
+  const o = { name: R.nombre, loop: !!R.loop, ll: R.xy.map(p => aLL(p[0], p[1])),
+    shore: { d: R.sh ? u8b64(R.sh) : undefined, p: R.pf ? u8b64(R.pf) : undefined, off: R.off || undefined },
+    elems: (R.elemsRaw || []).map(e => ({ k: e.k, n: e.n, a: e.a, m: e.man ? 1 : 0, p: e.xy.map(q => aLL(q[0], q[1])) })) };
+  const json = new TextEncoder().encode(JSON.stringify(o));
+  if (!window.CompressionStream) return 'j' + u8b64(json);
+  const z = new Uint8Array(await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+  return 'z' + u8b64(z);
+}
+async function escenaCopiarTodo() {
+  const box = document.getElementById('escenaDiag'); let t = '';
+  try { t = await escenaExportar(); } catch (e) { toast('No pude armar la escena: ' + e.message); return; }
+  if (!t) { toast('Elegí un recorrido primero'); return; }
+  t = 'KAYAKESC:' + t;
+  const mostrar = () => { if (box) { box.style.display = 'block'; box.value = t; box.focus(); box.select(); } };
+  try { await navigator.clipboard.writeText(t); toast('Escena copiada (' + Math.round(t.length / 1024) + ' KB): pegala en el chat'); } catch (e) { mostrar(); toast('Tocá el cuadro, copiá y pegalo en el chat'); }
 }
 function escenaCopiarDiagnostico() {
   const t = escenaDiagnostico(), box = document.getElementById('escenaDiag'); if (!t) { toast('Elegí un recorrido primero'); return; }
