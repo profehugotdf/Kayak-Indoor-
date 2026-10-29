@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v116</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v117</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2607,6 +2607,21 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v117: PANELES VERDES SOBRE EL AGUA (Hugo, con el diagnóstico copiado en
+         km 0,44 de su recorrido en la bahía: "varios paneles verdes pasan
+         por arriba o cerca del kayak cuando solo debería haber agua").
+         Reproducido con sus orillas y su perfil: la distancia a la orilla
+         que manda Rumbo es la tierra más cercana en CUALQUIER dirección,
+         pero dibujarOrillas la pone siempre en perpendicular a la ruta. En
+         un giro cerrado (el recorrido vuelve sobre sí mismo) la "orilla a
+         232 m a la derecha" de una muestra caía encima de otro tramo de la
+         propia ruta, es decir sobre agua por donde ya había pasado, y se
+         dibujaba como un panel verde oscuro (+6 m de arbolado). Ahora
+         filtrarOrillas() marca cada muestra como válida (F.ok) solo si su
+         punto de orilla no queda más cerca de algún punto de la ruta que la
+         tierra más cercana de ese punto (0,7 × − 8 m); las inválidas no se
+         dibujan. Arregla los paneles en la reproducción (d = 300–390 m);
+         no cambia las escenas de prueba anteriores.
    v116: el diagnóstico de escena (v115) suma el perfil del terreno tierra
          adentro (R.pf) y si hay clima: con los datos de Hugo de las
          primeras muestras (km 0,025) no pude ver verde sobre el kayak
@@ -5639,6 +5654,23 @@ function filtrarOrillas(R) {
     }
     out.push({ d, alto, prof });
   }
+  // v117: la distancia a la orilla que manda Rumbo es "la tierra más cercana, en cualquier dirección", pero acá se dibuja siempre en perpendicular a la ruta.
+  // En un giro cerrado (el recorrido vuelve sobre sí mismo) ese punto cae sobre otro tramo de la propia ruta, o sea sobre agua por donde ya pasaste: se veía como
+  // un panel verde sobre el agua. Una muestra solo vale si su punto de orilla no queda más cerca de algún punto de la ruta que la tierra más cercana de ese punto.
+  const mind = new Float32Array(n);
+  for (let k = 0; k < n; k++) { const a0 = out[0].d[k], b0 = out[1].d[k]; mind[k] = Math.min(isNaN(a0) ? 1e9 : a0, isNaN(b0) ? 1e9 : b0); }
+  for (const lado of [0, 1]) {
+    const F = out[lado], ok = new Uint8Array(n), sg = lado === 0 ? 1 : -1;
+    for (let k = 0; k < n; k++) {
+      if (isNaN(F.d[k])) continue;
+      const a = R.xy[Math.max(0, k - 3)], b = R.xy[Math.min(n - 1, k + 3)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+      const sx = R.xy[k][0] + (-dy / l) * sg * F.d[k], sy = R.xy[k][1] + (dx / l) * sg * F.d[k];
+      let bien = 1;
+      for (let i = 0; i < n; i++) { if (mind[i] > 5e8) continue; const q = Math.hypot(R.xy[i][0] - sx, R.xy[i][1] - sy); if (q < 0.7 * mind[i] - 8) { bien = 0; break; } }
+      ok[k] = bien;
+    }
+    F.ok = ok;
+  }
   R.orF = out;
   return out;
 }
@@ -5664,7 +5696,7 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
       const adel = R.cum[k] + extra - d;
       if (adel > 3200) break;
       if ((adel > 2200 && k % 4) || (adel > 1200 && k % 2)) continue;   // lejos, menos detalle
-      if (isNaN(FO.d[k])) { muestras.push(null); continue; }
+      if (isNaN(FO.d[k]) || !FO.ok[k]) { muestras.push(null); continue; }   // v117: sin tierra, o con un punto de orilla que contradice la propia ruta
       const a = R.xy[Math.max(0, k - 3)], b = R.xy[Math.min(n - 1, k + 3)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
       const nx = -dy / l * lado, ny = dx / l * lado, B = R.xy[k], q = k * 10 + (lado > 0 ? 4 : 7), U = R.sh;
       const col = [U[q], U[q + 1], U[q + 2]], verde = col[1] > col[0] * 1.02 && col[1] > col[2] * 0.95 && col[0] + col[1] + col[2] < 420;
