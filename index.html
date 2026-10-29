@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v112</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v113</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2604,6 +2604,24 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v113: MUELLES, PUENTES Y TERRAPLENES QUE MANDA RUMBO (Hugo, mirando el 3D
+         de Rumbo: "¿cómo ubicaría los muelles en la posición correcta? ¿no
+         sería bueno poner en Rumbo elementos como costa: muelle, puente,
+         terraplén, túnel?"; y que la autopista del triatlón se represente
+         con un talud estándar). Rumbo (Calcar) marca a mano 🪵 muelle, 🌉
+         puente, 🚇 túnel, 📐 terraplén y ⛏️ desmonte con latitud y longitud
+         reales, y al mandar el recorrido también los trae de OpenStreetMap;
+         viajan en el paquete como `elems` (k tipo, n nombre, a altura, m si
+         es a mano, p [lat,lon]…). Acá: decodificarRuta los pasa al plano
+         local (elemsRaw); elemSueloZ() calcula la altura del terreno en cada
+         punto con el perfil de orillas que ya trae la ruta; se dibujan
+         después de las orillas, en perspectiva real: muelle (tablada, canto,
+         pilotes), puente (la parte de abajo, con pilares cada 30 m, altura
+         sobre el agua 8 m si no viene una) y terraplén (corona de 14 m y
+         taludes 1:2, altura 4 m si no viene una). Túnel y desmonte llegan
+         pero acá no se dibujan (se verán en Bici y Correr). También salen en
+         el mapita y en la tarjeta Recorrido. Lo de v112 (a mano) queda para
+         veleros, lanchas y boyas.
    v112: MUELLES, VELEROS, LANCHAS Y BOYAS EN EL RECORRIDO (Hugo: "agregar
          elementos al escenario como muelles o veleros, por ejemplo en la
          Bahía de Ushuaia donde entreno en un circuito frente al club cuando lo
@@ -5473,6 +5491,8 @@ function decodificarRuta(o) {
     off: o.shore && o.shore.off ? o.shore.off : null,
     hz: o.hz && o.hz.d ? Object.assign({}, o.hz, { u: b64aU8(o.hz.d) }) : null,
     peaks: (o.peaks || []).filter(p => p && p.e > 0),
+    // v113: muelles, puentes, túneles, terraplenes y desmontes que manda Rumbo, con su posición real (k, n nombre, a altura, m marcado a mano, p [lat,lon]…)
+    elemsRaw: (o.elems || []).filter(e => e && e.k && e.p && e.p.length >= 2).map(e => ({ k: e.k, n: e.n || '', a: e.a > 0 ? e.a : null, man: !!e.m, xy: e.p.map(q => [(q[1] - lon0) * kx, (q[0] - lat0) * ky]) })),
   };
 }
 // pura: índice (con fracción) del punto de la ruta a la distancia d
@@ -5962,6 +5982,7 @@ function elemArmarBarco(tipo, semilla) {
   return { caras, velas, lineas, zTop };
 }
 function dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f) {
+  if (R.elemsRaw && R.elemsRaw.length) { try { dibujarElemsRumbo(ctx, w, horizonY, R, d, az, f); } catch (e) { elemErrorDibujo(e); } }   // v113
   const lista = elemsDeRuta(R); if (!lista.length) return;
   const cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)], H = RUTA_CAM_H, t = performance.now() / 1000;
   const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
@@ -6053,22 +6074,122 @@ function dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f) {
     if (e.nombre && fw > 8 && fw < 260 && topY != null) etiqueta(e.nombre, topX, Math.max(12, topY));
   }
 }
+// ---- v113: lo que manda Rumbo (con su posición real): muelles, puentes y terraplenes ----
+// Rumbo manda cada elemento como una línea de puntos (lat/lon): marcados a mano con Calcar o de OpenStreetMap.
+// Acá se pasan al plano local, se les busca la altura del suelo (con el perfil de terreno de las orillas) y se dibujan.
+// Desmonte y túnel viajan igual pero se dibujan solo en Bici y Correr (en el agua no hay nada que mostrar).
+const ELEM_RUMBO_DEF = { puente: 8, terraplen: 4 };     // altura típica (m) cuando Rumbo no trae una
+const ELEM_TALUD = 2;                                    // talud estándar: 1 de alto por 2 de ancho (terraplén y desmonte)
+const ELEM_ANCHO = { puente: 10, terraplen: 14, muelle: 2.8 };   // ancho de la calzada o de la tablada (m)
+// pura: altura del terreno (m sobre el agua) en un punto del plano local, con el perfil que Rumbo manda tierra adentro
+function elemSueloZ(R, x, y) {
+  if (!R.sh) return 0;
+  if (!R.orF) filtrarOrillas(R);
+  const n = R.xy.length; let k = 0, md = 1e18;
+  for (let i = 0; i < n; i += 4) { const dd = (R.xy[i][0] - x) ** 2 + (R.xy[i][1] - y) ** 2; if (dd < md) { md = dd; k = i; } }
+  for (let i = Math.max(0, k - 4); i <= Math.min(n - 1, k + 4); i++) { const dd = (R.xy[i][0] - x) ** 2 + (R.xy[i][1] - y) ** 2; if (dd < md) { md = dd; k = i; } }
+  const a = R.xy[Math.max(0, k - 3)], b = R.xy[Math.min(n - 1, k + 3)], tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1;
+  const lat = ((x - R.xy[k][0]) * -ty + (y - R.xy[k][1]) * tx) / l;     // + = izquierda de la marcha, igual que dibujarOrillas
+  const F = R.orF[lat > 0 ? 0 : 1], ds = F.d[k]; if (isNaN(ds)) return 0;
+  const u = Math.abs(lat) - ds; if (u <= 0) return 0;
+  const OFF = R.off || ORILLA_OFF_DEF, NR = OFF.length;
+  for (let j = 1; j < NR; j++) if (u <= OFF[j]) { const t = (u - OFF[j - 1]) / (OFF[j] - OFF[j - 1]); return F.prof[k * NR + j - 1] * (1 - t) + F.prof[k * NR + j] * t; }
+  return F.prof[k * NR + NR - 1];
+}
+// los elementos de Rumbo ya en el plano local y con la altura del suelo en cada punto (se calcula una sola vez por ruta)
+function elemsRumbo(R) {
+  if (R._eg) return R._eg;
+  R._eg = (R.elemsRaw || []).map(e => { const xy = e.xy, zg = xy.map(p => elemSueloZ(R, p[0], p[1])); return Object.assign({}, e, { zg }); });
+  return R._eg;
+}
+function dibujarElemsRumbo(ctx, w, horizonY, R, d, az, f) {
+  const lista = elemsRumbo(R).filter(e => e.k === 'muelle' || e.k === 'puente' || e.k === 'terraplen'); if (!lista.length) return;
+  const cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)], H = RUTA_CAM_H, NEAR = 2.5;
+  const cp = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1]; return { fw: qx * F[0] + qy * F[1], rx: qx * Rt[0] + qy * Rt[1], z }; };
+  const pant = c => ({ x: w / 2 + f * c.rx / c.fw, y: horizonY + f * (H - c.z) / c.fw, fw: c.fw });
+  const recortar = P => { const out = []; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], ia = a.fw >= NEAR, ib = b.fw >= NEAR;
+    if (ia) out.push(a); if (ia !== ib) { const t = (NEAR - a.fw) / (b.fw - a.fw); out.push({ fw: NEAR, rx: a.rx + (b.rx - a.rx) * t, z: a.z + (b.z - a.z) * t }); } } return out; };
+  const poli = (P3, col, alpha) => { const P = recortar(P3.map(q => cp(q[0], q[1], q[2]))); if (P.length < 3) return; const S = P.map(pant);
+    ctx.globalAlpha = alpha == null ? 1 : alpha; ctx.fillStyle = col; ctx.beginPath(); S.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 0.8; ctx.stroke(); ctx.globalAlpha = 1; };
+  const vis = [];
+  for (const e of lista) {
+    let fmin = 1e9, fmax = -1e9; for (const p of e.xy) { const fw = (p[0] - cam[0]) * F[0] + (p[1] - cam[1]) * F[1]; fmin = Math.min(fmin, fw); fmax = Math.max(fmax, fw); }
+    if (fmax < -20 || fmin > 1100) continue;
+    vis.push({ e, fw: (fmin + fmax) / 2 });
+  }
+  vis.sort((a, b) => b.fw - a.fw);
+  for (const { e } of vis) {
+    const n = e.xy.length, h = e.a > 0 ? e.a : (ELEM_RUMBO_DEF[e.k] || 0), half = ELEM_ANCHO[e.k] / 2;
+    // normal de cada punto: promedio de los dos tramos que se juntan ahí (+ = izquierda)
+    const nm = [];
+    for (let i = 0; i < n; i++) { const a = e.xy[Math.max(0, i - 1)], b = e.xy[Math.min(n - 1, i + 1)], tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1; nm.push([-ty / l, tx / l]); }
+    // sección de la calzada: [desplazamiento a un costado, altura relativa], y color de cada tramo de la sección
+    let sec, cols, z0;
+    if (e.k === 'muelle') { sec = [[-half, 0.7], [-half, 1.0], [half, 1.0], [half, 0.7]]; cols = ['#6b5233', '#a8845a', '#6b5233']; z0 = i => 0; }
+    else if (e.k === 'puente') { sec = [[-half, 0], [-half, -1.1], [half, -1.1], [half, 0], [-half, 0]]; cols = ['#7b868c', '#5f6a70', '#7b868c', '#aab3b8']; z0 = i => Math.max(0, e.zg[i]) + h; }
+    else { const top = i => Math.max(e.zg[i], h), ex = ELEM_TALUD * h; sec = [[-half - ex, -h], [-half, 0], [half, 0], [half + ex, -h]]; cols = ['#74804c', '#585c5f', '#74804c']; z0 = top; }
+    const V = e.xy.map((p, i) => sec.map(s => { const z = e.k === 'terraplen' ? Math.max(0, z0(i) + s[1]) : z0(i) + s[1]; return [p[0] + nm[i][0] * s[0], p[1] + nm[i][1] * s[0], z]; }));
+    const P3 = [];
+    for (let i = 0; i + 1 < n; i++) for (let j = 0; j + 1 < sec.length; j++) {
+      const q = [V[i][j], V[i + 1][j], V[i + 1][j + 1], V[i][j + 1]], u = [q[1][0] - q[0][0], q[1][1] - q[0][1], q[1][2] - q[0][2]], v = [q[3][0] - q[0][0], q[3][1] - q[0][1], q[3][2] - q[0][2]];
+      let nn = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]; const ln = Math.hypot(...nn) || 1; nn = nn.map(c => c / ln); if (nn[2] < 0) nn = nn.map(c => -c);
+      const luz = e.k === 'muelle' || e.k === 'puente' ? 1 : 0.62 + 0.55 * Math.max(0, nn[0] * LUZ[0] + nn[1] * LUZ[1] + nn[2] * LUZ[2]);
+      const mf = q.reduce((s, c) => s + (c[0] - cam[0]) * F[0] + (c[1] - cam[1]) * F[1], 0) / 4;
+      P3.push({ q, col: tonoHex(cols[j], luz), fw: mf });
+    }
+    // sombra del muelle y del puente sobre el agua, y los pilotes / pilares
+    if (e.k === 'muelle' || e.k === 'puente') {
+      for (let i = 0; i + 1 < n; i++) poli([[e.xy[i][0] + nm[i][0] * half, e.xy[i][1] + nm[i][1] * half, 0], [e.xy[i + 1][0] + nm[i + 1][0] * half, e.xy[i + 1][1] + nm[i + 1][1] * half, 0],
+        [e.xy[i + 1][0] - nm[i + 1][0] * half, e.xy[i + 1][1] - nm[i + 1][1] * half, 0], [e.xy[i][0] - nm[i][0] * half, e.xy[i][1] - nm[i][1] * half, 0]], '#0a1822', 0.26);
+      const paso = e.k === 'muelle' ? 4 : 30; let acc = 0, prox = 0;
+      for (let i = 0; i + 1 < n; i++) {
+        const sl = Math.hypot(e.xy[i + 1][0] - e.xy[i][0], e.xy[i + 1][1] - e.xy[i][1]);
+        for (; prox <= acc + sl; prox += paso) {
+          const t = sl ? (prox - acc) / sl : 0, x = e.xy[i][0] + (e.xy[i + 1][0] - e.xy[i][0]) * t, y = e.xy[i][1] + (e.xy[i + 1][1] - e.xy[i][1]) * t, nx = nm[i][0], ny = nm[i][1];
+          const zt = z0(i) + (e.k === 'muelle' ? 1.0 : -1.1), zb = e.k === 'puente' ? Math.max(0, e.zg[i]) : 0;
+          if (e.k === 'muelle') for (const s of [-half + 0.15, half - 0.15]) {
+            const a = cp(x + nx * s, y + ny * s, zt), b = cp(x + nx * s, y + ny * s, 0); if (a.fw < NEAR || b.fw < NEAR) continue; const A = pant(a), B = pant(b);
+            ctx.strokeStyle = '#4a3a28'; ctx.lineWidth = Math.max(1, f * 0.22 / a.fw); ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+          } else if (zt - zb > 1) { const r = 0.9, tx = -ny, ty = nx;     // pilar: caja de 1,8 m
+            const c = [[-r, -r], [r, -r], [r, r], [-r, r]].map(([a, b]) => [x + nx * a + tx * b, y + ny * a + ty * b]);
+            for (let k = 0; k < 4; k++) { const A = c[k], B = c[(k + 1) % 4]; P3.push({ q: [[A[0], A[1], zb], [B[0], B[1], zb], [B[0], B[1], zt], [A[0], A[1], zt]], col: tonoHex('#8a949a', 0.75 + 0.1 * k), fw: Math.hypot(x - cam[0], y - cam[1]) - 0.1 }); }
+          }
+        }
+        acc += sl;
+      }
+    }
+    P3.sort((a, b) => b.fw - a.fw);
+    for (const p of P3) poli(p.q, p.col);
+    if (e.n) {
+      const m = e.xy[n >> 1], c = cp(m[0], m[1], z0(n >> 1) + 2);
+      if (c.fw > 8 && c.fw < 260) { const S = pant(c); ctx.font = '600 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,30,40,.75)'; ctx.fillStyle = '#fff'; ctx.strokeText(e.n, S.x, Math.max(12, S.y - 6)); ctx.fillText(e.n, S.x, Math.max(12, S.y - 6)); ctx.textAlign = 'start'; }
+    }
+  }
+}
 function elemErrorDibujo(e) { console.warn(e); if (!elemErrAvisado) { elemErrAvisado = true; toast('No pude dibujar los muelles y veleros: ' + (e && e.message || e)); } }
 
 // ---- la tarjeta ----
 const elemTxt = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 function elemTipoCambio() { const t = document.getElementById('elemTipo').value; document.getElementById('elemLargoBox').style.display = t === 'muelle' ? 'block' : 'none'; }
+// "2 muelles, 1 puente" de lo que mandó Rumbo
+function elemResumenRumbo(R) {
+  const c = {}; for (const e of R.elemsRaw || []) c[e.k] = (c[e.k] || 0) + 1;
+  const N = { muelle: ['muelle', 'muelles'], puente: ['puente', 'puentes'], tunel: ['túnel', 'túneles'], terraplen: ['terraplén', 'terraplenes'], desmonte: ['desmonte', 'desmontes'] };
+  return Object.entries(c).map(([k, n]) => n + ' ' + (N[k] ? N[k][n > 1 ? 1 : 0] : k)).join(', ') + ' de Rumbo';
+}
 function elemUI() {
   const lista = document.getElementById('elemLista'); if (!lista) return;
   const R = rutaActiva, arr = R ? elemsDeRuta(R).slice().sort((a, b) => a.d - b.d) : [];
-  lista.innerHTML = arr.length ? arr.map(e => {
+  const deRumbo = R && R.elemsRaw && R.elemsRaw.length ? '<p class="nota" style="margin:6px 0;">🧭 ' + elemResumenRumbo(R) + ': salen solos en su lugar. Se marcan y se corrigen en Rumbo (✍️ Calcar). Los veleros, lanchas y boyas se ponen acá.</p>' : '';
+  lista.innerHTML = deRumbo + (arr.length ? arr.map(e => {
     const T = ELEM_TIPOS[e.tipo], km = (e.d / 1000).toFixed(2).replace('.', ',');
     return '<div class="fila" style="align-items:center; gap:6px; margin-top:6px;"><div style="flex:1; min-width:0; font-size:.9em;">' + T.icono + ' <b>' + elemTxt(e.nombre || T.nombre) + '</b><br><span style="opacity:.7">' +
       (e.nombre ? T.nombre + ' · ' : '') + 'km ' + km + ' · ' + (e.lado > 0 ? 'izquierda' : 'derecha') + '</span></div>' +
       '<button class="btn chico" style="flex:0 0 auto; width:auto; padding:8px 12px;" onclick="elemVer(\'' + e.id + '\')">👁</button>' +
       '<button class="btn chico" style="flex:0 0 auto; width:auto; padding:8px 12px;" onclick="elemEditar(\'' + e.id + '\')">✏️</button>' +
       '<button class="btn chico" style="flex:0 0 auto; width:auto; padding:8px 12px;" onclick="elemBorrar(\'' + e.id + '\')">🗑️</button></div>';
-  }).join('') : '<p class="nota" style="margin:6px 0;">Todavía no pusiste ninguno en este recorrido.</p>';
+  }).join('') : '<p class="nota" style="margin:6px 0;">Todavía no pusiste ninguno en este recorrido.</p>');
   const b = document.getElementById('btnElemAgregar'); if (b) b.textContent = elemEditandoId ? '💾 Guardar cambios' : '➕ Poner acá';
   const c = document.getElementById('btnElemCancelar'); if (c) c.style.display = elemEditandoId ? 'inline-block' : 'none';
 }
@@ -6135,6 +6256,12 @@ function dibujarMapitaRuta(ctx, w, h, dTotal) {
   const st = Math.max(1, Math.floor(R.xy.length / 200));
   R.xy.forEach(([x, y], i) => { if (i % st && i !== R.xy.length - 1) return; const px = ox + x * sc, py = oy - y * sc; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
   ctx.stroke();
+  for (const e of R.elemsRaw || []) { // v113: lo de Rumbo, con su forma
+    if (e.k !== 'muelle' && e.k !== 'puente' && e.k !== 'terraplen') continue;
+    ctx.strokeStyle = e.k === 'muelle' ? '#d9a066' : e.k === 'puente' ? '#cfd8dc' : '#c9a050'; ctx.lineWidth = e.k === 'muelle' ? 1.6 : 2.2; ctx.beginPath(); let o = false;
+    for (const [x, y] of e.xy) { const px = ox + x * sc, py = oy - y * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) { o = false; continue; } o ? ctx.lineTo(px, py) : ctx.moveTo(px, py); o = true; }
+    ctx.stroke();
+  }
   for (const e of elemsDeRuta(R)) { // v112: muelles, veleros y boyas en el mapita
     const m = elemMundoC(R, e), px = ox + m.pos[0] * sc, py = oy - m.pos[1] * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) continue;
     ctx.fillStyle = e.tipo === 'muelle' ? '#d9a066' : e.tipo === 'boya' ? '#ff5252' : '#ffffff'; ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
@@ -6164,7 +6291,7 @@ async function renderCardRuta() {
   sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + n.replace(/</g, '&lt;') + '</option>').join('');
   const R = rutaActiva;
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
-  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
+  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
   try { elemEditandoId = null; elemUI(); } catch (e) { console.warn(e); } // v112
