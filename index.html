@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v121</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v122</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2608,6 +2608,18 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v122: 🛣️ CALLES Y COSTANERA, ⛰️ ACANTILADOS (Hugo: "¿sumar costanera, calles
+         y acantilados donde hubiera?"). Rumbo trae de OpenStreetMap las calles
+         hasta 1,5 km de la ruta (máx. 500 tramos / 7000 puntos) y las manda como
+         `calles`: [clase, [[lat,lon]…]] (1 avenida/ruta, donde suele estar la
+         costanera; 2 calle; 3 servicio; 4 peatonal). Kayak las dibuja
+         (callesPara + callesCaras) como cintas de ancho según la clase,
+         pegadas al suelo del perfil de orillas y cortadas cada ~14 m, dentro
+         de la misma lista de caras que el terreno y los edificios. Los
+         acantilados no viajan: dibujarOrillas mira la pendiente de cada tramo
+         del perfil de orillas y, pasada ~29°, tira el color hacia la roca y lo
+         oscurece (más fuerte cuanto más vertical). Probado con calles
+         inventadas sobre la ruta real de Hugo.
    v121: 🏘️ ZONAS URBANAS DE LA COSTA (Hugo: "¿se puede representar las zonas
          urbanas de la costa?"). Rumbo trae de OpenStreetMap los edificios hasta
          1,5 km de la ruta (los 900 más cercanos), cada uno resumido en un
@@ -5594,6 +5606,7 @@ function decodificarRuta(o) {
     peaks: (o.peaks || []).filter(p => p && p.e > 0),
     // v113: muelles, puentes, túneles, terraplenes y desmontes que manda Rumbo, con su posición real (k, n nombre, a altura, m marcado a mano, p [lat,lon]…)
     edifRaw: Array.isArray(o.edif) ? o.edif.filter(b => Array.isArray(b) && b.length >= 7 && b[0] > 0) : [],   // v121: edificios de la costa [altura, real, lat, lon, ancho, fondo, rumbo°]
+    callesRaw: Array.isArray(o.calles) ? o.calles.filter(c => Array.isArray(c) && c.length >= 2 && Array.isArray(c[1]) && c[1].length >= 2) : [],   // v122: calles [clase, [[lat,lon]…]]
     mar: !!o.mar,   // v119: Rumbo limpió el relieve con la costa de OpenStreetMap
     elemsRaw: (o.elems || []).filter(e => e && e.k && e.p && e.p.length >= 2).map(e => ({ k: e.k, n: e.n || '', a: e.a > 0 ? e.a : null, man: !!e.m, xy: e.p.map(q => [(q[1] - lon0) * kx, (q[0] - lat0) * ky]) })),
   };
@@ -5776,6 +5789,37 @@ function edifCaras(R, quads, proy, cam, F, cielo, w) {
     } else quads.push({ fw: fr, p: [P1[0], P1[1], P1[2], P1[3]], c: col(b.pared, 1.0, nb) });
   }
 }
+// ---- v122: calles y costanera (de OpenStreetMap, las manda Rumbo como `calles`: [clase, [[lat,lon]…]]; 1 avenida, 2 calle, 3 servicio, 4 peatonal) ----
+// Cintas pegadas al suelo (altura del perfil de orillas), cortadas cada ~14 m para que sigan el terreno. Entran a la misma lista que el terreno y los edificios.
+const CALLE_ANCHO = { 1: 9, 2: 6, 3: 3.5, 4: 2.2 }, CALLE_COLOR = { 1: '#44484d', 2: '#575a5e', 3: '#6b6c6c', 4: '#bdb6a6' }, CALLE_VIS = { 1: 2600, 2: 1700, 3: 800, 4: 600 };
+function callesPara(R) {
+  if (R._calles) return R._calles;
+  const out = [];
+  for (const c of (R.callesRaw || [])) {
+    const xy = c[1].map(q => [(q[1] - R.lon0) * R.kx, (q[0] - R.lat0) * R.ky]), pts = [];
+    for (let i = 0; i + 1 < xy.length; i++) {
+      const a = xy[i], b = xy[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(l / 14));
+      for (let k = (i ? 1 : 0); k <= n; k++) { const t = k / n, x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t; pts.push([x, y, Math.max(0, elemSueloZ(R, x, y)) + 0.08]); }
+    }
+    if (pts.length >= 2) out.push({ cl: c[0] | 0 || 2, pts });
+  }
+  R._calles = out; return out;
+}
+function callesCaras(R, quads, proy, cam, F, cielo, w) {
+  const C = callesPara(R); if (!C.length) return;
+  for (const c of C) {
+    const half = (CALLE_ANCHO[c.cl] || 4) / 2, vis = CALLE_VIS[c.cl] || 800, n = c.pts.length, hex = CALLE_COLOR[c.cl] || '#575a5e', num = parseInt(hex.slice(1), 16);
+    for (let i = 0; i + 1 < n; i++) {
+      const a = c.pts[i], b = c.pts[i + 1], fa = (a[0] - cam[0]) * F[0] + (a[1] - cam[1]) * F[1], fb = (b[0] - cam[0]) * F[0] + (b[1] - cam[1]) * F[1], fm = (fa + fb) / 2;
+      if (fm < 6 || fm > vis || fa < 3 || fb < 3) continue;
+      const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy / l * half, ny = dx / l * half;
+      const P = [proy(a[0] + nx, a[1] + ny, a[2]), proy(b[0] + nx, b[1] + ny, b[2]), proy(b[0] - nx, b[1] - ny, b[2]), proy(a[0] - nx, a[1] - ny, a[2])];
+      let x0 = 1e9, x1 = -1e9; for (const q of P) { x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); } if (x1 < -200 || x0 > w + 200) continue;
+      const nb = Math.min(0.8, fm / 3600), k = 1.0, m = (x, j) => Math.round(Math.min(255, x * k) * (1 - nb) + cielo[j] * nb);
+      quads.push({ fw: fm - 8, p: P, c: 'rgb(' + m(num >> 16 & 255, 0) + ',' + m(num >> 8 & 255, 1) + ',' + m(num & 255, 2) + ')' });   // -8: va un poco después que el terreno de su misma distancia
+    }
+  }
+}
 function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
   if (!R.orF) filtrarOrillas(R);
   const n = R.xy.length, cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)];
@@ -5819,7 +5863,10 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
         let nn = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]; const ln = Math.hypot(...nn) || 1; nn = nn.map(x => x / ln); if (nn[2] < 0) nn = nn.map(x => -x);
         const luz = 0.62 + 0.55 * Math.max(0, nn[0] * LUZ[0] + nn[1] * LUZ[1] + nn[2] * LUZ[2]) - (j === 0 && a.verde ? 0.18 : 0);
         const fw = (p[0].fw + p[1].fw + p[2].fw + p[3].fw) / 4, nb = Math.min(0.8, fw / 3600);
-        const c = a.col.map((x, m) => Math.round(Math.min(255, x * 1.08 * luz) * (1 - nb) + cielo[m] * nb));
+        // v122: acantilado / barranca = tramo del perfil con pendiente fuerte (más de ~29°): se tira el color hacia la roca y se oscurece
+        const sub = Math.abs(((a.W[j + 1][2] + b.W[j + 1][2]) - (a.W[j][2] + b.W[j][2])) / 2) / Math.max(1, OFF[j + 1] - OFF[j]), roca = Math.max(0, Math.min(1, (sub - 0.5) / 0.4));
+        const base = roca > 0 ? a.col.map((x, m) => x * (1 - 0.7 * roca) + [118, 104, 94][m] * 0.7 * roca) : a.col;
+        const c = base.map((x, m) => Math.round(Math.min(255, x * 1.08 * (luz * (1 - 0.25 * roca))) * (1 - nb) + cielo[m] * nb));
         quads.push({ fw, p, c: 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')' });
         if (j === 0 && fw < 1500) { // reflejo de la primera franja en el agua
           const r = [a.W[0], b.W[0], b.W[1], a.W[1]].map(P => proy(P[0], P[1], -P[2] * 0.6));
@@ -5829,7 +5876,7 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
       if (a.P[0].fw < 400 && b.P[0].fw > 4 && a.P[0].fw > 4) quads.push({ fw: a.P[0].fw - 0.01, espuma: [a.P[0], b.P[0]], i });
     }
   }
-  try { edifCaras(R, quads, proy, cam, F, cielo, w); } catch (e) { elemErrorDibujo(e); }   // v121
+  try { callesCaras(R, quads, proy, cam, F, cielo, w); edifCaras(R, quads, proy, cam, F, cielo, w); } catch (e) { elemErrorDibujo(e); }   // v121 edificios, v122 calles
   quads.sort((x, y) => y.fw - x.fw);
   ctx.lineJoin = 'round';
   for (const q of quads) {
@@ -6026,7 +6073,7 @@ async function escenaExportar() {
   const R = rutaActiva; if (!R) return '';
   const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i += 8192) b += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   const aLL = (x, y) => [+(R.lat0 + y / R.ky).toFixed(6), +(R.lon0 + x / R.kx).toFixed(6)];
-  const o = { name: R.nombre, loop: !!R.loop, mar: R.mar ? 1 : 0, edif: R.edifRaw && R.edifRaw.length ? R.edifRaw : undefined, ll: R.xy.map(p => aLL(p[0], p[1])),
+  const o = { name: R.nombre, loop: !!R.loop, mar: R.mar ? 1 : 0, edif: R.edifRaw && R.edifRaw.length ? R.edifRaw : undefined, calles: R.callesRaw && R.callesRaw.length ? R.callesRaw : undefined, ll: R.xy.map(p => aLL(p[0], p[1])),
     shore: { d: R.sh ? u8b64(R.sh) : undefined, p: R.pf ? u8b64(R.pf) : undefined, off: R.off || undefined },
     elems: (R.elemsRaw || []).map(e => ({ k: e.k, n: e.n, a: e.a, m: e.man ? 1 : 0, p: e.xy.map(q => aLL(q[0], q[1])) })) };
   const json = new TextEncoder().encode(JSON.stringify(o));
@@ -6619,7 +6666,7 @@ async function renderCardRuta() {
   sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + n.replace(/</g, '&lt;') + '</option>').join('');
   const R = rutaActiva;
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
-  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua)' : ' (sin limpiar con la costa: volvé a mandarla desde Rumbo)') : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
+  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua)' : ' (sin limpiar con la costa: volvé a mandarla desde Rumbo)') : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
   try { elemEditandoId = null; elemUI(); } catch (e) { console.warn(e); } // v112
