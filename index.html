@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v119</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v120</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2608,6 +2608,18 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v120: BARCOS Y MUELLES DIBUJADOS COMO CONTORNO CERRADO (Hugo pegó la
+         escena de su "Ruta en kayak" y dijo: "el kayak pasa por encima del
+         barco encallado, también atraviesa el muelle comercial, o los cruceros
+         no coinciden con el amarre"). Decodificada: los 13 elementos son
+         contornos cerrados (el último punto vuelve al primero: así se traza un
+         casco sobre la foto satelital), pero Kayak los leía como una línea de
+         popa (1.er punto) a proa (último), o sea el mismo punto: el barco
+         quedaba sin rumbo ni largo y los muelles se dibujaban como un lazo de
+         tablones de 2,8 m. Ahora un contorno cerrado de barco se resuelve por
+         componentes principales (largo, ancho y rumbo; la proa es el extremo
+         más angosto) y uno de muelle se dibuja como plataforma rellena.
+         Líneas abiertas: igual que antes.
    v119: ARTEFACTOS GRISES CERCA DE LOS MUELLES (Hugo pegó "Copiar toda la
          escena": "ahí paso por abajo de esos artefactos, creo que son una
          falla en la topografía"). Reproducido con su escena entera en el km
@@ -6279,8 +6291,25 @@ function elemArmarBuque(tipo, L, sem) {
   }
   return { caras, velas: [], lineas, zTop, esc: 1 };
 }
-// pura: de un elemento de Rumbo (e.xy de popa a proa) → { pos, th, L }
+// pura: ¿la lista de puntos es un contorno cerrado (el último vuelve al primero)? Así dibuja Hugo los barcos y muelles sobre la foto satelital.
+function elemEsAnillo(xy) { return !!xy && xy.length >= 4 && Math.hypot(xy[0][0] - xy[xy.length - 1][0], xy[0][1] - xy[xy.length - 1][1]) < 1.5; }
+// pura: de un contorno cerrado → { pos (centro), th (rumbo de popa a proa, como atan2(dx,dy)), L (largo), W (ancho) }.
+// Eje principal por componentes principales de los puntos del borde (cada ~1 m); la proa es el extremo más angosto.
+function elemAnilloEje(xy) {
+  const P = []; for (let i = 0; i + 1 < xy.length; i++) { const a = xy[i], b = xy[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(l)); for (let k = 0; k < n; k++) P.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); }
+  let cx = 0, cy = 0; for (const q of P) { cx += q[0]; cy += q[1]; } cx /= P.length; cy /= P.length;
+  let sxx = 0, syy = 0, sxy = 0; for (const q of P) { const x = q[0] - cx, y = q[1] - cy; sxx += x * x; syy += y * y; sxy += x * y; }
+  const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(ang), uy = Math.sin(ang), vx = -uy, vy = ux;
+  let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9; const A = P.map(q => { const x = q[0] - cx, y = q[1] - cy, a = x * ux + y * uy, b = x * vx + y * vy; a0 = Math.min(a0, a); a1 = Math.max(a1, a); b0 = Math.min(b0, b); b1 = Math.max(b1, b); return [a, b]; });
+  const L = a1 - a0, W = b1 - b0, tr = L * 0.25;
+  const ancho = fn => { let lo = 1e9, hi = -1e9; for (const q of A) if (fn(q[0])) { lo = Math.min(lo, q[1]); hi = Math.max(hi, q[1]); } return hi - lo; };
+  const wMas = ancho(a => a > a1 - tr), wMenos = ancho(a => a < a0 + tr), sg = wMas <= wMenos ? 1 : -1;   // proa = el extremo más angosto
+  const mid = (a0 + a1) / 2, ox = cx + ux * mid, oy = cy + uy * mid;
+  return { pos: [ox, oy], th: Math.atan2(ux * sg, uy * sg), L, W };
+}
+// pura: de un elemento de Rumbo (e.xy de popa a proa, o un contorno cerrado) → { pos, th, L }
 function barcoMundo(e) {
+  if (elemEsAnillo(e.xy)) { const m = elemAnilloEje(e.xy); return { pos: m.pos, th: m.th, L: e.a > 0 ? e.a : Math.max(3, m.L), W: m.W }; }
   const a = e.xy[0], b = e.xy[e.xy.length - 1], dx = b[0] - a[0], dy = b[1] - a[1], largo = Math.hypot(dx, dy);
   const L = e.a > 0 ? e.a : (largo >= 3 ? largo : BARCO_LARGO[e.k] || 10);
   return { pos: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], th: largo >= 0.5 ? Math.atan2(dx, dy) : 0, L };
@@ -6346,6 +6375,13 @@ function dibujarElemsRumbo(ctx, w, horizonY, R, d, az, f) {
   }
   vis.sort((a, b) => b.fw - a.fw);
   for (const { e } of vis) {
+    if (e.k === 'muelle' && elemEsAnillo(e.xy)) {   // v120: muelle dibujado como contorno cerrado = plataforma rellena (cubierta a 1 m, con los costados y su sombra)
+      const V = e.xy.slice(0, -1);
+      poli(V.map(q => [q[0], q[1], 0]), '#0a1822', 0.26);
+      const lados = []; for (let i = 0; i < V.length; i++) { const a = V[i], b = V[(i + 1) % V.length]; lados.push({ q: [[a[0], a[1], 0], [b[0], b[1], 0], [b[0], b[1], 1], [a[0], a[1], 1]], fw: ((a[0] + b[0]) / 2 - cam[0]) * F[0] + ((a[1] + b[1]) / 2 - cam[1]) * F[1] }); }
+      lados.sort((a, b) => b.fw - a.fw); for (const l of lados) poli(l.q, '#6b5233');
+      poli(V.map(q => [q[0], q[1], 1]), '#a8845a'); continue;
+    }
     const n = e.xy.length, h = e.a > 0 ? e.a : (ELEM_RUMBO_DEF[e.k] || 0), half = ELEM_ANCHO[e.k] / 2;
     // normal de cada punto: promedio de los dos tramos que se juntan ahí (+ = izquierda)
     const nm = [];
