@@ -120,7 +120,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v122</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v123</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -175,12 +175,30 @@
       <p class="nota" id="notaMeta" style="margin-top:8px;">Al llegar a la meta, la sesión termina y se guarda sola.</p>
     </div>
 
-    <!-- v115: la animación va arriba del recorrido, así se ve mientras movés el deslizador -->
+    <div class="card">
+      <p class="nota" id="chequeoPreSesion" style="margin-bottom:10px;"></p>
+      <button class="btn primario" id="btnIniciar" onclick="iniciarSesion()">Iniciar sesión</button>
+      <button class="btn peligro" id="btnFinalizar" style="display:none;" onclick="finalizarSesion()">Finalizar sesión</button>
+    </div>
+
+    <!-- v123: la tarjeta de iniciar sesión va arriba de la animación, y los datos en vivo (el HUD) dentro de la pantalla de la animación -->
     <div class="card" style="position:relative;">
       <canvas id="canvasSesionVivo" height="220"></canvas>
       <canvas id="canvasDebugColorMini" width="48" height="36"
         style="display:none; position:absolute; right:22px; bottom:22px; width:96px; height:72px; image-rendering:pixelated; border-radius:6px; border:1px solid rgba(255,255,255,0.4); background:#000;"></canvas>
+      <div class="hud-grid" style="margin-top:10px;">
+        <div class="hud-tile cad"><div class="val" id="hudCadencia">--</div><div class="lbl">Paladas/min</div></div>
+        <div class="hud-tile pulso"><div class="val" id="hudPulso">--</div><div class="lbl">Pulso</div></div>
+        <div class="hud-tile"><div class="val" id="hudDistancia">--</div><div class="lbl">Distancia est. (m)</div></div>
+        <div class="hud-tile"><div class="val" id="hudVelocidad">--</div><div class="lbl">Velocidad (km/h)</div></div>
+        <div class="hud-tile"><div class="val" id="hudRPMSesion">--</div><div class="lbl">RPM velocímetro</div></div>
+        <div class="hud-tile"><div class="val" id="hudTiempo">00:00</div><div class="lbl">Tiempo</div></div>
+        <div class="hud-tile" style="grid-column:span 2;"><div class="val" id="hudFantasma">--</div><div class="lbl">vs. fantasma 👻</div></div>
+      </div>
+      <p class="nota" id="estadoDeteccionCamaraHUD" style="margin-top:8px;"></p>
+      <div class="nota" style="margin-top:10px;" id="notaCalib"></div>
     </div>
+
 
     <div class="card" id="cardRuta">
       <h2>🗺️ Recorrido</h2>
@@ -233,26 +251,6 @@
       </div>
     </div>
 
-    <div class="card">
-      <h2>En vivo</h2>
-      <div class="hud-grid">
-        <div class="hud-tile cad"><div class="val" id="hudCadencia">--</div><div class="lbl">Paladas/min</div></div>
-        <div class="hud-tile pulso"><div class="val" id="hudPulso">--</div><div class="lbl">Pulso</div></div>
-        <div class="hud-tile"><div class="val" id="hudDistancia">--</div><div class="lbl">Distancia est. (m)</div></div>
-        <div class="hud-tile"><div class="val" id="hudVelocidad">--</div><div class="lbl">Velocidad (km/h)</div></div>
-        <div class="hud-tile"><div class="val" id="hudRPMSesion">--</div><div class="lbl">RPM velocímetro</div></div>
-        <div class="hud-tile"><div class="val" id="hudTiempo">00:00</div><div class="lbl">Tiempo</div></div>
-        <div class="hud-tile" style="grid-column:span 2;"><div class="val" id="hudFantasma">--</div><div class="lbl">vs. fantasma 👻</div></div>
-      </div>
-      <p class="nota" id="estadoDeteccionCamaraHUD" style="margin-top:8px;"></p>
-      <div class="nota" style="margin-top:10px;" id="notaCalib"></div>
-    </div>
-
-    <div class="card">
-      <p class="nota" id="chequeoPreSesion" style="margin-bottom:10px;"></p>
-      <button class="btn primario" id="btnIniciar" onclick="iniciarSesion()">Iniciar sesión</button>
-      <button class="btn peligro" id="btnFinalizar" style="display:none;" onclick="finalizarSesion()">Finalizar sesión</button>
-    </div>
   </section>
 
   <!-- ============ CALIBRACIÓN ============ -->
@@ -2608,6 +2606,13 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v123: 📱 PANTALLA DE SESIÓN (Hugo: "quiero que la tarjeta de iniciar sesión esté
+         arriba de la animación y todos los datos del hub en la pantalla de
+         animación"). La tarjeta de Iniciar/Finalizar sesión (con el chequeo previo)
+         pasó justo arriba de la animación, y la tarjeta "En vivo" (paladas/min,
+         pulso, distancia, velocidad, RPM, tiempo, fantasma y los avisos de cámara
+         y calibración) pasó adentro de la tarjeta de la animación, debajo del
+         dibujo. Solo se movió el HTML: los ids son los mismos, así que nada del JS cambia.
    v122: 🛣️ CALLES Y COSTANERA, ⛰️ ACANTILADOS (Hugo: "¿sumar costanera, calles
          y acantilados donde hubiera?"). Rumbo trae de OpenStreetMap las calles
          hasta 1,5 km de la ruta (máx. 500 tramos / 7000 puntos) y las manda como
