@@ -138,7 +138,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v125</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v126</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2627,6 +2627,17 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v126: 🌊 AGUA SIN ARTEFACTOS Y BUQUES NAVALES (Hugo, con una escena nueva con mar:0:
+         "siguen los artefactos verdes producto de la topografía errónea que recibe
+         Rumbo. ¿Se puede hacer que lo que esté definido como agua no permita nada
+         encima de la superficie salvo lo que definimos nosotros? Barcos, muelles, etc").
+         Del lado de Rumbo: lo definido como muelle o barco (a mano u OpenStreetMap)
+         reemplaza al relieve de abajo, y una orilla solo cuenta si la tierra sigue
+         siéndolo a +12, +45 y +90 m (un barco o muelle angosto no es orilla). Acá: Rumbo
+         ahora manda marWhy (por qué no pudo limpiar con la costa) y la tarjeta
+         Recorrido lo muestra cuando mar es 0. Además: el tipo "naval" que Rumbo ya manda
+         (buques de las fuerzas navales, 9 en su escena) no se dibujaba: ahora sí, casco
+         gris con puente, mástil, cañón a proa y helipuerto a popa (BARCO_LARGO naval = 110 m).
    v125: 📐 ANIMACIÓN DE BORDE A BORDE (Hugo: "quiero que la pantalla de animación
          ocupe todo el ancho posible de la pantalla, respetando el ratio").
          La tarjeta de la animación (.card-anim) se estira con márgenes negativos
@@ -5671,6 +5682,7 @@ function decodificarRuta(o) {
     // v113: muelles, puentes, túneles, terraplenes y desmontes que manda Rumbo, con su posición real (k, n nombre, a altura, m marcado a mano, p [lat,lon]…)
     edifRaw: Array.isArray(o.edif) ? o.edif.filter(b => Array.isArray(b) && b.length >= 7 && b[0] > 0) : [],   // v121: edificios de la costa [altura, real, lat, lon, ancho, fondo, rumbo°]
     callesRaw: Array.isArray(o.calles) ? o.calles.filter(c => Array.isArray(c) && c.length >= 2 && Array.isArray(c[1]) && c[1].length >= 2) : [],   // v122: calles [clase, [[lat,lon]…]]
+    marWhy: o.marWhy ? String(o.marWhy).slice(0, 80) : '',   // v126: por qué Rumbo no pudo limpiar con la costa
     mar: !!o.mar,   // v119: Rumbo limpió el relieve con la costa de OpenStreetMap
     elemsRaw: (o.elems || []).filter(e => e && e.k && e.p && e.p.length >= 2).map(e => ({ k: e.k, n: e.n || '', a: e.a > 0 ? e.a : null, man: !!e.m, xy: e.p.map(q => [(q[1] - lon0) * kx, (q[0] - lat0) * ky]) })),
   };
@@ -6137,7 +6149,7 @@ async function escenaExportar() {
   const R = rutaActiva; if (!R) return '';
   const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i += 8192) b += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   const aLL = (x, y) => [+(R.lat0 + y / R.ky).toFixed(6), +(R.lon0 + x / R.kx).toFixed(6)];
-  const o = { name: R.nombre, loop: !!R.loop, mar: R.mar ? 1 : 0, edif: R.edifRaw && R.edifRaw.length ? R.edifRaw : undefined, calles: R.callesRaw && R.callesRaw.length ? R.callesRaw : undefined, ll: R.xy.map(p => aLL(p[0], p[1])),
+  const o = { name: R.nombre, loop: !!R.loop, mar: R.mar ? 1 : 0, marWhy: R.marWhy || undefined, edif: R.edifRaw && R.edifRaw.length ? R.edifRaw : undefined, calles: R.callesRaw && R.callesRaw.length ? R.callesRaw : undefined, ll: R.xy.map(p => aLL(p[0], p[1])),
     shore: { d: R.sh ? u8b64(R.sh) : undefined, p: R.pf ? u8b64(R.pf) : undefined, off: R.off || undefined },
     elems: (R.elemsRaw || []).map(e => ({ k: e.k, n: e.n, a: e.a, m: e.man ? 1 : 0, p: e.xy.map(q => aLL(q[0], q[1])) })) };
   const json = new TextEncoder().encode(JSON.stringify(o));
@@ -6404,7 +6416,7 @@ function dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f) {
 }
 // ---- v114: barcos que manda Rumbo (⛵ velero, 🚢 carguero, 🛳️ crucero, 🚤 lancha, ⚓ encallado), marcados de popa a proa ----
 // El largo sale de la distancia entre los dos puntos (o del "Largo" que se cargó en Rumbo); si quedó muy corto, el largo típico del tipo.
-const BARCO_LARGO = { velero: 10, lancha: 6, carguero: 180, crucero: 250, encallado: 40 };
+const BARCO_LARGO = { velero: 10, lancha: 6, carguero: 180, crucero: 250, encallado: 40, naval: 110 };
 const BARCO_LARGO_BASE = { velero: 9.4, lancha: 5.5 };   // largo del casco modelado en elemArmarBarco
 // pura: escala un barco armado (caras, velas, líneas) por s
 function elemEscalarBarco(B, s) {
@@ -6416,9 +6428,10 @@ function elemEscalarBarco(B, s) {
 function elemArmarBuque(tipo, L, sem) {
   const D0 = tipo === 'carguero' ? [[.5, 0], [.41, .075], [-.46, .075], [-.5, .06], [-.5, -.06], [-.46, -.075], [.41, -.075]]
     : tipo === 'crucero' ? [[.5, 0], [.43, .06], [-.46, .06], [-.5, .04], [-.5, -.04], [-.46, -.06], [.43, -.06]]
+    : tipo === 'naval' ? [[.5, 0], [.36, .07], [-.46, .075], [-.5, .06], [-.5, -.06], [-.46, -.075], [.36, -.07]]
     : [[.5, 0], [.32, .11], [-.44, .12], [-.5, .09], [-.5, -.09], [-.44, -.12], [.32, -.11]];
-  const zD = L * (tipo === 'carguero' ? 0.06 : tipo === 'crucero' ? 0.045 : 0.07), zW = -0.05, tM = 0.3, zM = zW + (zD - zW) * tM;
-  const casco = tipo === 'carguero' ? '#2d3b4a' : tipo === 'crucero' ? '#f5f7f9' : '#8a4b2d', franja = tipo === 'carguero' ? '#8a2a22' : tipo === 'crucero' ? '#1d3557' : '#4a2c1c';
+  const zD = L * (tipo === 'carguero' ? 0.06 : tipo === 'crucero' ? 0.045 : tipo === 'naval' ? 0.05 : 0.07), zW = -0.05, tM = 0.3, zM = zW + (zD - zW) * tM;
+  const casco = tipo === 'carguero' ? '#2d3b4a' : tipo === 'crucero' ? '#f5f7f9' : tipo === 'naval' ? '#7b8794' : '#8a4b2d', franja = tipo === 'carguero' ? '#8a2a22' : tipo === 'crucero' ? '#1d3557' : tipo === 'naval' ? '#4b5560' : '#4a2c1c';
   const D = D0.map(p => [p[0] * L, p[1] * L]), W = D0.map(p => [p[0] * L * 0.96, p[1] * L * 0.88]), N = D.length, caras = [], lineas = [];
   const M = D.map((p, i) => [W[i][0] + (p[0] - W[i][0]) * tM, W[i][1] + (p[1] - W[i][1]) * tM]);
   const normal = (a, b) => { let nu = b[1] - a[1], nv = -(b[0] - a[0]); const l = Math.hypot(nu, nv) || 1; nu /= l; nv /= l; if (nu * (a[0] + b[0]) / 2 + nv * (a[1] + b[1]) / 2 < 0) { nu = -nu; nv = -nv; } return [nu, nv]; };
@@ -6427,7 +6440,7 @@ function elemArmarBuque(tipo, L, sem) {
     caras.push({ p: [[D[i][0], D[i][1], zD], [D[j][0], D[j][1], zD], [M[j][0], M[j][1], zM], [M[i][0], M[i][1], zM]], c: casco, n });
     caras.push({ p: [[M[i][0], M[i][1], zM], [M[j][0], M[j][1], zM], [W[j][0], W[j][1], zW], [W[i][0], W[i][1], zW]], c: franja, n });
   }
-  caras.push({ p: D.map(q => [q[0], q[1], zD]), c: tipo === 'carguero' ? '#5b6670' : '#cbbd9d', n: null });
+  caras.push({ p: D.map(q => [q[0], q[1], zD]), c: tipo === 'carguero' ? '#5b6670' : tipo === 'naval' ? '#6b747c' : '#cbbd9d', n: null });
   const caja = (u0, u1, v, z0, z1, col, techo) => {
     u0 *= L; u1 *= L; v *= L;
     caras.push({ p: [[u0, -v, z1], [u1, -v, z1], [u1, v, z1], [u0, v, z1]], c: techo, n: null });
@@ -6444,6 +6457,16 @@ function elemArmarBuque(tipo, L, sem) {
     caja(-.41, -.39, .02, z, z + L * 0.04, '#8a2a22', '#6f1f19'); zTop = z + L * 0.04;
     const col = ['#b03a2e', '#1f618d', '#d68910', '#1e8449', '#7d3c98', '#5d6d7e'];
     for (let i = 0, u = -.31; u < .34; i++, u += .062) { const alto = L * 0.026 * (1 + ((i + sem) % 3 === 0 ? 1 : 0)); caja(u, u + .055, .056, zD, zD + alto, col[(i * 5 + sem) % col.length], '#9aa4ab'); }
+  } else if (tipo === 'naval') {   // v123: buque naval gris (fuerzas navales): puente y chimeneas a media eslora, cañón a proa, helipuerto a popa, mástil con antenas
+    let z = zD; const t = L * 0.04;
+    caja(-.10, .24, .05, z, z + t, '#8c969e', '#6d777f'); ventanas(-.09, .23, .05, z + t * 0.4, z + t * 0.75); z += t;
+    caja(0, .17, .038, z, z + t * 0.9, '#8c969e', '#7a848c'); ventanas(.01, .16, .038, z + t * 0.3, z + t * 0.65); z += t * 0.9;
+    caja(-.09, -.03, .024, zD + t, zD + t * 2.2, '#6d777f', '#59636b'); caja(-.025, .02, .02, zD + t, zD + t * 1.9, '#6d777f', '#59636b');
+    caja(.30, .38, .02, zD, zD + L * 0.018, '#6b747c', '#59636b');
+    caja(-.46, -.20, .06, zD, zD + L * 0.004, '#5b646b', '#4a5258');
+    lineas.push({ a: [.08 * L, 0, z], b: [.08 * L, 0, z + L * 0.08], c: '#59636b', w: 0.3 }); lineas.push({ a: [.03 * L, 0, z + L * 0.05], b: [.13 * L, 0, z + L * 0.05], c: '#59636b', w: 0.15 });
+    lineas.push({ a: [.34 * L, 0, zD + L * 0.018], b: [.43 * L, 0, zD + L * 0.026], c: '#3f474d', w: 0.35 });
+    zTop = z + L * 0.08;
   } else if (tipo === 'crucero') {
     let z = zD; const t = L * 0.026;
     caja(-.40, .38, .056, z, z + t, '#f7f8fa', '#e4e8ec'); ventanas(-.39, .37, .056, z + t * 0.35, z + t * 0.7); z += t;
@@ -6610,7 +6633,7 @@ function elemTipoCambio() { const t = document.getElementById('elemTipo').value;
 // "2 muelles, 1 puente" de lo que mandó Rumbo
 function elemResumenRumbo(R) {
   const c = {}; for (const e of R.elemsRaw || []) c[e.k] = (c[e.k] || 0) + 1;
-  const N = { muelle: ['muelle', 'muelles'], puente: ['puente', 'puentes'], tunel: ['túnel', 'túneles'], terraplen: ['terraplén', 'terraplenes'], desmonte: ['desmonte', 'desmontes'], velero: ['velero', 'veleros'], carguero: ['carguero', 'cargueros'], crucero: ['crucero', 'cruceros'], lancha: ['lancha', 'lanchas'], encallado: ['barco encallado', 'barcos encallados'] };
+  const N = { muelle: ['muelle', 'muelles'], puente: ['puente', 'puentes'], tunel: ['túnel', 'túneles'], terraplen: ['terraplén', 'terraplenes'], desmonte: ['desmonte', 'desmontes'], velero: ['velero', 'veleros'], carguero: ['carguero', 'cargueros'], crucero: ['crucero', 'cruceros'], lancha: ['lancha', 'lanchas'], encallado: ['barco encallado', 'barcos encallados'], naval: ['buque naval', 'buques navales'] };
   return Object.entries(c).map(([k, n]) => n + ' ' + (N[k] ? N[k][n > 1 ? 1 : 0] : k)).join(', ') + ' de Rumbo';
 }
 function elemUI() {
@@ -6730,7 +6753,7 @@ async function renderCardRuta() {
   sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + n.replace(/</g, '&lt;') + '</option>').join('');
   const R = rutaActiva;
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
-  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua)' : ' (sin limpiar con la costa: volvé a mandarla desde Rumbo)') : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
+  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua)' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
   try { elemEditandoId = null; elemUI(); } catch (e) { console.warn(e); } // v112
