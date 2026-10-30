@@ -128,6 +128,9 @@
   .editor-sticky{position:sticky; top:0; z-index:5; box-shadow:0 12px 14px -10px rgba(0,0,0,0.6);}
   .editor-val{font-family:var(--mono); color:var(--ritmo); font-size:12px;}
   #canvasEditorKayak{margin-top:6px; border-radius:12px; background:#0d1a12; width:100%; display:block;}
+  /* v125: la animación va de borde a borde de la pantalla */
+  .card.card-anim{margin-left:-14px; margin-right:-14px; padding:0; border-left:0; border-right:0; border-radius:0; overflow:hidden;}
+  .card.card-anim #canvasSesionVivo{border-radius:0;}
   #canvasSesionVivo{border-radius:12px; background:#0d1a12; width:100%; display:block;}
   #view-editor input[type=range]{width:100%; margin:2px 0 14px; touch-action:pan-y;}
   #view-editor label{display:flex; justify-content:space-between; margin-top:2px;}
@@ -135,7 +138,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v124</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v125</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -197,7 +200,7 @@
     </div>
 
     <!-- v123: la tarjeta de iniciar sesión va arriba de la animación, y los datos en vivo (el HUD) dentro de la pantalla de la animación -->
-    <div class="card" style="position:relative;">
+    <div class="card card-anim" style="position:relative;">
       <div style="position:relative;">
         <canvas id="canvasSesionVivo" height="220"></canvas>
         <canvas id="canvasDebugColorMini" width="48" height="36"
@@ -213,8 +216,8 @@
           <div class="hs hs-br"><div class="val" id="hudRPMSesion">--</div><div class="lbl">RPM</div></div>
         </div>
       </div>
-      <p class="nota" id="estadoDeteccionCamaraHUD" style="margin-top:8px;"></p>
-      <div class="nota" style="margin-top:10px;" id="notaCalib"></div>
+      <p class="nota" id="estadoDeteccionCamaraHUD" style="margin:8px 14px 0;"></p>
+      <div class="nota" style="margin:10px 14px 14px;" id="notaCalib"></div>
     </div>
 
 
@@ -2624,6 +2627,13 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v125: 📐 ANIMACIÓN DE BORDE A BORDE (Hugo: "quiero que la pantalla de animación
+         ocupe todo el ancho posible de la pantalla, respetando el ratio").
+         La tarjeta de la animación (.card-anim) se estira con márgenes negativos
+         sobre el relleno de main, sin borde ni relleno propio. El alto ya no es
+         fijo (220/280): renderSesionVivo lo calcula del ancho con la misma
+         proporción de antes (354:220 sin recorrido, 354:280 con recorrido), así que
+         el dibujo no se deforma ni se estira.
    v124: 📊 DATOS EN VIVO SOBRE LA ANIMACIÓN (Hugo: "quiero que la info esté en la
          pantalla de animación con números semitransparentes, el color de las
          pulsaciones de acuerdo a la zona de entrenamiento en la que estoy").
@@ -5355,7 +5365,8 @@ function renderCarrera() {
   const canvas = document.getElementById('canvasCarrera');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const w = canvas.clientWidth || canvas.width, h = canvas.height;
+  const w = canvas.clientWidth || canvas.width;
+  const h = Math.round(w / (rutaActiva ? 354 / 280 : 354 / 220)); // v125: ocupa todo el ancho y mantiene la proporción de siempre (antes alto fijo 220/280 con 354 px de ancho)
   canvas.width = w; canvas.height = h;
   const horizonY = h * 0.28;
   const posiciones = carreraCorredores.map(c => ({ corredor: c, distancia: distanciaFantasmaEnT(c.sesion.puntos, carreraT) }));
