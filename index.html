@@ -62,6 +62,21 @@
   .btn.chico{padding:8px; font-size:12px;}
   .btn:disabled{opacity:0.4;}
 
+  /* v124: datos en vivo sobre la animación */
+  .hud-sobre{position:absolute; inset:0; pointer-events:none; font-family:var(--mono);}
+  .hud-sobre .hs{position:absolute; text-align:center; text-shadow:0 1px 3px rgba(0,0,0,.85), 0 0 8px rgba(0,0,0,.5);}
+  .hud-sobre .val{font-size:24px; font-weight:800; line-height:1; color:rgba(255,255,255,.62);}
+  .hud-sobre .lbl{font-size:9px; text-transform:uppercase; letter-spacing:.5px; margin-top:2px; color:rgba(255,255,255,.55);}
+  .hud-sobre .hs-tl{left:10px; top:8px; text-align:left;}
+  .hud-sobre .hs-tr{right:10px; top:6px; text-align:right;}
+  .hud-sobre .hs-tr .val{font-size:40px;}
+  .hud-sobre .hs-ml{left:10px; top:44%; text-align:left;}
+  .hud-sobre .hs-mr{right:10px; top:44%; text-align:right;}
+  .hud-sobre .hs-bl{left:10px; bottom:8px; text-align:left;}
+  .hud-sobre .hs-bc{left:50%; transform:translateX(-50%); bottom:8px;}
+  .hud-sobre .hs-br{right:10px; bottom:8px; text-align:right;}
+  .hud-sobre .hs-bc .val{font-size:20px;}
+  .hud-sobre .cad .val{color:rgba(79,216,196,.7);}
   .hud-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
   .hud-tile{background:var(--panel2); border:1px solid var(--borde); border-radius:12px; padding:12px; text-align:center;}
   .hud-tile .val{font-family:var(--mono); font-size:26px; font-weight:800;}
@@ -120,7 +135,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v123</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v124</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -183,17 +198,20 @@
 
     <!-- v123: la tarjeta de iniciar sesión va arriba de la animación, y los datos en vivo (el HUD) dentro de la pantalla de la animación -->
     <div class="card" style="position:relative;">
-      <canvas id="canvasSesionVivo" height="220"></canvas>
-      <canvas id="canvasDebugColorMini" width="48" height="36"
-        style="display:none; position:absolute; right:22px; bottom:22px; width:96px; height:72px; image-rendering:pixelated; border-radius:6px; border:1px solid rgba(255,255,255,0.4); background:#000;"></canvas>
-      <div class="hud-grid" style="margin-top:10px;">
-        <div class="hud-tile cad"><div class="val" id="hudCadencia">--</div><div class="lbl">Paladas/min</div></div>
-        <div class="hud-tile pulso"><div class="val" id="hudPulso">--</div><div class="lbl">Pulso</div></div>
-        <div class="hud-tile"><div class="val" id="hudDistancia">--</div><div class="lbl">Distancia est. (m)</div></div>
-        <div class="hud-tile"><div class="val" id="hudVelocidad">--</div><div class="lbl">Velocidad (km/h)</div></div>
-        <div class="hud-tile"><div class="val" id="hudRPMSesion">--</div><div class="lbl">RPM velocímetro</div></div>
-        <div class="hud-tile"><div class="val" id="hudTiempo">00:00</div><div class="lbl">Tiempo</div></div>
-        <div class="hud-tile" style="grid-column:span 2;"><div class="val" id="hudFantasma">--</div><div class="lbl">vs. fantasma 👻</div></div>
+      <div style="position:relative;">
+        <canvas id="canvasSesionVivo" height="220"></canvas>
+        <canvas id="canvasDebugColorMini" width="48" height="36"
+          style="display:none; position:absolute; right:22px; bottom:22px; width:96px; height:72px; image-rendering:pixelated; border-radius:6px; border:1px solid rgba(255,255,255,0.4); background:#000;"></canvas>
+        <!-- v124: los datos en vivo van SOBRE la animación, con números semitransparentes; el pulso toma el color de la zona -->
+        <div class="hud-sobre">
+          <div class="hs hs-tl"><div class="val" id="hudTiempo">00:00</div><div class="lbl">Tiempo</div></div>
+          <div class="hs hs-tr pulso"><div class="val" id="hudPulso">--</div><div class="lbl" id="hudPulsoZona">Pulso</div></div>
+          <div class="hs hs-ml"><div class="val" id="hudDistancia">--</div><div class="lbl">Distancia (m)</div></div>
+          <div class="hs hs-mr"><div class="val" id="hudVelocidad">--</div><div class="lbl">km/h</div></div>
+          <div class="hs hs-bl cad"><div class="val" id="hudCadencia">--</div><div class="lbl">Paladas/min</div></div>
+          <div class="hs hs-bc"><div class="val" id="hudFantasma">--</div><div class="lbl">vs. fantasma 👻</div></div>
+          <div class="hs hs-br"><div class="val" id="hudRPMSesion">--</div><div class="lbl">RPM</div></div>
+        </div>
       </div>
       <p class="nota" id="estadoDeteccionCamaraHUD" style="margin-top:8px;"></p>
       <div class="nota" style="margin-top:10px;" id="notaCalib"></div>
@@ -2606,6 +2624,17 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v124: 📊 DATOS EN VIVO SOBRE LA ANIMACIÓN (Hugo: "quiero que la info esté en la
+         pantalla de animación con números semitransparentes, el color de las
+         pulsaciones de acuerdo a la zona de entrenamiento en la que estoy").
+         Los números del HUD (tiempo, pulso, distancia, velocidad, paladas/min,
+         fantasma, RPM) ahora van superpuestos al dibujo, sin tarjetas, con el
+         texto blanco al ~60 % de opacidad y sombra para que se lea sobre el agua.
+         El pulso se pinta según la zona (zonaPulso, pura: % del umbral guardado,
+         Z1 <85, Z2 85–89, Z3 90–94, Z4 95–99, Z5 ≥100, con los colores --z1…--z5) y
+         el rótulo dice "Pulso · Z3". Sin umbral cargado no hay zona y queda como antes.
+         Mismos ids, así que tick() y handleHR() siguen igual salvo que llaman
+         a hudPulsoPoner().
    v123: 📱 PANTALLA DE SESIÓN (Hugo: "quiero que la tarjeta de iniciar sesión esté
          arriba de la animación y todos los datos del hub en la pantalla de
          animación"). La tarjeta de Iniciar/Finalizar sesión (con el chequeo previo)
@@ -2972,6 +3001,25 @@ function esDistanciaPocoConfiable(distanciaM) {
   return distanciaM < CALIB_DISTANCIA_CONFIABLE_MIN_M;
 }
 
+/* v124: zona de entrenamiento según el pulso y el umbral guardado (% del umbral: Z1 <85, Z2 85–89, Z3 90–94, Z4 95–99, Z5 ≥100, como Friel).
+   Sin umbral cargado no se pinta ninguna zona (el número queda en el color de siempre). Pura. */
+function zonaPulso(bpm, umbral) {
+  if (!(bpm > 0) || !(umbral > 0)) return 0;
+  const r = bpm / umbral;
+  return r < 0.85 ? 1 : r < 0.90 ? 2 : r < 0.95 ? 3 : r < 1.0 ? 4 : 5;
+}
+let _umbralHudCache = { t: 0, v: null };
+function hudPulsoPoner(bpm) {
+  const el = document.getElementById('hudPulso'); if (!el) return;
+  el.textContent = bpm || '--';
+  const lbl = document.getElementById('hudPulsoZona');
+  const ahora = Date.now();
+  if (ahora - _umbralHudCache.t > 5000) { const u = lsGet(K_UMBRAL_PULSO, null); _umbralHudCache = { t: ahora, v: u && u.valor > 0 ? u.valor : null }; }
+  const z = zonaPulso(bpm, _umbralHudCache.v);
+  const cols = ['', '79,216,196', '111,221,142', '232,210,75', '240,139,60', '255,90,95'];
+  el.style.color = z ? 'rgba(' + cols[z] + ',.85)' : '';
+  if (lbl) lbl.textContent = z ? 'Pulso · Z' + z : 'Pulso';
+}
 function lsGet(key, def) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; }
   catch (e) { return def; }
@@ -3732,7 +3780,7 @@ function handleHR(event) {
   const flags = v.getUint8(0);
   actual.pulso = (flags & 0x01) ? v.getUint16(1, true) : v.getUint8(1);
   const hudEl = document.getElementById('hudPulso');
-  if (hudEl && !sesionActiva) hudEl.textContent = actual.pulso || '--';
+  if (hudEl && !sesionActiva) hudPulsoPoner(actual.pulso);
 }
 
 /* ============================================================
@@ -6873,7 +6921,7 @@ function tick() {
   });
 
   document.getElementById('hudCadencia').textContent = cadenciaAlgunaVezReportada ? actual.cadencia : '--';
-  document.getElementById('hudPulso').textContent = actual.pulso || '--';
+  hudPulsoPoner(actual.pulso);
   document.getElementById('hudVelocidad').textContent = (vel * 3.6).toFixed(1); // vel sigue en m/s por dentro (así queda todo lo demás sin tocar) — acá solo se convierte a km/h para mostrar, 1 m/s = 3.6 km/h
   document.getElementById('hudDistancia').textContent = Math.round(sesionActiva.distanciaM);
   document.getElementById('hudTiempo').textContent = segAHMS(tSeg);
