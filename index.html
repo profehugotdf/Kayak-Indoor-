@@ -138,7 +138,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v126</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v127</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2627,6 +2627,21 @@
          tick() usa las dos; sesionActiva.velAnterior guarda el estado.
          rpmCrudo por punto ahora guarda el RPM efectivamente usado. Los
          segundos quieto (RPM 0) no cuentan como "clampeados".
+   v127: 🟩 PANELES VERDES SOBRE EL AGUA (Hugo, con su escena de 31-oct, mar:0 porque
+         "OpenStreetMap no respondió (la costa tardó demasiado)": "todavía se ven paneles
+         verdes pasando por arriba"). Causa, hallada con la escena real: dibujarOrillas le
+         sumaba 6 m al perfil de toda muestra cuyo color de satélite fuera "verde" (g > 1,2·r),
+         también en los puntos de altura 0 (agua). El mar visto desde el satélite es verde
+         oscuro, así que un perfil todo en 0 (agua, sin tierra) se volvía una pared de 6 m de
+         largo a lo largo de hasta 700 m: el panel que cruzaba el horizonte (km 0,7 de su
+         recorrido, por las muestras de los km 1,8–2,0). Ahora los 6 m del bosque solo se
+         suman donde el perfil ya tiene tierra (> 0,5 m); el agua sigue en 0 y el filtro de
+         cuadritos sin tierra (v119) la descarta. Y la tierra se corta donde el perfil
+         vuelve a 0: una franja angosta rodeada de agua (barco, muelle, pico falso del
+         radar) ya no se estira hasta el agua ni hasta lo de atrás.
+         De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
+         servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
+         cortaba a los 25 s: de ahí el mar:0).
    v126: 🌊 AGUA SIN ARTEFACTOS Y BUQUES NAVALES (Hugo, con una escena nueva con mar:0:
          "siguen los artefactos verdes producto de la topografía errónea que recibe
          Rumbo. ¿Se puede hacer que lo que esté definido como agua no permita nada
@@ -5917,16 +5932,19 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
       const col = [U[q], U[q + 1], U[q + 2]], verde = col[1] > col[0] * 1.2 && col[1] > col[2] * 1.03 && col[0] + col[1] + col[2] < 420;   // v119: antes 1.02: un gris verdoso (hormigón, muelle) pasaba por bosque y subía 6 m
       const W = [];
       for (let j = 0; j < NR; j++) {
-        const dd = FO.d[k] + OFF[j], z = FO.prof[k * NR + j] + (verde && j > 0 ? 6 : 0);
+        const dd = FO.d[k] + OFF[j]; let z = FO.prof[k * NR + j]; if (verde && j > 0 && z > 0.5) z += 6;   // v127: el +6 del bosque solo sobre tierra (antes también sobre el agua verde del satélite)
         W.push([B[0] + nx * dd, B[1] + ny * dd, j === 0 ? 0 : z]);
       }
-      muestras.push({ W, P: W.map(p => proy(p[0], p[1], p[2])), dist: FO.d[k], col, verde, ang: Math.atan2(dy, dx) });
+      // v127: la tierra termina donde el perfil vuelve a 0 (agua): lo que sigue ya no es la misma costa. Una franja angosta de "tierra" rodeada de agua es un barco, un muelle
+      // o un pico falso del radar (con mar:0 Rumbo no pudo limpiarlo con la costa): se dibuja hasta ahí y no se estira hasta el 0 ni hasta lo de más atrás.
+      let lim = NR; for (let j = 2; j < NR; j++) if (FO.prof[k * NR + j] <= 0.5) { lim = j; break; }
+      muestras.push({ W, P: W.map(p => proy(p[0], p[1], p[2])), dist: FO.d[k], col, verde, ang: Math.atan2(dy, dx), lim });
     }
     for (let i = 0; i + 1 < muestras.length; i++) {
       const a = muestras[i], b = muestras[i + 1]; if (!a || !b) continue;
       if (Math.abs(a.dist - b.dist) > 60 + 0.4 * Math.min(a.dist, b.dist)) continue;   // entrada, cabo o isla: no se une
       { let da = Math.abs(a.ang - b.ang); if (da > Math.PI) da = 2 * Math.PI - da; if (da > 0.5) continue; }   // v114: giro cerrado (espolón, muelle de ida y vuelta): las normales se abren en abanico y la franja se veía como una cuña enorme
-      for (let j = 0; j + 1 < NR; j++) {
+      for (let j = 0, jm = Math.min(a.lim, b.lim); j + 1 < jm; j++) {
         const p = [a.P[j], b.P[j], b.P[j + 1], a.P[j + 1]];
         if (p[0].fw < 4 || p[1].fw < 4 || p[2].fw < 4 || p[3].fw < 4) continue;
         // v119: altura 0 en el perfil = agua (la tierra terminó: muelle, espolón, barco). Antes se unían igual las muestras y la franja se estiraba como un
