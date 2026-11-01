@@ -138,7 +138,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v131</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v132</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2642,6 +2642,12 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v132: 🔎 QUÉ DIBUJÓ HUGO EN RUMBO (Hugo, 1-nov, con v131: "sigue igual y yo en Rumbo
+         marqué la costa a mano"). Sin la escena no se sabe si Rumbo vio el trazo, con qué
+         herramienta se marcó (🌊 Costa, área de tierra, playa…) ni si pudo orientarlo.
+         Rumbo ahora manda "his" (lo dibujado a ≤ 800 m de la ruta, por tipo, y cuántas
+         costas orientó) y la tarjeta Recorrido lo muestra: "dibujado en Rumbo cerca: costa 1
+         (1 orientada)". También va en "Copiar toda la escena".
    v131: 🏖️ LA COSTA CERCANA SE DESCARTABA (Hugo, escena del 1-nov con el recorrido
          triangular de 1,1 km frente al Muelle Afasyn: "sigue sin aparecer la costa que
          dibujé"). Con la escena real: la costa de Rumbo SÍ llegaba (tierra a 72–136 m con
@@ -5729,6 +5735,7 @@ function decodificarRuta(o) {
     edifRaw: Array.isArray(o.edif) ? o.edif.filter(b => Array.isArray(b) && b.length >= 7 && b[0] > 0) : [],   // v121: edificios de la costa [altura, real, lat, lon, ancho, fondo, rumbo°]
     callesRaw: Array.isArray(o.calles) ? o.calles.filter(c => Array.isArray(c) && c.length >= 2 && Array.isArray(c[1]) && c[1].length >= 2) : [],   // v122: calles [clase, [[lat,lon]…]]
     edifWhy: o.edifWhy ? String(o.edifWhy).slice(0, 80) : '', callesWhy: o.callesWhy ? String(o.callesWhy).slice(0, 80) : '',   // v129: por qué no llegaron edificios o calles
+    his: o.his ? String(o.his).slice(0, 160) : '',   // v132: lo que Hugo dibujó en Rumbo cerca de la ruta (costa, áreas…) y si la costa se orientó
     marWhy: o.marWhy ? String(o.marWhy).slice(0, 80) : '',   // v126: por qué Rumbo no pudo limpiar con la costa
     marOwn: o.marOwn > 0 ? Math.min(99, o.marOwn | 0) : 0,   // v130: cuántas líneas de costa trazadas a mano (🌊 Costa en Calcar) usó Rumbo
     mar: !!o.mar,   // v119: Rumbo limpió el relieve con la costa de OpenStreetMap
@@ -6200,7 +6207,7 @@ async function escenaExportar() {
   const R = rutaActiva; if (!R) return '';
   const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i += 8192) b += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   const aLL = (x, y) => [+(R.lat0 + y / R.ky).toFixed(6), +(R.lon0 + x / R.kx).toFixed(6)];
-  const o = { name: R.nombre, loop: !!R.loop, mar: R.mar ? 1 : 0, marWhy: R.marWhy || undefined, marOwn: R.marOwn || undefined, edifWhy: R.edifWhy || undefined, callesWhy: R.callesWhy || undefined, edif: R.edifRaw && R.edifRaw.length ? R.edifRaw : undefined, calles: R.callesRaw && R.callesRaw.length ? R.callesRaw : undefined, ll: R.xy.map(p => aLL(p[0], p[1])),
+  const o = { name: R.nombre, loop: !!R.loop, mar: R.mar ? 1 : 0, marWhy: R.marWhy || undefined, his: R.his || undefined, marOwn: R.marOwn || undefined, edifWhy: R.edifWhy || undefined, callesWhy: R.callesWhy || undefined, edif: R.edifRaw && R.edifRaw.length ? R.edifRaw : undefined, calles: R.callesRaw && R.callesRaw.length ? R.callesRaw : undefined, ll: R.xy.map(p => aLL(p[0], p[1])),
     shore: { d: R.sh ? u8b64(R.sh) : undefined, p: R.pf ? u8b64(R.pf) : undefined, off: R.off || undefined },
     elems: (R.elemsRaw || []).map(e => ({ k: e.k, n: e.n, a: e.a, m: e.man ? 1 : 0, p: e.xy.map(q => aLL(q[0], q[1])) })) };
   const json = new TextEncoder().encode(JSON.stringify(o));
@@ -6812,7 +6819,7 @@ async function renderCardRuta() {
   sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + n.replace(/</g, '&lt;') + '</option>').join('');
   const R = rutaActiva;
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
-  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua' + (R.marOwn ? ', con ' + R.marOwn + ' costa' + (R.marOwn > 1 ? 's trazadas' : ' trazada') + ' a mano' : '') + ')' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : R.sh ? ' · sin edificios (' + (R.edifWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : R.sh ? ' · sin calles (' + (R.callesWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
+  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua' + (R.marOwn ? ', con ' + R.marOwn + ' costa' + (R.marOwn > 1 ? 's trazadas' : ' trazada') + ' a mano' : '') + ')' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.his ? ' · dibujado en Rumbo cerca: ' + R.his : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : R.sh ? ' · sin edificios (' + (R.edifWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : R.sh ? ' · sin calles (' + (R.callesWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
   try { elemEditandoId = null; elemUI(); } catch (e) { console.warn(e); } // v112
