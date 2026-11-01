@@ -138,7 +138,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v130</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v131</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2642,6 +2642,17 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v131: 🏖️ LA COSTA CERCANA SE DESCARTABA (Hugo, escena del 1-nov con el recorrido
+         triangular de 1,1 km frente al Muelle Afasyn: "sigue sin aparecer la costa que
+         dibujé"). Con la escena real: la costa de Rumbo SÍ llegaba (tierra a 72–136 m con
+         el piso de 3,5 m), pero filtrarOrillas (v117) la marcaba como inválida en 25 de las
+         46 muestras de ese costado. La regla compara el punto de orilla con la "tierra más
+         cercana" de cada punto de la ruta, pero Rumbo mide esa distancia en perpendicular
+         (y en los puntos que miran para otro lado no hay tierra de ese costado: NaN), así
+         que la sobrestima (440 m cuando había tierra a 290) y alcanzaba con quedar al 70 %
+         para tirar la muestra. Ahora el punto solo se descarta si cae adentro del 40 % de
+         esa distancia (de verdad adentro del agua de otro tramo: el caso de los giros
+         cerrados de v117).
    v130: 🏖️ COSTA TRAZADA A MANO (Hugo, con el Muelle Afasyn: "no se ve la costa que yo tracé
          en Rumbo, el muelle queda adentro del agua, así como el barco de la derecha que
          en realidad está sobre la arena"). Rumbo usaba solo la costa de OpenStreetMap y
@@ -5842,7 +5853,7 @@ function filtrarOrillas(R) {
       const a = R.xy[Math.max(0, k - 3)], b = R.xy[Math.min(n - 1, k + 3)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
       const sx = R.xy[k][0] + (-dy / l) * sg * F.d[k], sy = R.xy[k][1] + (dx / l) * sg * F.d[k];
       let bien = 1;
-      for (let i = 0; i < n; i++) { if (mind[i] > 5e8) continue; const q = Math.hypot(R.xy[i][0] - sx, R.xy[i][1] - sy); if (q < 0.7 * mind[i] - 8) { bien = 0; break; } }
+      for (let i = 0; i < n; i++) { if (mind[i] > 5e8) continue; const q = Math.hypot(R.xy[i][0] - sx, R.xy[i][1] - sy); if (q < 0.4 * mind[i] - 8) { bien = 0; break; } }
       ok[k] = bien;
     }
     F.ok = ok;
