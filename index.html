@@ -138,7 +138,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v133</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v134</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2645,6 +2645,14 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v134: 🗼🔶 FAROS Y BALIZAS (Hugo: "además de los barcos, quisiera agregar faros y
+         balizas para que armen los escenarios de los recorridos virtuales"). Rumbo los
+         manda en `elems` con k:'faro' o k:'baliza' (un punto y, si se cargó, la altura).
+         Acá: farosArmar (pura) arma la torre cónica del faro (franjas blanca y roja,
+         galería, linterna y techo) o el poste de la baliza (franjas y marca de tope);
+         dibujarFarosRumbo la dibuja con la cámara de siempre, solo las caras que miran
+         a la cámara, de lejos a cerca; la linterna del faro late en amarillo. Altura
+         típica 12 m el faro y 5 m la baliza (FARO_DEF). También salen en el mapita.
    v133: 🔄 SENTIDO DEL RECORRIDO (Hugo, 1-nov: "¿puedo elegir el sentido contrario de un
          recorrido, o hacerlo ida y vuelta?"). En la tarjeta Recorrido: Sentido normal /
          invertido / ida y vuelta. Se aplica sobre la ruta ya guardada (no hace falta volver
@@ -5753,7 +5761,7 @@ function decodificarRuta(o) {
     marWhy: o.marWhy ? String(o.marWhy).slice(0, 80) : '',   // v126: por qué Rumbo no pudo limpiar con la costa
     marOwn: o.marOwn > 0 ? Math.min(99, o.marOwn | 0) : 0,   // v130: cuántas líneas de costa trazadas a mano (🌊 Costa en Calcar) usó Rumbo
     mar: !!o.mar,   // v119: Rumbo limpió el relieve con la costa de OpenStreetMap
-    elemsRaw: (o.elems || []).filter(e => e && e.k && e.p && e.p.length >= 2).map(e => ({ k: e.k, n: e.n || '', a: e.a > 0 ? e.a : null, man: !!e.m, xy: e.p.map(q => [(q[1] - lon0) * kx, (q[0] - lat0) * ky]) })),
+    elemsRaw: (o.elems || []).filter(e => e && e.k && e.p && e.p.length >= ((e.k === 'faro' || e.k === 'baliza') ? 1 : 2)).map(e => ({ k: e.k, n: e.n || '', a: e.a > 0 ? e.a : null, man: !!e.m, xy: e.p.map(q => [(q[1] - lon0) * kx, (q[0] - lat0) * ky]) })),
   };
 }
 // v133: sentido del recorrido. Pura: devuelve otra ruta con los puntos dados vuelta ('inv') o ida + vuelta ('iyv'); la original no se modifica.
@@ -6469,6 +6477,7 @@ function elemPintarBarco(ctx, f, cam, proy, poli, B, pos, th, zb) {
 function dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f) {
   if (R.elemsRaw && R.elemsRaw.length) { try { dibujarElemsRumbo(ctx, w, horizonY, R, d, az, f); } catch (e) { elemErrorDibujo(e); } }   // v113
   if (R.elemsRaw && R.elemsRaw.length) { try { dibujarBarcosRumbo(ctx, w, horizonY, R, d, az, f); } catch (e) { elemErrorDibujo(e); } }   // v114
+  if (R.elemsRaw && R.elemsRaw.length) { try { dibujarFarosRumbo(ctx, w, horizonY, R, d, az, f); } catch (e) { elemErrorDibujo(e); } }   // v134
   const lista = elemsDeRuta(R); if (!lista.length) return;
   const cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)], H = RUTA_CAM_H, t = performance.now() / 1000;
   const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
@@ -6749,6 +6758,53 @@ function dibujarElemsRumbo(ctx, w, horizonY, R, d, az, f) {
     }
   }
 }
+// v134: 🗼 faros y 🔶 balizas de Rumbo: un punto (e.xy[0]) y una altura (e.a o la típica). Torre cónica con franjas, galería y linterna (faro) o poste con
+// franjas y marca de tope (baliza). Se dibuja solo lo que mira a la cámara, de lejos a cerca. La linterna del faro late en amarillo.
+const FARO_DEF = { faro: 12, baliza: 5 };
+function farosArmar(k, h) {   // pura: caras de la torre en coordenadas propias [{q:[[dx,dy,z]…], nx, ny, col}] (n lados), con el centro en (0,0)
+  const caras = [], N = k === 'faro' ? 10 : 6;
+  const nivel = (z0, z1, r0, r1, col) => { for (let i = 0; i < N; i++) { const a0 = i / N * 2 * Math.PI, a1 = (i + 1) / N * 2 * Math.PI, am = (a0 + a1) / 2;
+    caras.push({ q: [[Math.cos(a0) * r0, Math.sin(a0) * r0, z0], [Math.cos(a1) * r0, Math.sin(a1) * r0, z0], [Math.cos(a1) * r1, Math.sin(a1) * r1, z1], [Math.cos(a0) * r1, Math.sin(a0) * r1, z1]], nx: Math.cos(am), ny: Math.sin(am), col }); } };
+  const rad = (z, r0, r1, ztot) => r0 + (r1 - r0) * z / ztot;
+  if (k === 'faro') {
+    const r0 = h * 0.16, r1 = h * 0.10, zt = h * 0.82, cols = ['#f2f2ee', '#c0392b', '#f2f2ee', '#c0392b'];
+    for (let b = 0; b < 4; b++) nivel(zt * b / 4, zt * (b + 1) / 4, rad(zt * b / 4, r0, r1, zt), rad(zt * (b + 1) / 4, r0, r1, zt), cols[b]);
+    nivel(zt, zt + h * 0.035, r1 * 1.35, r1 * 1.35, '#3b3f44');            // galería
+    nivel(zt + h * 0.035, h * 0.97, h * 0.065, h * 0.065, '#46586a');       // linterna (vidrio)
+    nivel(h * 0.97, h * 1.08, h * 0.08, h * 0.01, '#a93226');               // techo
+  } else {
+    const r0 = h * 0.075, r1 = h * 0.05, zt = h, cols = ['#c0392b', '#f2f2ee', '#c0392b', '#f2f2ee', '#c0392b'];
+    for (let b = 0; b < 5; b++) nivel(zt * b / 5, zt * (b + 1) / 5, rad(zt * b / 5, r0, r1, zt), rad(zt * (b + 1) / 5, r0, r1, zt), cols[b]);
+    nivel(zt - h * 0.04, zt, r1 * 1.5, r1 * 1.5, '#222a30');
+    nivel(zt, zt + h * 0.14, h * 0.11, h * 0.01, '#222a30');               // marca de tope (cono)
+  }
+  return caras;
+}
+function dibujarFarosRumbo(ctx, w, horizonY, R, d, az, f) {
+  const lista = elemsRumbo(R).filter(e => e.k === 'faro' || e.k === 'baliza'); if (!lista.length) return;
+  const cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)], H = RUTA_CAM_H, NEAR = 2.5, t = performance.now() / 1000;
+  const cp = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1]; return { fw: qx * F[0] + qy * F[1], rx: qx * Rt[0] + qy * Rt[1], z }; };
+  const pant = c => ({ x: w / 2 + f * c.rx / c.fw, y: horizonY + f * (H - c.z) / c.fw, fw: c.fw });
+  const vis = [];
+  for (const e of lista) { const x = e.xy[0][0], y = e.xy[0][1], fw = (x - cam[0]) * F[0] + (y - cam[1]) * F[1]; if (fw < NEAR + 2 || fw > 4000) continue; vis.push({ e, x, y, fw }); }
+  vis.sort((a, b) => b.fw - a.fw);
+  for (const { e, x, y, fw } of vis) {
+    const h = e.a > 0 ? e.a : FARO_DEF[e.k], zb = Math.max(0, (e.zg && e.zg[0]) || 0);
+    if (!e._T) e._T = farosArmar(e.k, h);
+    const dx = cam[0] - x, dy = cam[1] - y, cr = [];
+    for (const c of e._T) { if (c.nx * dx + c.ny * dy <= 0) continue;   // cara de atrás
+      const P = c.q.map(q => cp(x + q[0], y + q[1], zb + q[2])); if (P.some(q => q.fw < NEAR)) continue;
+      const S = P.map(pant), luz = 0.62 + 0.55 * Math.max(0, c.nx * LUZ[0] + c.ny * LUZ[1]);
+      cr.push({ S, col: tonoHex(c.col, luz), fw: P.reduce((s, q) => s + q.fw, 0) / 4 }); }
+    if (zb < 0.5) { const b = cp(x, y, 0); if (b.fw > NEAR) { const B = pant(b), r = Math.max(1, f * h * 0.18 / b.fw); ctx.globalAlpha = 0.22; ctx.fillStyle = '#0a1822'; ctx.beginPath(); ctx.ellipse(B.x, B.y, r, r * 0.25, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; } }   // sombra de la base sobre el agua
+    cr.sort((a, b) => b.fw - a.fw);
+    for (const c of cr) { ctx.fillStyle = c.col; ctx.strokeStyle = c.col; ctx.lineWidth = 0.8; ctx.beginPath(); c.S.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    const top = cp(x, y, zb + h * 0.9);
+    if (e.k === 'faro' && top.fw > NEAR) { const T = pant(top), a = 0.35 + 0.35 * Math.max(0, Math.sin(t * 2.1 + x)), r = Math.max(3, f * h * 0.35 / top.fw);
+      const g = ctx.createRadialGradient(T.x, T.y, 0, T.x, T.y, r); g.addColorStop(0, 'rgba(255,240,150,' + a + ')'); g.addColorStop(1, 'rgba(255,240,150,0)'); ctx.fillStyle = g; ctx.fillRect(T.x - r, T.y - r, 2 * r, 2 * r); }
+    if (e.n && fw > 8 && fw < 600) { const c = cp(x, y, zb + h * 1.15); if (c.fw > NEAR) { const S = pant(c); ctx.font = '600 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,30,40,.75)'; ctx.fillStyle = '#fff'; ctx.strokeText(e.n, S.x, Math.max(12, S.y - 4)); ctx.fillText(e.n, S.x, Math.max(12, S.y - 4)); ctx.textAlign = 'start'; } }
+  }
+}
 function elemErrorDibujo(e) { console.warn(e); if (!elemErrAvisado) { elemErrAvisado = true; toast('No pude dibujar los muelles y veleros: ' + (e && e.message || e)); } }
 
 // ---- la tarjeta ----
@@ -6757,7 +6813,7 @@ function elemTipoCambio() { const t = document.getElementById('elemTipo').value;
 // "2 muelles, 1 puente" de lo que mandó Rumbo
 function elemResumenRumbo(R) {
   const c = {}; for (const e of R.elemsRaw || []) c[e.k] = (c[e.k] || 0) + 1;
-  const N = { muelle: ['muelle', 'muelles'], puente: ['puente', 'puentes'], tunel: ['túnel', 'túneles'], terraplen: ['terraplén', 'terraplenes'], desmonte: ['desmonte', 'desmontes'], velero: ['velero', 'veleros'], carguero: ['carguero', 'cargueros'], crucero: ['crucero', 'cruceros'], lancha: ['lancha', 'lanchas'], encallado: ['barco encallado', 'barcos encallados'], naval: ['buque naval', 'buques navales'], patrullera: ['patrullera', 'patrulleras'] };
+  const N = { muelle: ['muelle', 'muelles'], puente: ['puente', 'puentes'], tunel: ['túnel', 'túneles'], terraplen: ['terraplén', 'terraplenes'], desmonte: ['desmonte', 'desmontes'], velero: ['velero', 'veleros'], carguero: ['carguero', 'cargueros'], crucero: ['crucero', 'cruceros'], lancha: ['lancha', 'lanchas'], encallado: ['barco encallado', 'barcos encallados'], naval: ['buque naval', 'buques navales'], patrullera: ['patrullera', 'patrulleras'], faro: ['faro', 'faros'], baliza: ['baliza', 'balizas'] };
   return Object.entries(c).map(([k, n]) => n + ' ' + (N[k] ? N[k][n > 1 ? 1 : 0] : k)).join(', ') + ' de Rumbo';
 }
 function elemUI() {
@@ -6848,6 +6904,10 @@ function dibujarMapitaRuta(ctx, w, h, dTotal) {
   for (const e of R.elemsRaw || []) { // v114: barcos de Rumbo
     if (!BARCO_LARGO[e.k]) continue; const m = e._b || (e._b = barcoMundo(e)), px = ox + m.pos[0] * sc, py = oy - m.pos[1] * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) continue;
     ctx.fillStyle = e.k === 'encallado' ? '#c0763a' : '#ffffff'; ctx.fillRect(px - 2, py - 2, 4, 4);
+  }
+  for (const e of R.elemsRaw || []) { // v134: faros y balizas en el mapita
+    if (e.k !== 'faro' && e.k !== 'baliza') continue; const px = ox + e.xy[0][0] * sc, py = oy - e.xy[0][1] * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) continue;
+    ctx.fillStyle = e.k === 'faro' ? '#ff6b57' : '#ffb347'; ctx.beginPath(); ctx.moveTo(px, py - 4); ctx.lineTo(px + 3, py + 3); ctx.lineTo(px - 3, py + 3); ctx.closePath(); ctx.fill();
   }
   for (const e of elemsDeRuta(R)) { // v112: muelles, veleros y boyas en el mapita
     const m = elemMundoC(R, e), px = ox + m.pos[0] * sc, py = oy - m.pos[1] * sc; if (px < x0 || px > x0 + S || py < y0 || py > y0 + S) continue;
