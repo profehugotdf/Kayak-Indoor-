@@ -138,7 +138,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v134</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v135</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2645,6 +2645,13 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v135: 📅 FECHA DE LA FORMA (Hugo: "Si, arreglalo"). actualizarFormaCompartida guardaba
+         sesion.fecha.slice(0, 10), que es el día en UTC: una sesión a las 22:30 en Ushuaia
+         (UTC-3) quedaba anotada al día siguiente en la Forma compartida (CTL/ATL/TSB y
+         Mi plan). Ahora usa el día LOCAL (diaFormaDeSesion). Al abrir, repararFechasForma()
+         corrige una sola vez las entradas 'kayak' ya guardadas (por id de sesión; no toca
+         las de otras apps) y avisa con un cartel. También los nombres de archivo TCX/JSON.
+         Prueba: TZ=America/Argentina/Ushuaia node tests/forma_fecha.js
    v134: 🗼🔶 FAROS Y BALIZAS (Hugo: "además de los barcos, quisiera agregar faros y
          balizas para que armen los escenarios de los recorridos virtuales"). Rumbo los
          manda en `elems` con k:'faro' o k:'baliza' (un punto y, si se cargó, la altura).
@@ -3673,9 +3680,46 @@ function pasoEWMA(ctlPrev, atlPrev, tssHoy) {
 /* ============================================================
    FORMA COMPARTIDA (misma clave y fórmula que Correr / Bici Indoor)
    ============================================================ */
+// ===== INICIO FECHA FORMA =====
+// v135: la Forma compartida usa el día LOCAL (nunca el día UTC de toISOString().slice(0,10)):
+// una sesión a las 22:30 en Ushuaia (UTC-3) quedaba anotada al día siguiente.
+function diaLocalDeISO(f) {
+  const d = new Date(f);
+  if (!f || isNaN(d.getTime())) return null;
+  const p = (x) => String(x).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function diaFormaDeSesion(s) { return s ? diaLocalDeISO(s.fecha) : null; }
+// Corrige SOLO las entradas 'kayak' cuyo id coincide con una sesión de Kayak; no toca las de otras apps.
+function corregirFechasForma(registro, sesiones) {
+  const porId = {};
+  (sesiones || []).forEach((x) => { if (x && x.id) porId[x.id] = x; });
+  let cambios = 0;
+  const nuevo = (registro || []).map((r) => {
+    if (!r || r.deporte !== 'kayak' || !porId[r.id]) return r;
+    const dia = diaFormaDeSesion(porId[r.id]);
+    if (!dia || r.fecha === dia) return r;
+    cambios++;
+    return Object.assign({}, r, { fecha: dia });
+  });
+  return { registro: nuevo, cambios };
+}
+// ===== FIN FECHA FORMA =====
+function repararFechasForma() {
+  try {
+    const reg = lsGet(K_FORMA_COMPARTIDA, []);
+    const r = corregirFechasForma(reg, lsGet(K_SESIONES, []));
+    if (r.cambios > 0) {
+      lsSet(K_FORMA_COMPARTIDA, r.registro);
+      toast('Forma: corregí el día de ' + r.cambios + (r.cambios === 1 ? ' sesión' : ' sesiones') + ' de kayak (estaban en día UTC)');
+    }
+  } catch (e) {
+    toast('No pude corregir las fechas de la Forma: ' + (e && e.message ? e.message : e));
+  }
+}
 function actualizarFormaCompartida(sesion) {
   const registro = lsGet(K_FORMA_COMPARTIDA, []);
-  registro.push({ fecha: sesion.fecha.slice(0, 10), deporte: 'kayak', tss: sesion.tss, id: sesion.id });
+  registro.push({ fecha: diaFormaDeSesion(sesion) || String(sesion.fecha).slice(0, 10), deporte: 'kayak', tss: sesion.tss, id: sesion.id });
   lsSet(K_FORMA_COMPARTIDA, registro);
 }
 function calcularSerieFormaCombinada() {
@@ -7426,7 +7470,7 @@ function exportarSesionTCX(id) {
   const blob = new Blob([xml], { type: 'application/vnd.garmin.tcx+xml' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const fecha = new Date(sesion.fecha).toISOString().slice(0, 10);
+  const fecha = diaFormaDeSesion(sesion) || new Date(sesion.fecha).toISOString().slice(0, 10);
   a.href = url; a.download = 'kayak_' + fecha + '.tcx';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
@@ -7443,7 +7487,7 @@ function exportarSesionJSON(id) {
   const blob = new Blob([JSON.stringify(sesion, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const fecha = new Date(sesion.fecha).toISOString().slice(0, 10);
+  const fecha = diaFormaDeSesion(sesion) || new Date(sesion.fecha).toISOString().slice(0, 10);
   a.href = url; a.download = 'kayak_' + fecha + '.json';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
@@ -8616,6 +8660,7 @@ function cambiarTab(nombre) {
   if (nombre !== 'calibracion' && nombre !== 'sesion') { if (micStream) detenerMicCadencia(); if (camStream) detenerCamCadencia(); }
 }
 
+repararFechasForma(); // v135
 renderCalibracion();
 renderCalibRPM();
 renderPruebasFrenada();
