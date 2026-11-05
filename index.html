@@ -131,6 +131,9 @@
   /* v125: la animación va de borde a borde de la pantalla */
   .card.card-anim{margin-left:-14px; margin-right:-14px; padding:0; border-left:0; border-right:0; border-radius:0; overflow:hidden;}
   .card.card-anim #canvasSesionVivo{border-radius:0;}
+  /* v136: la animación de la Carrera virtual también de borde a borde (la tarjeta come 14 px de main + 1 de borde + 14 de relleno por lado) */
+  .carrera-anim{margin:0 -29px;}
+  #canvasCarrera{display:block; width:100%; border-radius:0; background:#0d1a12;}
   #canvasSesionVivo{border-radius:12px; background:#0d1a12; width:100%; display:block;}
   #view-editor input[type=range]{width:100%; margin:2px 0 14px; touch-action:pan-y;}
   #view-editor label{display:flex; justify-content:space-between; margin-top:2px;}
@@ -138,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v135</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v136</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -722,7 +725,7 @@
       <div class="fila" style="margin-bottom:6px; align-items:center;"><span class="nota" style="flex:none;">Escenario:</span>
         <select id="selRutaCarrera" onchange="elegirRutaCarrera(this.value)" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2,#1c2630); color:inherit;"></select></div>
       <div id="selectorCamaraCarrera" class="fila" style="flex-wrap:wrap;"></div>
-      <canvas id="canvasCarrera" height="260"></canvas>
+      <div class="carrera-anim"><canvas id="canvasCarrera" height="260"></canvas></div>
       <div id="listaPosicionesCarrera" style="margin-top:10px;"></div>
       <div style="margin-top:10px; font-family:var(--mono); text-align:center;" id="tiempoCarrera">0:00 / 0:00</div>
       <input type="range" id="sliderCarrera" min="0" max="1000" value="0" style="width:100%;" oninput="scrubCarrera(this.value)">
@@ -2645,6 +2648,12 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v136: 📐 CARRERA VIRTUAL A TODO EL ANCHO (Hugo, 5-nov, con la captura de v135: "quisiera que
+         se vea en el máximo ancho posible"). El canvas de la Carrera quedaba a ~78 % del ancho,
+         pegado a la izquierda y con el relleno de la tarjeta a los costados. Ahora va dentro de
+         .carrera-anim (márgenes −29 px = main 14 + borde 1 + relleno 14) con width:100%, de borde
+         a borde de la pantalla, igual que la animación de Sesión (v125). renderCarrera ya
+         calculaba el alto con la proporción de siempre a partir de clientWidth.
    v135: 📅 FECHA DE LA FORMA (Hugo: "Si, arreglalo"). actualizarFormaCompartida guardaba
          sesion.fecha.slice(0, 10), que es el día en UTC: una sesión a las 22:30 en Ushuaia
          (UTC-3) quedaba anotada al día siguiente en la Forma compartida (CTL/ATL/TSB y
