@@ -141,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v139</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v140</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2648,6 +2648,19 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v140: 🛣️ FRANJA GRIS EN EL HORIZONTE (Hugo, 9-nov, 23 h, ya con v139 y la ruta de Zihuatanejo reenviada: "ha mejorado mucho
+         pero ahora se ven franjas intermitentes en el recorrido"; en las capturas, una banda gris oscura de lado a lado sobre
+         la línea del agua y una "pared" gris al llegar). Eran las 500 calles que ahora sí llegan: cada tramito de calle se
+         contorneaba con 0,8 px de su color (lo que tapa las rendijas del terreno), así que de lejos, donde una calle mide una
+         décima de píxel, igual pintaba casi 2 px; miles de tramitos = una franja maciza. callesCaras ahora mide el grosor en
+         pantalla de cada tramo: menos de 0,3 px no se dibuja, hasta 1,1 px se dibuja transparente en proporción, y las calles
+         van sin contorno (sinBorde).
+         Y la captura de las 23:08 (km 4,00: TODA el agua gris, con un borde en diagonal): un tramo de calle que cruza el
+         recorrido (la pasarela del muelle, un puente) con una esquina al lado o detrás de la cámara; la proyección divide por
+         casi cero y el cuadrito se vuelve enorme. Ahora un tramo solo se dibuja con sus cuatro esquinas adelante (≥ 2,5 m),
+         como ya hacía el terreno. Esa es la franja "intermitente": aparecía al pasar cerca de una calle. Además, un tramo
+         de calle sin suelo debajo (altura 0: va sobre el agua, como un puente, o por tierra de la que no llegó el perfil) ya
+         no se dibuja: quedaba como una cinta gris acostada sobre el agua (los puentes los dibuja dibujarElemsRumbo).
    v139: 🧢 LA TIERRA DE FRENTE A LA PUNTA DEL RECORRIDO (Hugo, 9-nov, con capturas de Zihuatanejo: "el muelle parece
          estar dentro del agua cuando está dibujado pegado a la costa" y "sigue sin aportar la zona de ciudad cerca de la
          costa"). Las orillas viajan medidas a los costados de la ruta: lo que hay MÁS ALLÁ del final (la playa y la ciudad
@@ -6120,13 +6133,18 @@ function callesCaras(R, quads, proy, cam, F, cielo, w) {
   for (const c of C) {
     const half = (CALLE_ANCHO[c.cl] || 4) / 2, vis = CALLE_VIS[c.cl] || 800, n = c.pts.length, hex = CALLE_COLOR[c.cl] || '#575a5e', num = parseInt(hex.slice(1), 16);
     for (let i = 0; i + 1 < n; i++) {
-      const a = c.pts[i], b = c.pts[i + 1], fa = (a[0] - cam[0]) * F[0] + (a[1] - cam[1]) * F[1], fb = (b[0] - cam[0]) * F[0] + (b[1] - cam[1]) * F[1], fm = (fa + fb) / 2;
+      const a = c.pts[i], b = c.pts[i + 1]; if (a[2] < 0.2 && b[2] < 0.2) continue;   // v140: sin suelo debajo (0 = agua, o tierra de la que no hay perfil): no se pinta una calle acostada sobre el agua
+      const fa = (a[0] - cam[0]) * F[0] + (a[1] - cam[1]) * F[1], fb = (b[0] - cam[0]) * F[0] + (b[1] - cam[1]) * F[1], fm = (fa + fb) / 2;
       if (fm < 6 || fm > vis || fa < 3 || fb < 3) continue;
       const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy / l * half, ny = dx / l * half;
       const P = [proy(a[0] + nx, a[1] + ny, a[2]), proy(b[0] + nx, b[1] + ny, b[2]), proy(b[0] - nx, b[1] - ny, b[2]), proy(a[0] - nx, a[1] - ny, a[2])];
+      if (P[0].fw < 2.5 || P[1].fw < 2.5 || P[2].fw < 2.5 || P[3].fw < 2.5) continue;   // v140: una esquina del tramo al lado o detrás de la cámara (calle o pasarela que cruza tu recorrido): la proyección se desboca y pintaba TODA el agua de gris
       let x0 = 1e9, x1 = -1e9; for (const q of P) { x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); } if (x1 < -200 || x0 > w + 200) continue;
+      // v140: grosor del tramo en pantalla (área ÷ largo). De lejos una calle mide décimas de píxel: no se dibuja o va transparente en proporción
+      let ar = 0, lg = 0; for (let j = 0; j < 4; j++) { const q = P[j], r = P[(j + 1) % 4]; ar += q.x * r.y - r.x * q.y; lg = Math.max(lg, Math.hypot(r.x - q.x, r.y - q.y)); }
+      const gr = Math.abs(ar) / 2 / Math.max(1, lg); if (gr < 0.3) continue;
       const nb = Math.min(0.8, fm / 3600), k = 1.0, m = (x, j) => Math.round(Math.min(255, x * k) * (1 - nb) + cielo[j] * nb);
-      quads.push({ fw: fm - 8, p: P, c: 'rgb(' + m(num >> 16 & 255, 0) + ',' + m(num >> 8 & 255, 1) + ',' + m(num & 255, 2) + ')' });   // -8: va un poco después que el terreno de su misma distancia
+      quads.push({ fw: fm - 8, p: P, sinBorde: true, c: 'rgba(' + m(num >> 16 & 255, 0) + ',' + m(num >> 8 & 255, 1) + ',' + m(num & 255, 2) + ',' + Math.min(1, gr / 1.1).toFixed(2) + ')' });   // -8: va un poco después que el terreno de su misma distancia
     }
   }
 }
@@ -6212,7 +6230,7 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
   for (const q of quads) {
     if (q.espuma) { ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 * (1 - q.fw / 400) * (0.7 + 0.3 * Math.sin(t * 2 + q.i))).toFixed(3) + ')'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(q.espuma[0].x, q.espuma[0].y); ctx.lineTo(q.espuma[1].x, q.espuma[1].y); ctx.stroke(); continue; }
     const p = q.p; ctx.fillStyle = q.c; ctx.beginPath(); ctx.moveTo(p[0].x, p[0].y); ctx.lineTo(p[1].x, p[1].y); ctx.lineTo(p[2].x, p[2].y); ctx.lineTo(p[3].x, p[3].y); ctx.closePath(); ctx.fill();
-    if (!q.reflejo) { ctx.strokeStyle = q.c; ctx.lineWidth = 0.8; ctx.stroke(); } // tapa las rayitas entre cuadritos
+    if (!q.reflejo && !q.sinBorde) { ctx.strokeStyle = q.c; ctx.lineWidth = 0.8; ctx.stroke(); } // tapa las rayitas entre cuadritos
   }
 }
 // ---- 🌬️ CLIMA REAL DEL RECORRIDO: el tiempo de ahora en el lugar del recorrido (Open-Meteo, gratis y sin clave).
