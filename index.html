@@ -141,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v140</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v141</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2648,6 +2648,11 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v141: 🧢 TIERRA DE FRENTE TAMBIÉN EN LAS ESQUINAS Y EN LOS CIRCUITOS (Hugo, 9-nov 23:37, circuito de 1,2 km frente al muelle
+         Afasyn: "se ve el muelle y el barco [el Ángel B] en el agua, y la realidad es que están en la costa"). El circuito
+         cierra en una esquina mirando a la costa: la v139 solo traía la tapa en las puntas de recorridos abiertos. Rumbo ahora
+         manda la tapa del cierre de un circuito (si ahí se dobla) y una por cada esquina cerrada del recorrido (`tapa.mas`,
+         con su lat/lon); tapasDeRumbo las lee todas. Hay que volver a mandar la ruta desde Rumbo.
    v140: 🛣️ FRANJA GRIS EN EL HORIZONTE (Hugo, 9-nov, 23 h, ya con v139 y la ruta de Zihuatanejo reenviada: "ha mejorado mucho
          pero ahora se ven franjas intermitentes en el recorrido"; en las capturas, una banda gris oscura de lado a lado sobre
          la línea del agua y una "pared" gris al llegar). Eran las 500 calles que ahora sí llegan: cada tramito de calle se
@@ -5846,7 +5851,9 @@ function distanciaGeo(a, b) {
 function tapasDeRumbo(o, lat0, lon0, kx, ky) {
   const T = o && o.tapa, out = []; if (!T || !(T.n > 1) || !o.ll || o.ll.length < 2) return out;
   const g = Math.PI / 180;
-  for (const [t, p] of [[T.ini, o.ll[0]], [T.fin, o.ll[o.ll.length - 1]]]) {
+  const lista = [[T.ini, o.ll[0]], [T.fin, o.ll[o.ll.length - 1]]];
+  for (const m of (Array.isArray(T.mas) ? T.mas : [])) if (m && isFinite(m.la) && isFinite(m.lo)) lista.push([m, [m.la, m.lo]]);   // v141: esquinas cerradas del recorrido
+  for (const [t, p] of lista) {
     if (!t || !t.d) continue; let u; try { u = b64aU8(t.d); } catch (e) { continue; }
     if (u.length < T.n * 11) continue;
     out.push({ x: (p[1] - lon0) * kx, y: (p[0] - lat0) * ky, az: t.az * g, a0: (T.a0 || 0) * g, st: (T.st || 8) * g, n: T.n, u });
@@ -7093,7 +7100,7 @@ async function renderCardRuta() {
   sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + n.replace(/</g, '&lt;') + '</option>').join('');
   const R = rutaActiva;
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
-  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.sentido === 'inv' ? ' · al revés' : R.sentido === 'iyv' ? ' · ida y vuelta' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua' + (R.marOwn ? ', con ' + R.marOwn + ' costa' + (R.marOwn > 1 ? 's trazadas' : ' trazada') + ' a mano' : '') + ')' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.sh && !(R.R0 || R).loop ? (R.tapas && R.tapas.length ? ' · con la tierra de frente a la llegada' : ' · sin la tierra de frente a la llegada (volvé a mandarla desde Rumbo)') : '') + (R.his ? ' · dibujado en Rumbo cerca: ' + R.his : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : R.sh ? ' · sin edificios (' + (R.edifWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : R.sh ? ' · sin calles (' + (R.callesWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
+  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.sentido === 'inv' ? ' · al revés' : R.sentido === 'iyv' ? ' · ida y vuelta' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua' + (R.marOwn ? ', con ' + R.marOwn + ' costa' + (R.marOwn > 1 ? 's trazadas' : ' trazada') + ' a mano' : '') + ')' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.sh ? (R.tapas && R.tapas.length ? ' · con la tierra de frente en ' + (R.tapas.length > 2 ? 'puntas y esquinas (' + R.tapas.length + ')' : 'la llegada') : (R.R0 || R).loop ? '' : ' · sin la tierra de frente a la llegada (volvé a mandarla desde Rumbo)') : '') + (R.his ? ' · dibujado en Rumbo cerca: ' + R.his : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : R.sh ? ' · sin edificios (' + (R.edifWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : R.sh ? ' · sin calles (' + (R.callesWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const ss = document.getElementById('selSentido'); if (ss) ss.value = R && R.sentido || '';   // v133
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
