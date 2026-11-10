@@ -141,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v137</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v138</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2648,6 +2648,14 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v138: 🌊 MOVIMIENTO Y PAISAJE (Hugo, 9-nov: "mejora el realismo en el armado de las animaciones para
+         entrenar en las apps del ecosistema"; eligió luz, paisaje, deportista y movimiento en Correr,
+         Bici y Kayak). Completa lo de v137 sin tocar poses ni proporciones del Editor:
+         · el kayak se hamaca: con cada palada rola un poco y sube y baja apenas (movKayak; el giro
+           se aplica al dibujo ENTERO de kayak + kayakista, alrededor de la línea de flotación; solo en
+           Sesión y Carrera, el Editor sigue quieto para ajustar las poses);
+         · montañas del lago con una cara al sol y otra en sombra, bruma al pie y su reflejo en el agua
+           (dibujarReflejoMontanas); el bosque de la orilla es una franja continua con pinos de dos tonos.
    v137: ✨ GRÁFICOS MÁS REALISTAS (Hugo, 9-nov: "mejora los gráficos de la animación de la app,
          hazlos más realistas"). Solo cambia la luz y la textura; NINGUNA pose ni proporción del
          Editor (mismos puntos, mismas medidas). Cielo: cenit más azul que se entibia hacia el
@@ -5536,8 +5544,10 @@ function renderCarrera() {
     const d = { der: interpolarLadoEnSecuenciaK(p.corredor.fase, 'der'), izq: interpolarLadoEnSecuenciaK(p.corredor.fase, 'izq') };
     const rotacion = interpolarRotacionEnSecuenciaK(p.corredor.fase);
     if (i === idxCamara) {
-      dibujarReflejo(ctx, w / 2, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
-      dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
+      conMovKayak(ctx, w / 2, h * 0.62, s, p.corredor.fase, () => { // v138
+        dibujarReflejo(ctx, w / 2, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
+        dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, d.der, d.izq, rotacion, p.corredor.color, proporciones);
+      });
       return;
     }
     const gap = distanciaCamara - p.distancia; // positivo = la cámara va adelante de este corredor — esto es para el CARTELITO (verde/rojo), no para el tamaño
@@ -5766,8 +5776,10 @@ function renderSesionVivo() {
     dibujarKayakistaDesdeD(ctx, w / 2 + persp.xOffset, h * 0.62 + persp.yOffset, s * persp.escala, dDerFantasma, dIzqFantasma, rotacionFantasma, '#8a94a3', proporciones);
     ctx.restore();
   }
-  dibujarReflejo(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
-  dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
+  conMovKayak(ctx, w / 2, h * 0.62, s, tGlobalVivo, () => { // v138: el kayak se hamaca con la palada
+    dibujarReflejo(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
+    dibujarKayakistaDesdeD(ctx, w / 2, h * 0.62, s, dDer, dIzq, rotacion, '#242424', proporciones);
+  });
   dibujarBadgeFantasma(ctx, w, gap);
   if (rutaActiva) dibujarMapitaRuta(ctx, w, h, distanciaParaRuta());
   if (rutaActiva) wxEncima(ctx, w, h, horizonY, rutaActiva, distanciaParaRuta(), sesionActiva ? sesionActiva.velAnterior : 0); // v111
@@ -8191,8 +8203,38 @@ function dibujarEscenaLago(ctx, w, h, horizonY) {
   dibujarCieloLago(ctx, w, h, horizonY, t);
   dibujarMontanasLago(ctx, w, h, horizonY);
   dibujarAguaLago(ctx, w, h, horizonY);
+  dibujarReflejoMontanas(ctx, w, h, horizonY); // v138
   dibujarPinosLago(ctx, w, h, horizonY);
   dibujarOndasLago(ctx, w, h, horizonY, t);
+}
+// v138: perfil de una capa de montañas del lago (el mismo que dibuja dibujarMontanasLago), para sombrearla y reflejarla
+function perfilMontanaLago(w, h, horizonY, base, amp, sem) {
+  const pts = [];
+  for (let x = 0; x <= w; x += Math.max(6, w / 40)) pts.push([x, horizonY - h * base * 0.55 - Math.abs(Math.sin(x / w * 4.5 * sem + sem)) * h * amp * 0.45 - Math.sin(x / w * 15 * sem) * h * 0.006]);
+  return pts;
+}
+// v138: las montañas se reflejan en el agua quieta cerca de la otra orilla: perfil invertido y aplastado, que se pierde hacia vos
+function dibujarReflejoMontanas(ctx, w, h, horizonY) {
+  const hA = h - horizonY, g = ctx.createLinearGradient(0, horizonY, 0, horizonY + hA * 0.2);
+  g.addColorStop(0, 'rgba(46,66,84,0.34)'); g.addColorStop(1, 'rgba(46,66,84,0)');
+  ctx.fillStyle = g;
+  for (const [base, amp, sem] of [[0.10, 0.20, 1], [0.02, 0.07, 3]]) {
+    const pts = perfilMontanaLago(w, h, horizonY, base, amp, sem);
+    ctx.beginPath(); ctx.moveTo(0, horizonY);
+    for (const [x, y] of pts) ctx.lineTo(x, horizonY + (horizonY - y) * 0.62);
+    ctx.lineTo(w, horizonY); ctx.closePath(); ctx.fill();
+  }
+}
+// v138: el kayak se hamaca con la palada. tG = instante de la animación (0–8, un ciclo = palada de cada lado). Devuelve el
+// giro (rad) y cuánto sube (px). Es movimiento del bote entero: no cambia ninguna pose ni medida del Editor.
+function movKayak(tG, s) {
+  const f = (tG || 0) / 8 * 2 * Math.PI;
+  return { roll: 0.02 * Math.sin(f), sube: s * 0.012 * Math.sin(2 * f + 0.6) };
+}
+function conMovKayak(ctx, cx, gy, s, tG, fn) {
+  const mv = movKayak(tG, s), py = gy + s * 0.3; // gira alrededor de la línea de flotación
+  ctx.save(); ctx.translate(cx, py + mv.sube); ctx.rotate(mv.roll); ctx.translate(-cx, -py);
+  try { fn(); } finally { ctx.restore(); }
 }
 function dibujarCieloLago(ctx, w, h, horizonY, t) {
   // v137 — cielo con más profundidad: cenit más azul que se aclara y se entibia hacia el horizonte
@@ -8274,6 +8316,11 @@ function dibujarMontanasLago(ctx, w, h, horizonY) {
     ctx.lineTo(w, horizonY);
     ctx.closePath();
     ctx.fill();
+    // v138: el sol está a la derecha: la falda izquierda de cada cumbre queda en sombra
+    ctx.fillStyle = 'rgba(18,32,48,' + (0.10 + 0.03 * sem) + ')';
+    for (let i = 1; i < pts.length - 1; i++) { const [x, y] = pts[i];
+      if (y <= pts[i - 1][1] && y < pts[i + 1][1] && horizonY - y > h * 0.03) { const a = horizonY - y;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - a * 1.5, horizonY); ctx.lineTo(x + a * 0.25, horizonY); ctx.lineTo(x + a * 0.08, y + a * 0.45); ctx.closePath(); ctx.fill(); } }
     if (sem < 3) { // nieve solo en las dos capas del fondo — la más cercana queda sin nieve, más baja
       const cumbre = horizonY - h * base * 0.55 - h * amp * 0.45 * 0.72;
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -8285,7 +8332,10 @@ function dibujarMontanasLago(ctx, w, h, horizonY) {
       });
     }
   });
-
+  // v138: bruma al pie de las montañas (la otra orilla está lejos)
+  const br = ctx.createLinearGradient(0, horizonY - h * 0.07, 0, horizonY);
+  br.addColorStop(0, 'rgba(226,224,210,0)'); br.addColorStop(1, 'rgba(226,224,210,0.5)');
+  ctx.fillStyle = br; ctx.fillRect(0, horizonY - h * 0.07, w, h * 0.07);
 }
 function dibujarAguaLago(ctx, w, h, horizonY) {
   // v137 — agua con reflejo "de Fresnel": mirando casi rasante (lejos) refleja el cielo y es clara
@@ -8342,8 +8392,14 @@ function dibujarPinosLago(ctx, w, h, horizonY) {
     if (x > w * 0.3 && x < w * 0.7) continue;
     pinos.push([x, h * (0.022 + (i * 0.013) % 0.02)]);
   }
+  // v138: franja continua de bosque en la orilla (a los costados) y, encima, pinos de dos tonos: lado del sol y lado en sombra
+  ctx.fillStyle = '#35593c';
+  for (const [x0, x1] of [[0, w * 0.3], [w * 0.7, w]]) { ctx.beginPath(); ctx.moveTo(x0, horizonY);
+    for (let x = x0; x <= x1 + 1; x += w / 60) ctx.lineTo(Math.min(x, x1), horizonY - h * (0.012 + 0.006 * Math.abs(Math.sin(x * 0.21))) * Math.min(1, Math.abs(x - w / 2) / (w * 0.2) - 0.9));
+    ctx.lineTo(x1, horizonY); ctx.closePath(); ctx.fill(); }
+  pinos.forEach(([x, ph]) => { ctx.fillStyle = '#4a7a4c'; ctx.beginPath(); ctx.moveTo(x - ph * 0.35, horizonY); ctx.lineTo(x, horizonY - ph); ctx.lineTo(x + ph * 0.35, horizonY); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#2f5237'; ctx.beginPath(); ctx.moveTo(x - ph * 0.35, horizonY); ctx.lineTo(x, horizonY - ph); ctx.lineTo(x, horizonY); ctx.closePath(); ctx.fill(); });
   ctx.fillStyle = '#3f6b45';
-  pinos.forEach(([x, ph]) => { ctx.beginPath(); ctx.moveTo(x - ph * 0.35, horizonY); ctx.lineTo(x, horizonY - ph); ctx.lineTo(x + ph * 0.35, horizonY); ctx.closePath(); ctx.fill(); });
   ctx.save();
   ctx.globalAlpha = 0.3;
   pinos.forEach(([x, ph]) => { ctx.beginPath(); ctx.moveTo(x - ph * 0.35, horizonY); ctx.lineTo(x, horizonY + ph * 0.8); ctx.lineTo(x + ph * 0.35, horizonY); ctx.closePath(); ctx.fill(); });
