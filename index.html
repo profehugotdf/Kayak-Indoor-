@@ -141,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v138</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v139</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2648,6 +2648,15 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v139: 🧢 LA TIERRA DE FRENTE A LA PUNTA DEL RECORRIDO (Hugo, 9-nov, con capturas de Zihuatanejo: "el muelle parece
+         estar dentro del agua cuando está dibujado pegado a la costa" y "sigue sin aportar la zona de ciudad cerca de la
+         costa"). Las orillas viajan medidas a los costados de la ruta: lo que hay MÁS ALLÁ del final (la playa y la ciudad
+         a la que llegás) no venía, y adelante quedaba solo agua. Rumbo ahora manda `tapa`: un abanico de 21 rayos (−80° a
+         +80° del rumbo) desde cada punta, con la distancia a la tierra, el color y el perfil tierra adentro. decodificarRuta
+         → R.tapas (en el plano local, no dependen del sentido); dibujarOrillas las dibuja con los mismos cuadritos que las
+         orillas (tapaMuestras) y elemSueloZ las usa (tapaSueloZ) para apoyar muelles, calles y edificios que caen ahí.
+         La tarjeta Recorrido dice "tierra de frente" si vino. Los edificios y calles que faltaban eran de Rumbo (un
+         servidor de OpenStreetMap contestaba vacío y se lo tomaba por bueno): arreglado allá; hay que volver a mandar la ruta.
    v138: 🌊 MOVIMIENTO Y PAISAJE (Hugo, 9-nov: "mejora el realismo en el armado de las animaciones para
          entrenar en las apps del ecosistema"; eligió luz, paisaje, deportista y movimiento en Correr,
          Bici y Kayak). Completa lo de v137 sin tocar poses ni proporciones del Editor:
@@ -5818,6 +5827,36 @@ function distanciaGeo(a, b) {
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 // pura: de lo que manda Rumbo a lo que usa el dibujo (metros en un plano local: x al este, y al norte)
+// v139: "tapa" = la tierra que hay de frente al final (y detrás del principio) del recorrido, que las orillas de los costados no cubren.
+// Rumbo manda por punta un abanico de n rayos (a0 + i·st grados respecto del rumbo az): 11 bytes por rayo = distancia ÷8 m (255 = sin tierra),
+// color rgb y 7 alturas ÷2 m (en los mismos OFF que las orillas). Pura: → [{x, y, az (rad), a0, st (rad), n, u}] en el plano local.
+function tapasDeRumbo(o, lat0, lon0, kx, ky) {
+  const T = o && o.tapa, out = []; if (!T || !(T.n > 1) || !o.ll || o.ll.length < 2) return out;
+  const g = Math.PI / 180;
+  for (const [t, p] of [[T.ini, o.ll[0]], [T.fin, o.ll[o.ll.length - 1]]]) {
+    if (!t || !t.d) continue; let u; try { u = b64aU8(t.d); } catch (e) { continue; }
+    if (u.length < T.n * 11) continue;
+    out.push({ x: (p[1] - lon0) * kx, y: (p[0] - lat0) * ky, az: t.az * g, a0: (T.a0 || 0) * g, st: (T.st || 8) * g, n: T.n, u });
+  }
+  return out;
+}
+// pura: un rayo de la tapa → {b (rumbo, rad), d (m o null), col, prof[7] (m)}
+function tapaRayo(T, i) { const o = i * 11, u = T.u, prof = []; for (let j = 0; j < 7; j++) prof.push(u[o + 4 + j] * 2);
+  return { b: T.az + T.a0 + i * T.st, d: u[o] === 255 ? null : u[o] * 8, col: [u[o + 1], u[o + 2], u[o + 3]], prof }; }
+// pura: altura del suelo (m) en x,y según la tapa que lo cubre, o null si ninguna lo cubre (fuera del abanico) — 0 si es agua
+function tapaSueloZ(R, x, y) {
+  for (const T of R.tapas || []) {
+    const dx = x - T.x, dy = y - T.y, r = Math.hypot(dx, dy); if (r < 1) continue;
+    let rel = Math.atan2(dx, dy) - T.az; rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+    const fi = (rel - T.a0) / T.st; if (fi < 0 || fi > T.n - 1) continue;
+    const i0 = Math.min(T.n - 2, Math.floor(fi)), t = fi - i0, OFF = R.off || ORILLA_OFF_DEF;
+    const z = i => { const ry = tapaRayo(T, i); if (ry.d == null) return 0; const u = r - ry.d; if (u <= 0) return 0;
+      for (let j = 1; j < OFF.length; j++) if (u <= OFF[j]) { const q = (u - OFF[j - 1]) / (OFF[j] - OFF[j - 1]); return ry.prof[j - 1] * (1 - q) + ry.prof[j] * q; }
+      return ry.prof[OFF.length - 1]; };
+    return z(i0) * (1 - t) + z(i0 + 1) * t;
+  }
+  return null;
+}
 function decodificarRuta(o) {
   const ll = o.ll, n = ll.length, cum = [0];
   for (let i = 1; i < n; i++) cum.push(cum[i - 1] + distanciaGeo(ll[i - 1], ll[i]));
@@ -5829,6 +5868,7 @@ function decodificarRuta(o) {
     pf: o.shore && o.shore.p ? b64aU8(o.shore.p) : null,             // v108: perfil del terreno tierra adentro (7 alturas por costado, cada 2 m)
     off: o.shore && o.shore.off ? o.shore.off : null,
     hz: o.hz && o.hz.d ? Object.assign({}, o.hz, { u: b64aU8(o.hz.d) }) : null,
+    tapas: tapasDeRumbo(o, lat0, lon0, kx, ky),   // v139: la tierra de frente a cada punta
     peaks: (o.peaks || []).filter(p => p && p.e > 0),
     // v113: muelles, puentes, túneles, terraplenes y desmontes que manda Rumbo, con su posición real (k, n nombre, a altura, m marcado a mano, p [lat,lon]…)
     edifRaw: Array.isArray(o.edif) ? o.edif.filter(b => Array.isArray(b) && b.length >= 7 && b[0] > 0) : [],   // v121: edificios de la costa [altura, real, lat, lon, ancho, fondo, rumbo°]
@@ -6090,13 +6130,25 @@ function callesCaras(R, quads, proy, cam, F, cielo, w) {
     }
   }
 }
+// v139: los rayos de una tapa como "muestras" de orilla (mismo formato que arma dibujarOrillas para cada costado)
+function tapaMuestras(R, T, OFF, proy) {
+  const out = [], NR = OFF.length;
+  for (let i = 0; i < T.n; i++) {
+    const ry = tapaRayo(T, i); if (ry.d == null) { out.push(null); continue; }
+    const sx = Math.sin(ry.b), sy = Math.cos(ry.b), col = ry.col, verde = col[1] > col[0] * 1.2 && col[1] > col[2] * 1.03 && col[0] + col[1] + col[2] < 420, W = [];
+    for (let j = 0; j < NR; j++) { const dd = ry.d + OFF[j]; let z = ry.prof[j] || 0; if (verde && j > 0 && z > 0.5) z += 6; W.push([T.x + sx * dd, T.y + sy * dd, j === 0 ? 0 : z]); }
+    let lim = NR; for (let j = 2; j < NR; j++) if ((ry.prof[j] || 0) <= 0.5) { lim = j; break; }
+    out.push({ W, P: W.map(p => proy(p[0], p[1], p[2])), dist: ry.d, col, verde, ang: ry.b, lim });
+  }
+  return out;
+}
 function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
   if (!R.orF) filtrarOrillas(R);
   const n = R.xy.length, cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)];
   const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 3), H = RUTA_CAM_H, t = performance.now() / 1000, cielo = [201, 211, 200];
   const OFF = R.off || ORILLA_OFF_DEF, NR = OFF.length;
   const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
-  const quads = [];
+  const quads = [], grupos = [];
   for (const lado of [1, -1]) {
     const FO = R.orF[lado > 0 ? 0 : 1], muestras = [];
     for (let s = 0; s < n; s++) {
@@ -6119,6 +6171,11 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
       let lim = NR; for (let j = 2; j < NR; j++) if (FO.prof[k * NR + j] <= 0.5) { lim = j; break; }
       muestras.push({ W, P: W.map(p => proy(p[0], p[1], p[2])), dist: FO.d[k], col, verde, ang: Math.atan2(dy, dx), lim });
     }
+    grupos.push(muestras);
+  }
+  // v139: la tierra de frente a cada punta del recorrido (tapa), con los mismos cuadritos que las orillas
+  for (const T of R.tapas || []) { if (Math.hypot(T.x - cam[0], T.y - cam[1]) > 5200) continue; grupos.push(tapaMuestras(R, T, OFF, proy)); }
+  for (const muestras of grupos) {
     for (let i = 0; i + 1 < muestras.length; i++) {
       const a = muestras[i], b = muestras[i + 1]; if (!a || !b) continue;
       if (Math.abs(a.dist - b.dist) > 60 + 0.4 * Math.min(a.dist, b.dist)) continue;   // entrada, cabo o isla: no se une
@@ -6745,6 +6802,9 @@ const ELEM_ANCHO = { puente: 10, terraplen: 14, muelle: 2.8 };   // ancho de la 
 // pura: altura del terreno (m sobre el agua) en un punto del plano local, con el perfil que Rumbo manda tierra adentro
 function elemSueloZ(R, x, y) {
   if (!R.sh) return 0;
+  if (R.tapas && R.tapas.length) { // v139: más allá de una punta del recorrido manda la tapa
+    for (const T of R.tapas) { const fw = (x - T.x) * Math.sin(T.az) + (y - T.y) * Math.cos(T.az); if (fw > 5) { const z = tapaSueloZ(R, x, y); if (z != null) return z; } }
+  }
   if (!R.orF) filtrarOrillas(R);
   const n = R.xy.length; let k = 0, md = 1e18;
   for (let i = 0; i < n; i += 4) { const dd = (R.xy[i][0] - x) ** 2 + (R.xy[i][1] - y) ** 2; if (dd < md) { md = dd; k = i; } }
@@ -7015,7 +7075,7 @@ async function renderCardRuta() {
   sel.innerHTML = '<option value="">🏞️ Lago (el de siempre)</option>' + nombres.map(n => '<option' + (n === act ? ' selected' : '') + '>' + n.replace(/</g, '&lt;') + '</option>').join('');
   const R = rutaActiva;
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
-  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.sentido === 'inv' ? ' · al revés' : R.sentido === 'iyv' ? ' · ida y vuelta' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua' + (R.marOwn ? ', con ' + R.marOwn + ' costa' + (R.marOwn > 1 ? 's trazadas' : ' trazada') + ' a mano' : '') + ')' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.his ? ' · dibujado en Rumbo cerca: ' + R.his : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : R.sh ? ' · sin edificios (' + (R.edifWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : R.sh ? ' · sin calles (' + (R.callesWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
+  document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.sentido === 'inv' ? ' · al revés' : R.sentido === 'iyv' ? ' · ida y vuelta' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua' + (R.marOwn ? ', con ' + R.marOwn + ' costa' + (R.marOwn > 1 ? 's trazadas' : ' trazada') + ' a mano' : '') + ')' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.sh && !(R.R0 || R).loop ? (R.tapas && R.tapas.length ? ' · con la tierra de frente a la llegada' : ' · sin la tierra de frente a la llegada (volvé a mandarla desde Rumbo)') : '') + (R.his ? ' · dibujado en Rumbo cerca: ' + R.his : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : R.sh ? ' · sin edificios (' + (R.edifWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : R.sh ? ' · sin calles (' + (R.callesWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const ss = document.getElementById('selSentido'); if (ss) ss.value = R && R.sentido || '';   // v133
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
