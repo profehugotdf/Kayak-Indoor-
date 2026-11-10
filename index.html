@@ -141,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v141</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v142</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2648,6 +2648,12 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v142: ☀️ EL SOL QUEDA EN SU LUGAR CUANDO DOBLÁS (Hugo, 10-nov: "me parece medio raro que el reflejo sobre el agua esté
+         siempre en el mismo lugar a pesar de los cambios de dirección"). En un recorrido de Rumbo el sol ahora tiene un rumbo
+         fijo en el mundo (al norte en el hemisferio sur, al sur en el norte, un poco hacia el este): el disco, el camino de
+         luz y los destellos se corren con el rumbo de la cámara (solDeRumbo) y, cuando el sol queda de costado o atrás, se
+         apagan. SOL = {x, k} lo leen dibujarCieloLago, dibujarAguaLago y dibujarOndasLago; en el lago sin recorrido, el
+         Editor y la Carrera sin ruta sigue donde estaba (0,78 del ancho). La luz sobre el kayakista no cambia.
    v141: 🧢 TIERRA DE FRENTE TAMBIÉN EN LAS ESQUINAS Y EN LOS CIRCUITOS (Hugo, 9-nov 23:37, circuito de 1,2 km frente al muelle
          Afasyn: "se ve el muelle y el barco [el Ángel B] en el agua, y la realidad es que están en la costa"). El circuito
          cierra en una esquina mirando a la costa: la v139 solo traía la tapa en las puntas de recorridos abiertos. Rumbo ahora
@@ -6449,9 +6455,21 @@ function escenaCopiarDiagnostico() {
   const mostrar = () => { if (box) { box.style.display = 'block'; box.value = t; box.focus(); box.select(); } };
   try { navigator.clipboard.writeText(t).then(() => toast('Copiado: pegalo en el chat'), () => { mostrar(); toast('Tocá el cuadro, copiá y pegalo en el chat'); }); } catch (e) { mostrar(); toast('Tocá el cuadro, copiá y pegalo en el chat'); }
 }
+// v142: dónde queda el sol en pantalla según el rumbo de la cámara. El sol tiene un rumbo fijo en el mundo: hacia el ecuador (norte en el
+// hemisferio sur, sur en el norte) y 30° hacia el este. Pura: → {x (fracción del ancho), k (0 = no se ve, 1 = pleno)}
+const SOL = { x: 0.78, k: 1 };
+function solDeRumbo(az, f, w, latSur) {
+  const azSol = latSur ? 0.52 : Math.PI - 0.52; let rel = azSol - az; rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+  const a = Math.abs(rel); if (a >= 1.25) return { x: rel > 0 ? 1.6 : -0.6, k: 0 };
+  return { x: 0.5 + f * Math.tan(rel) / w, k: a < 0.85 ? 1 : (1.25 - a) / 0.4 };
+}
 function dibujarEscenaRuta(ctx, w, h, horizonY, dTotal) {
   const R = rutaActiva, t = performance.now() / 1000, d = distanciaEnRuta(R, dTotal);
   const f = w * 0.65, az = rumboCamara(R, d);
+  const sol = solDeRumbo(az, f, w, !(R.ll && R.ll[0] && R.ll[0][0] > 0)); SOL.x = sol.x; SOL.k = sol.k;
+  try { dibujarEscenaRutaCon(ctx, w, h, horizonY, R, t, d, f, az); } finally { SOL.x = 0.78; SOL.k = 1; }
+}
+function dibujarEscenaRutaCon(ctx, w, h, horizonY, R, t, d, f, az) {
   dibujarCieloLago(ctx, w, h, horizonY, t);
   const Wc = wxPara(R); if (Wc) wxCielo(ctx, w, horizonY, Wc, az, t, f); // v111
   if (R.hz) { try { dibujarHorizonteReal(ctx, w, horizonY, az, f, R, d); } catch (e) { dibujarMontanasLago(ctx, w, h, horizonY); } }
@@ -8335,7 +8353,7 @@ function dibujarCieloLago(ctx, w, h, horizonY, t) {
   ctx.fillRect(0, 0, w, horizonY);
 
   // halo y disco del sol (mismo lado que el camino de luz del agua: x = 0,78 w)
-  const sx = w * 0.78, sy = horizonY * 0.9;
+  const sx = w * SOL.x, sy = horizonY * 0.9, gaSol = ctx.globalAlpha; ctx.globalAlpha = gaSol * SOL.k;   // v142
   const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, horizonY * 0.95);
   halo.addColorStop(0, 'rgba(255,244,214,0.75)');
   halo.addColorStop(0.18, 'rgba(255,238,200,0.38)');
@@ -8347,6 +8365,7 @@ function dibujarCieloLago(ctx, w, h, horizonY, t) {
   disco.addColorStop(1, 'rgba(255,250,225,0)');
   ctx.fillStyle = disco;
   ctx.beginPath(); ctx.arc(sx, sy, horizonY * 0.07, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = gaSol;
 
   // cirros: pinceladas largas y casi transparentes, estiradas por el viento
   ctx.fillStyle = 'rgba(255,255,255,0.14)';
@@ -8444,7 +8463,7 @@ function dibujarAguaLago(ctx, w, h, horizonY) {
   ctx.fillRect(0, horizonY, w, hA * 0.32);
 
   // camino de luz del sol: ancho y suave abajo, fino y brillante en el horizonte
-  const solX = w * 0.78;
+  const solX = w * SOL.x, gaSol = ctx.globalAlpha; ctx.globalAlpha = gaSol * SOL.k;   // v142
   // (tres capas de distinto ancho y poca opacidad: el borde se difumina en vez de verse como un trapecio)
   [[1, 0.26], [0.62, 0.22], [0.3, 0.2]].forEach(([k, a]) => {
     const luz = ctx.createLinearGradient(0, horizonY, 0, h);
@@ -8457,6 +8476,7 @@ function dibujarAguaLago(ctx, w, h, horizonY) {
     ctx.lineTo(solX + w * 0.26 * k, h); ctx.lineTo(solX - w * 0.26 * k, h);
     ctx.closePath(); ctx.fill();
   });
+  ctx.globalAlpha = gaSol;
 
   // línea del horizonte: un filo claro apenas más nítido que la bruma
   ctx.fillStyle = 'rgba(255,250,235,0.35)';
@@ -8492,7 +8512,7 @@ function dibujarPinosLago(ctx, w, h, horizonY) {
 
 }
 function dibujarOndasLago(ctx, w, h, horizonY, t) {
-  const solX = w * 0.78, hA = h - horizonY;
+  const solX = w * SOL.x, hA = h - horizonY;
   // v137 — rizado con luz: cada onda tiene una cresta clara del lado del sol y una sombra fina
   // abajo (así se lee como relieve del agua y no como una raya blanca). Con perspectiva: finas,
   // chatas y lentas cerca del horizonte; anchas, altas y más rápidas cerca de la cámara.
@@ -8531,7 +8551,7 @@ function dibujarOndasLago(ctx, w, h, horizonY, t) {
     const ancho = (0.12 + fy * 0.34) * w * 0.5;
     const x = solX + (((i * 0.137) % 0.34) - 0.17) * w * (0.35 + fy * 1.1);
     const y = horizonY + hA * p * 0.95 + 3;
-    const a = Math.max(0, Math.sin(t * 2.6 + i * 1.7)) * (0.7 - p * 0.3);
+    const a = Math.max(0, Math.sin(t * 2.6 + i * 1.7)) * (0.7 - p * 0.3) * SOL.k;
     if (a < 0.04) continue;
     const gl = ctx.createRadialGradient(x, y, 0, x, y, ancho * 0.12 + 2);
     gl.addColorStop(0, 'rgba(255,252,232,' + a.toFixed(2) + ')');
