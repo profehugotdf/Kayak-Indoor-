@@ -137,11 +137,15 @@
   #canvasSesionVivo{border-radius:12px; background:#0d1a12; width:100%; display:block;}
   #view-editor input[type=range]{width:100%; margin:2px 0 14px; touch-action:pan-y;}
   #view-editor label{display:flex; justify-content:space-between; margin-top:2px;}
+  /* v146: botones de cámara de la vista 3D */
+  #k3dCams{align-items:center;color:#cbd5e1}
+  #k3dCams .btn-chico{padding:8px 12px;border-radius:10px;border:1px solid #475569;background:#1e293b;color:#e2e8f0;font-size:14px;min-height:40px}
+  #k3dCams .btn-chico.activo{background:#0d9488;border-color:#2dd4bf;color:#fff}
 </style>
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v145</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v146</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -233,6 +237,10 @@
         <select id="selSentido" onchange="cambiarSentido(this.value)" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); margin-bottom:8px;">
           <option value="">Normal (como lo mandó Rumbo)</option><option value="inv">↔ Invertido (al revés)</option><option value="iyv">⇄ Ida y vuelta</option></select>
         <label class="fila" style="align-items:center; gap:8px; margin-bottom:4px;"><input type="checkbox" id="glOn" onchange="glCambio()" style="width:22px;height:22px;"> 🧊 Vista 3D (WebGL, como Kayak 3D)</label>
+        <div id="k3dCams" style="display:flex; flex-wrap:wrap; gap:6px; margin:0 0 6px;">📷
+          <button type="button" class="btn-chico" onclick="k3dPonerCam(0)">Trasera</button><button type="button" class="btn-chico" onclick="k3dPonerCam(1)">Frontal</button><button type="button" class="btn-chico" onclick="k3dPonerCam(2)">Alta</button><button type="button" class="btn-chico" onclick="k3dPonerCam(3)">Primera persona</button>
+        </div>
+        <p class="nota" style="margin:0 0 4px;">Tocando la vista también cambia la cámara.</p>
         <p class="nota" id="glInfo" style="margin:0 0 8px;"></p>
         <input type="range" id="sliderRuta" min="0" max="1000" value="0" step="5" oninput="moverPreviewRuta(this.value)" style="width:100%; touch-action:pan-y;">
         <div class="fila">
@@ -2650,6 +2658,8 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v146: 📷 CÁMARAS COMO EN KAYAK 3D (Hugo, 17-nov: "¿se puede cambiar de vista como en kayak 3d?"): trasera, frontal, alta y primera persona.
+         Tocando la vista 3D pasa a la siguiente (con un cartel), o con los botones de la tarjeta Recorrido; se guarda en kayak_k3d_cam.
    v145: 🛶 KAYAK 3D ADENTRO DE KAYAK INDOOR (Hugo, 17-nov, con capturas de v144 y del prototipo kayak3d_v2_9.html: "¿no se puede hacer la misma
          calidad y las mismas prestaciones en Kayak Indoor?"). Se integra el motor del prototipo (secciones 1–6: shaders de cielo/agua/olas/estela/
          anillos de palada, mallas del kayak y el kayakista, barcos, muelles, edificios, calles, árboles, playas, montañas reales por textura) como
@@ -8244,6 +8254,16 @@ let glErrAvisado = false;
 function errorGL(e) { console.warn(e); if (!glErrAvisado) { glErrAvisado = true; toast('La vista 3D de la costa falló y vuelvo al dibujo de siempre: ' + (e && e.message || e)); } }
 /* v145: Kayak 3D en la sesión y la vista previa. El paquete sale de la ruta ya con su sentido (bytes de orillas y perfil, horizonte con inv/fold),
    más los edificios, calles y elems de Rumbo. La distancia de la sesión sube de a un segundo: acá se interpola con la velocidad para que el kayak avance parejo. */
+// v146: cámara (como en Kayak 3D): 0 trasera, 1 frontal, 2 alta, 3 primera persona. Se cambia tocando la vista o con los botones de la tarjeta Recorrido.
+const K_K3D_CAM = LS_PREFIX + 'k3d_cam', K3D_CAMS = ['Trasera', 'Frontal', 'Alta', 'Primera persona'];
+let k3dCam = (() => { try { const v = parseInt(localStorage.getItem(K_K3D_CAM), 10); return v >= 0 && v < 4 ? v : 0; } catch (e) { return 0; } })(), k3dCamCartel = 0, k3dActiva = false;
+function k3dPonerCam(i) {
+  k3dCam = ((i % 4) + 4) % 4; k3dCamCartel = performance.now();
+  try { localStorage.setItem(K_K3D_CAM, String(k3dCam)); } catch (e) { toast('No pude guardar la cámara: ' + e.message); }
+  document.querySelectorAll('#k3dCams button').forEach((b, j) => b.classList.toggle('activo', j === k3dCam));
+  try { renderSesionVivo(); } catch (e) { errorGL(e); }
+}
+(function () { try { const c = document.getElementById('canvasSesionVivo'); if (c) c.addEventListener('click', () => { if (k3dActiva) k3dPonerCam(k3dCam + 1); }); } catch (e) { console.warn(e); } })();
 let k3dCad = 0, k3dDLast = null, k3dTLast = 0, k3dVisible = false, k3dRAF = null, k3dLast = 0;
 function k3dPaquete(R) { const o = R.raw || {};
   return { name: R.nombre, ll: R.ll, loop: R.loop, shore: R.sh ? { u: R.sh, pu: R.pf, off: R.off || undefined } : null, hz: R.hz, edif: R.edifRaw, calles: R.callesRaw, elems: o.elems || [] }; }
@@ -8259,8 +8279,15 @@ function dibujarK3D(ctx, w, h, horizonY) {
   } else if (rutaPlayRAF) vel = 3;
   const d = distanciaEnRuta(R, dT);
   const ok = K3D.draw(ctx, w, h, { key: R.nombre + '|' + (R.sentido || '') + '|' + Math.round(R.L), o: k3dPaquete(R), dRuta: d, Lapp: R.L, velMs: vel, cad, T: tGlobalVivo,
-    ghost: gap != null && gap < 0 ? distanciaEnRuta(R, dT - gap) : null, clima: k3dClima(R), cam: 0, kf: typeof editorDatos !== 'undefined' ? editorDatos : null });
+    ghost: gap != null && gap < 0 ? distanciaEnRuta(R, dT - gap) : null, clima: k3dClima(R), cam: k3dCam, kf: typeof editorDatos !== 'undefined' ? editorDatos : null });
+  k3dActiva = ok;
   if (!ok) return false;
+  if (now - k3dCamCartel < 1600) {   // v146: cartel de la cámara elegida
+    const a = Math.min(1, (1600 - (now - k3dCamCartel)) / 400), txt = '📷 ' + K3D_CAMS[k3dCam];
+    ctx.save(); ctx.globalAlpha = a; ctx.font = 'bold 15px system-ui,sans-serif'; const tw = ctx.measureText(txt).width;
+    ctx.fillStyle = 'rgba(10,20,30,.6)'; ctx.fillRect(w / 2 - tw / 2 - 12, h * 0.42 - 18, tw + 24, 30);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(txt, w / 2, h * 0.42 + 2); ctx.restore();
+  }
   dibujarBadgeFantasma(ctx, w, gap);
   dibujarMapitaRuta(ctx, w, h, dT);
   wxEncima(ctx, w, h, horizonY, R, dT, vel);
@@ -8424,6 +8451,7 @@ async function renderCardRuta() {
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
   document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.sentido === 'inv' ? ' · al revés' : R.sentido === 'iyv' ? ' · ida y vuelta' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua' + (R.marOwn ? ', con ' + R.marOwn + ' costa' + (R.marOwn > 1 ? 's trazadas' : ' trazada') + ' a mano' : '') + ')' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.sh ? (R.tapas && R.tapas.length ? ' · con la tierra de frente en ' + (R.tapas.length > 2 ? 'puntas y esquinas (' + R.tapas.length + ')' : 'la llegada') : (R.R0 || R).loop ? '' : ' · sin la tierra de frente a la llegada (volvé a mandarla desde Rumbo)') : '') + (R.his ? ' · dibujado en Rumbo cerca: ' + R.his : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : R.sh ? ' · sin edificios (' + (R.edifWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : R.sh ? ' · sin calles (' + (R.callesWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const ss = document.getElementById('selSentido'); if (ss) ss.value = R && R.sentido || '';   // v133
+  document.querySelectorAll('#k3dCams button').forEach((b, j) => b.classList.toggle('activo', j === k3dCam));   // v146
   const go = document.getElementById('glOn'); if (go) { go.checked = glkOn(); document.getElementById('glInfo').textContent = glInfoTxt(); }   // v143
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
