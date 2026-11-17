@@ -141,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v144</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v145</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -232,7 +232,7 @@
         <label class="nota" for="selSentido" style="display:block; margin-bottom:4px;">🔄 Sentido</label>
         <select id="selSentido" onchange="cambiarSentido(this.value)" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); margin-bottom:8px;">
           <option value="">Normal (como lo mandó Rumbo)</option><option value="inv">↔ Invertido (al revés)</option><option value="iyv">⇄ Ida y vuelta</option></select>
-        <label class="fila" style="align-items:center; gap:8px; margin-bottom:4px;"><input type="checkbox" id="glOn" onchange="glCambio()" style="width:22px;height:22px;"> 🧊 Costa, casas y calles en 3D (WebGL)</label>
+        <label class="fila" style="align-items:center; gap:8px; margin-bottom:4px;"><input type="checkbox" id="glOn" onchange="glCambio()" style="width:22px;height:22px;"> 🧊 Vista 3D (WebGL, como Kayak 3D)</label>
         <p class="nota" id="glInfo" style="margin:0 0 8px;"></p>
         <input type="range" id="sliderRuta" min="0" max="1000" value="0" step="5" oninput="moverPreviewRuta(this.value)" style="width:100%; touch-action:pan-y;">
         <div class="fila">
@@ -2650,6 +2650,17 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v145: 🛶 KAYAK 3D ADENTRO DE KAYAK INDOOR (Hugo, 17-nov, con capturas de v144 y del prototipo kayak3d_v2_9.html: "¿no se puede hacer la misma
+         calidad y las mismas prestaciones en Kayak Indoor?"). Se integra el motor del prototipo (secciones 1–6: shaders de cielo/agua/olas/estela/
+         anillos de palada, mallas del kayak y el kayakista, barcos, muelles, edificios, calles, árboles, playas, montañas reales por textura) como
+         módulo K3D (entre /*K3D-INI*/ y /*K3D-FIN*/). Arma su mundo con el paquete de Rumbo de la ruta YA CON SU SENTIDO (k3dPaquete: bytes de orillas
+         y perfil de rutaConSentido, horizonte con inv/fold; edificios, calles y elems del paquete crudo, R.raw). renderSesionVivo lo usa primero
+         (dibujarK3D) con la distancia real (interpolada entre los ticks de 1 s con la velocidad), la velocidad, la cadencia (k3dCad) y la fase
+         tGlobalVivo; las poses son las del Editor de esta app (editorDatos). El fantasma va como un kayak gris adelante; encima siguen el cartel del
+         fantasma, el mapita y la lluvia/viento 2D. Clima del 3D según WX (lluvia o ráfagas > 15 m/s = tormenta). Sin sesión, la vista previa se anima
+         sola a 30 cuadros/s mientras se ve (IntersectionObserver). Mismo tilde que v143 (kayak_gl_costa); si Kayak 3D falla, queda el 3D de v144 y si
+         ese falla, el 2D. Falta: elementos puestos a mano en la app (v112), las tapas (v139) y los nombres de los cerros en esta vista; Carrera
+         virtual sigue con su dibujo. Probado con la escena real de la bahía Encerrada que trae el prototipo (no queda en el código).
    v144: 🌊 AGUA Y CERROS EN WEBGL (Hugo, 17-nov, con v143 en el teléfono: "no se ve tipo WebGL": en v143 solo la costa era 3D). Ahora una sola pasada 3D
          dibuja el agua (plano con reflejo de Fresnel: lejos refleja el cielo, cerca deja ver el fondo; ondas por normales que se mueven y se afinan
          con la distancia; camino de luz del sol con destellos, con el mismo sol de solDeRumbo), los cerros reales del horizonte (hzSample en tres capas
@@ -5695,6 +5706,7 @@ function loopSesionVivo(ts) {
   // dato-real es lo correcto.
   const cadencia = cadenciaAlgunaVezReportada ? actual.cadencia : 0;
   tGlobalVivo = (tGlobalVivo + (cadencia / 15) * dt) % 8;
+  k3dCad = cadencia;   // v145
   // el fantasma tiene que animarse a SU PROPIO ritmo histórico, no calcado del kayakista
   // principal — Hugo lo notó: "aparentemente el fantasma copia la cadencia actual de la sesión".
   // Reuso cadenciaCorredorEnT() (ya armada y probada para la Carrera Virtual de v44) para buscar
@@ -5799,6 +5811,7 @@ function renderSesionVivo() {
   const w = canvas.clientWidth || canvas.width, h = canvas.height;
   canvas.width = w; canvas.height = h;
   const horizonY = h * 0.28;
+  if (rutaActiva && glkOn()) { try { if (dibujarK3D(ctx, w, h, horizonY)) return; } catch (e) { errorGL(e); } }   // v145: Kayak 3D (si no, lo de siempre)
   if (rutaActiva) dibujarEscenaRuta(ctx, w, h, horizonY, distanciaParaRuta()); // v106: recorrido de Rumbo con su paisaje
   else dibujarEscenaLago(ctx, w, h, horizonY);
   dibujarBoyas(ctx, w, h, horizonY, sesionActiva ? sesionActiva.distanciaM : (rutaActiva ? rutaPreviewD : 0));
@@ -5907,7 +5920,7 @@ function decodificarRuta(o) {
   for (let i = 1; i < n; i++) cum.push(cum[i - 1] + distanciaGeo(ll[i - 1], ll[i]));
   const lat0 = ll[0][0], lon0 = ll[0][1], kx = Math.cos(lat0 * Math.PI / 180) * 111320, ky = 111320;
   return {
-    nombre: o.name, ll, cum, L: cum[n - 1], loop: !!o.loop, lat0, lon0, kx, ky,
+    nombre: o.name, ll, cum, L: cum[n - 1], loop: !!o.loop, lat0, lon0, kx, ky, raw: o,   // v145: raw = el paquete (Kayak 3D toma de ahí los elems)
     xy: ll.map(p => [(p[1] - lon0) * kx, (p[0] - lat0) * ky]),
     sh: o.shore && o.shore.d ? b64aU8(o.shore.d) : null,
     pf: o.shore && o.shore.p ? b64aU8(o.shore.p) : null,             // v108: perfil del terreno tierra adentro (7 alturas por costado, cada 2 m)
@@ -6196,6 +6209,1057 @@ function tapaMuestras(R, T, OFF, proy) {
   }
   return out;
 }
+/*K3D-INI*/
+// ================= v145: Kayak 3D adentro de Kayak Indoor =================
+// Motor del prototipo "Kayak 3D" v2.9 (Hugo, 17-nov: "¿no se puede hacer la misma calidad y las mismas prestaciones en Kayak Indoor?"): cielo con nubes,
+// agua con olas, reflejos, estela y anillos de cada palada, montañas reales de Rumbo, costa, playas, árboles, edificios, calles, muelles, barcos que
+// flotan y el kayak con el kayakista en 3D (las poses son las del Editor de esta app). Arma su mundo con el mismo paquete de Rumbo que guarda la app,
+// ya con el sentido elegido (Normal / Invertido / Ida y vuelta). Dibuja en un canvas WebGL propio y se copia al de la sesión; la app pone encima
+// lo suyo (mapita, fantasma, clima). Si WebGL falla, K3D.draw devuelve false y la app dibuja la escena 2D de siempre.
+const K3D=(()=>{'use strict';
+let E=null,failed='',lost=false,armando=null,clave='',msgs=[],ms=0,ultimo=0;
+const note=m=>{msgs.push(m);if(msgs.length>5)msgs.shift();};
+function crear(){
+/* ---------- 1. Utilidades ---------- */
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const wrapPI=a=>{while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a;};
+const V={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.hypot(a[0],a[1],a[2]),
+  norm:a=>{const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];}
+};
+const M4={
+  id(){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);},
+  mul(a,b){const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;},
+  T(x,y,z){const m=M4.id();m[12]=x;m[13]=y;m[14]=z;return m;},
+  S(x,y,z){const m=M4.id();m[0]=x;m[5]=y;m[10]=z;return m;},
+  RX(a){const c=Math.cos(a),s=Math.sin(a),m=M4.id();m[5]=c;m[6]=s;m[9]=-s;m[10]=c;return m;},
+  RY(a){const c=Math.cos(a),s=Math.sin(a),m=M4.id();m[0]=c;m[2]=-s;m[8]=s;m[10]=c;return m;},
+  RZ(a){const c=Math.cos(a),s=Math.sin(a),m=M4.id();m[0]=c;m[1]=s;m[4]=-s;m[5]=c;return m;},
+  basis(X,Y,Z,t){return new Float32Array([X[0],X[1],X[2],0,Y[0],Y[1],Y[2],0,Z[0],Z[1],Z[2],0,t[0],t[1],t[2],1]);},
+  persp(fy,asp,n,f){const t=1/Math.tan(fy/2),m=new Float32Array(16);m[0]=t/asp;m[5]=t;m[10]=(f+n)/(n-f);m[11]=-1;m[14]=2*f*n/(n-f);return m;},
+  look(e,c,u){const f=V.norm(V.sub(c,e)),s=V.norm(V.cross(f,u)),uu=V.cross(s,f);
+    return new Float32Array([s[0],uu[0],-f[0],0,s[1],uu[1],-f[1],0,s[2],uu[2],-f[2],0,-V.dot(s,e),-V.dot(uu,e),V.dot(f,e),1]);},
+  pt(m,p){return [m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13],m[2]*p[0]+m[6]*p[1]+m[10]*p[2]+m[14]];}
+};
+function segMatrix(A,B,r){ // cilindro unitario (r=1,h=1, eje Y) → segmento A→B
+  const d=V.sub(B,A),len=V.len(d)||1e-4,Y=V.mul(d,1/len);
+  const ref=Math.abs(Y[2])>0.9?[1,0,0]:[0,0,1];
+  const X=V.norm(V.cross(ref,Y)),Z=V.cross(X,Y);
+  return M4.basis(V.mul(X,r),V.mul(Y,len),V.mul(Z,r),A);
+}
+function ik2(S,H,l1,l2,pole){ // codo de un brazo de dos huesos
+  const d0=V.sub(H,S);let d=V.len(d0);const dir=V.mul(d0,1/Math.max(d,1e-5));
+  d=Math.min(Math.max(d,Math.abs(l1-l2)+0.01),l1+l2-0.005);
+  const a=(l1*l1-l2*l2+d*d)/(2*d),h=Math.sqrt(Math.max(l1*l1-a*a,0));
+  const pp=V.norm(V.sub(pole,V.mul(dir,V.dot(pole,dir))));
+  return V.add(V.add(S,V.mul(dir,a)),V.mul(pp,h));
+}
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* ---------- 2. Configuración ---------- */
+let cfg={clima:'dia',remada:'editor',camara:0,calidad:'auto',estela:true};
+const CLIMAS={
+  dia:{n:'Día',zen:[.20,.42,.78],hor:[.68,.81,.92],sun:[.35,.55,.62],sunC:[1,.95,.82],glow:1,deep:[.02,.12,.18],shal:[.06,.30,.36],
+    mtn:[.30,.37,.46],snow:[.96,.97,1],cl:[1,1,1],cd:[.62,.68,.78],clo:.50,chi:.80,wave:.45,chop:.8,crest:0,fog:.00022,ambT:[.62,.72,.9],ambB:[.28,.32,.34]},
+  tarde:{n:'Atardecer',zen:[.16,.20,.45],hor:[.99,.62,.40],sun:[.22,.07,.97],sunC:[1,.56,.26],glow:1.15,deep:[.03,.06,.14],shal:[.15,.15,.26],
+    mtn:[.24,.21,.35],snow:[1,.82,.74],cl:[1,.64,.46],cd:[.40,.28,.42],clo:.44,chi:.72,wave:.38,chop:.7,crest:0,fog:.00045,ambT:[.55,.42,.5],ambB:[.22,.16,.2]},
+  tormenta:{n:'Tormenta',zen:[.15,.18,.23],hor:[.42,.48,.54],sun:[.30,.30,.60],sunC:[.55,.55,.55],glow:.12,deep:[.03,.07,.09],shal:[.10,.16,.18],
+    mtn:[.20,.24,.28],snow:[.8,.84,.88],cl:[.56,.59,.63],cd:[.22,.25,.30],clo:.24,chi:.48,wave:1.5,chop:1.7,crest:1,fog:.0012,ambT:[.4,.45,.5],ambB:[.18,.2,.22]},
+  niebla:{n:'Niebla',zen:[.60,.64,.68],hor:[.78,.80,.82],sun:[.30,.40,.60],sunC:[.9,.9,.85],glow:.2,deep:[.06,.14,.18],shal:[.12,.24,.28],
+    mtn:[.52,.57,.62],snow:[.9,.92,.95],cl:[.95,.96,.97],cd:[.75,.78,.82],clo:.08,chi:.30,wave:.25,chop:.5,crest:0,fog:.0065,ambT:[.7,.74,.78],ambB:[.4,.42,.44]}
+};
+CLIMAS.dia.sr=[0.0,.50,.86];CLIMAS.tarde.sr=[.95,.07,.20];CLIMAS.tormenta.sr=[.20,.28,.90];CLIMAS.niebla.sr=[0,.40,.90];
+let CL=CLIMAS[cfg.clima]||CLIMAS.dia;
+
+/* ---------- 3. Shaders ---------- */
+const f5=n=>n.toFixed(5);
+const WAVES=[{a:.60,L:38,A:.30,p:.3},{a:2.2,L:21,A:.16,p:1.7},{a:-.4,L:12,A:.08,p:2.9},{a:-1.7,L:6.5,A:.04,p:4.1}];
+const DETAIL=[{a:.9,L:2.8,A:.020,p:.5},{a:-2.0,L:1.7,A:.012,p:2.2},{a:2.6,L:1.15,A:.007,p:3.1},{a:-.2,L:.72,A:.004,p:5.0}];
+function genWaveGLSL(){
+  let s='uniform float uTime;uniform float uWave;uniform float uChop;\n';
+  s+='float waveLow(vec2 p){float h=0.0;\n';
+  WAVES.forEach(w=>{const k=2*Math.PI/w.L,om=Math.sqrt(9.81*k);
+    s+=`h+=${f5(w.A)}*sin(${f5(k*Math.cos(w.a))}*p.x+${f5(k*Math.sin(w.a))}*p.y-${f5(om)}*uTime+${f5(w.p)});\n`;});
+  s+='return h*uWave;}\n';
+  s+='vec2 waveGrad(vec2 p){vec2 g=vec2(0.0);float c;\n';
+  WAVES.forEach(w=>{const k=2*Math.PI/w.L,om=Math.sqrt(9.81*k),dx=Math.cos(w.a),dz=Math.sin(w.a);
+    s+=`c=${f5(w.A*k)}*cos(${f5(k*dx)}*p.x+${f5(k*dz)}*p.y-${f5(om)}*uTime+${f5(w.p)});g+=c*vec2(${f5(dx)},${f5(dz)});\n`;});
+  s+='return g*uWave;}\n';
+  s+='vec2 waveDetail(vec2 p){vec2 g=vec2(0.0);float c;\n';
+  DETAIL.forEach(w=>{const k=2*Math.PI/w.L,om=Math.sqrt(9.81*k),dx=Math.cos(w.a),dz=Math.sin(w.a);
+    s+=`c=${f5(w.A*k)}*cos(${f5(k*dx)}*p.x+${f5(k*dz)}*p.y-${f5(om)}*uTime+${f5(w.p)});g+=c*vec2(${f5(dx)},${f5(dz)});\n`;});
+  s+='return g;}\n';
+  return s;
+}
+// mismas olas en JS (para flotar el kayak, las boyas y los veleros)
+let tWave=0;
+function waveH(x,z){let h=0;for(const w of WAVES){const k=2*Math.PI/w.L,om=Math.sqrt(9.81*k);h+=w.A*Math.sin(k*(x*Math.cos(w.a)+z*Math.sin(w.a))-om*tWave+w.p);}return h*CL.wave;}
+function waveG(x,z){let gx=0,gz=0;for(const w of WAVES){const k=2*Math.PI/w.L,om=Math.sqrt(9.81*k),dx=Math.cos(w.a),dz=Math.sin(w.a);
+  const c=w.A*k*Math.cos(k*(x*dx+z*dz)-om*tWave+w.p);gx+=c*dx;gz+=c*dz;}return [gx*CL.wave,gz*CL.wave];}
+
+const SH_NOISE=`
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),f.x),mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0,1.0)),f.x),f.y);}
+float fbm(vec2 p){float v=0.0,a=0.5;for(int i=0;i<4;i++){v+=a*vnoise(p);p=p*2.03+vec2(17.0,9.0);a*=0.5;}return v;}
+`;
+const VS_SKY=`attribute vec2 aP;varying vec2 vN;void main(){vN=aP;gl_Position=vec4(aP,0.0,1.0);}`;
+const FS_SKY=`
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec2 vN;
+uniform vec3 uCamPos,uRight,uUp,uFwd;
+uniform float uTanH,uAspect;
+uniform vec3 uSunDir,uSunCol,uHor,uZen,uDeep,uShal,uMtn,uSnow,uCloudL,uCloudD;
+uniform float uSunGlow,uCloudLo,uCloudHi,uFogDen,uCrest,uMtnRot;
+uniform vec4 uTrail[16];
+uniform vec3 uRing[6];
+uniform vec4 uBow;uniform float uWakeK;
+uniform sampler2D uHzA,uHzB;uniform vec4 uHz; // v2.3 horizonte real de Rumbo: x=activo, y=fila (distancia), z=columnas de rumbo, w=línea de nieve (m)
+${genWaveGLSL()}
+${SH_NOISE}
+float ridge(float a,float s){
+  return 0.55+0.25*sin(a*3.0+s)+0.16*sin(a*7.0+s*2.3)+0.09*sin(a*15.0+s*3.1)+0.05*sin(a*33.0+s*1.7)+0.03*sin(a*71.0+s*5.3);
+}
+float hzTan(float a){ // igual que Rumbo en Kayak Indoor: lo de abajo del horizonte se ve tal cual, lo de arriba se exagera (x1,5) y se comprime con tanh
+  float e=a<=0.0?a*1.5:13.0*(1.0-2.0/(exp(2.0*clamp(a*1.5/13.0,0.0,8.0))+1.0));
+  return tan(max(e,-15.0)*0.01745329);
+}
+float hzMask(float te,float top){return 1.0-smoothstep(top-0.0012,top+0.0012,te);}
+vec3 sky(vec3 rd){
+  float y=max(rd.y,0.0);
+  vec3 col=mix(uHor,uZen,pow(y,0.5));
+  float sd=max(dot(rd,uSunDir),0.0);
+  col+=uSunCol*(0.35*pow(sd,6.0)+0.5*pow(sd,64.0)+1.2*pow(sd,1200.0))*uSunGlow;
+  col+=uSunCol*smoothstep(0.99965,0.99985,sd)*3.0*uSunGlow;
+  float cy=rd.y;
+  if(cy>0.003){
+    vec2 uv=rd.xz/(cy+0.18)*0.9+vec2(uTime*0.012,uTime*0.005);
+    float c=fbm(uv*1.4);
+    float cov=smoothstep(uCloudLo,uCloudHi,c)*smoothstep(0.0,0.15,cy);
+    vec3 cc=mix(uCloudL,uCloudD,smoothstep(0.55,0.85,c));
+    cc+=uSunCol*0.35*pow(sd,3.0)*(1.0-cov);
+    col=mix(col,cc,cov*0.92);
+  }
+  float az=atan(rd.x,rd.z);
+  float te=rd.y/max(length(rd.xz),0.001);
+  float env=0.22+0.78*pow(abs(cos(az-uMtnRot)),1.1);
+  float h2=max(0.018+0.2*ridge(az,1.3)*env,0.0);
+  float env2=0.3+0.7*pow(abs(cos(az+0.4-uMtnRot)),0.9);
+  float h1=max(0.008+0.09*ridge(az+2.0,4.1)*env2,0.0);
+  float haze=1.0-smoothstep(0.0,0.05,te);
+  if(uHz.x>0.5){ // montañas reales: tres capas (lejana, media, cercana) leídas de la textura según dónde estás y hacia dónde mirás
+    float ak=fract(-az/6.2831853);                    // rumbo desde el norte (el mundo está espejado en x)
+    float uu=(ak*uHz.z+0.5)/(uHz.z+1.0);
+    vec4 A=texture2D(uHzA,vec2(uu,uHz.y)),B=texture2D(uHzB,vec2(uu,uHz.y));
+    float a0=(A.x*255.0-60.0)*0.25,a1=(A.y*255.0-60.0)*0.25,a4=(B.x*255.0-60.0)*0.25;
+    float t4=hzTan(a4),t1=hzTan(a1),t0=hzTan(a0);
+    float far=hzMask(te,t4),mid=hzMask(te,t1),near=hzMask(te,t0);
+    vec3 cFar=mix(uMtn*1.25,uHor,0.50+0.25*haze),cMid=mix(uMtn*0.95,uHor,0.32+0.25*haze),cNear=mix(uMtn*0.70,uHor,0.12+0.2*haze);
+    // nieve: por encima de la línea de nieve, hasta el borde de la capa
+    if(uHz.w>0.0){
+      float e5=B.y*255.0*25.0,d6=B.z*255.0*100.0;
+      if(e5>uHz.w&&d6>0.0)cFar=mix(cFar,uSnow,0.9*(1.0-hzMask(te,hzTan(atan((uHz.w-1.6)/d6)/0.01745329))));
+      float e2=A.z*255.0*25.0,d3=A.w*255.0*100.0;
+      if(e2>uHz.w&&d3>0.0)cMid=mix(cMid,uSnow,0.9*(1.0-hzMask(te,hzTan(atan((uHz.w-1.6)/d3)/0.01745329))));
+    }
+    col=mix(col,cFar,far);col=mix(col,cMid,mid);
+    float fz=0.75+0.5*vnoise(vec2(az*120.0,te*400.0));
+    col=mix(col,cNear*fz,near);
+    return col;
+  }
+  // sierra lejana con nieve
+  float m2=1.0-smoothstep(h2-0.0015,h2+0.0015,te);
+  if(m2>0.0){
+    float rel=clamp(te/max(h2,0.001),0.0,1.0);
+    vec3 rock=mix(uMtn*0.85,uMtn*1.15,rel);
+    float sn=smoothstep(0.55,0.8,rel+0.06*sin(az*47.0+te*30.0)+0.05*vnoise(vec2(az*60.0,te*180.0)));
+    vec3 mc=mix(rock,uSnow,sn*0.9);
+    mc=mix(mc,uHor,0.30+0.35*haze);
+    col=mix(col,mc,m2);
+  }
+  // cerros cercanos con bosque
+  float m1=1.0-smoothstep(h1-0.001,h1+0.001,te);
+  if(m1>0.0){
+    float rel=clamp(te/max(h1,0.001),0.0,1.0);
+    vec3 fc=mix(vec3(0.05,0.11,0.07),uMtn*0.6,rel*0.8);
+    fc*=0.75+0.5*vnoise(vec2(az*120.0,te*400.0));
+    fc=mix(fc,uHor,0.18+0.3*haze);
+    col=mix(col,fc,m1);
+  }
+  return col;
+}
+vec3 water(vec3 ro,vec3 rd){
+  float t=min(-ro.y/rd.y,6000.0);
+  vec2 p=ro.xz+rd.xz*t;
+  for(int i=0;i<2;i++){float h=waveLow(p);t=clamp((h-ro.y)/rd.y,0.0,6000.0);p=ro.xz+rd.xz*t;}
+  vec2 g=waveGrad(p);
+  float df=1.0/(1.0+t*0.015);
+  g+=waveDetail(p)*uChop*df;
+  vec3 n=normalize(vec3(-g.x,1.0,-g.y));
+  n=normalize(mix(n,vec3(0.0,1.0,0.0),clamp(t/2500.0,0.0,0.85)));
+  float cosT=max(dot(n,-rd),0.02);
+  float F=0.03+0.97*pow(1.0-cosT,4.0);
+  vec3 r=reflect(rd,n);r.y=abs(r.y)+0.0005;
+  vec3 refl=sky(r);
+  float hn=waveLow(p)/(max(uWave,0.01)*0.58);
+  float tint=clamp(0.35+0.5*hn+dot(g,g)*8.0,0.0,1.0);
+  vec3 body=mix(uDeep,uShal,tint)*(0.65+0.35*max(dot(n,uSunDir),0.0));
+  vec3 col=mix(body,refl,F);
+  // espuma: olas, estela y anillos de cada palada
+  float foam=uCrest*smoothstep(0.55,0.95,hn+0.25*vnoise(p*0.8+uTime*0.2));
+  for(int i=0;i<16;i++){
+    vec4 tr=uTrail[i];
+    if(tr.z<12.0){vec2 d=p-tr.xy;float w=0.45+0.32*tr.z;float k=1.0-tr.z/12.0;foam+=exp(-dot(d,d)/(w*w))*tr.w*k*k;}
+  }
+  for(int i=0;i<6;i++){
+    vec3 rg=uRing[i];float age=uTime-rg.z;
+    if(age>0.0&&age<3.0){float rad=age*1.5+0.12;float d=length(p-rg.xy);float q=(d-rad)/0.13;foam+=exp(-q*q)*(1.0-age/3.0)*0.95;}
+  }
+  // v2.2: estela en V desde la proa + rayitas de espuma fijas en el agua que "pasan" al avanzar (dan sensación de velocidad sin referencias)
+  if(uWakeK>0.0){
+    vec2 fw=vec2(uBow.z,uBow.w),rt=vec2(fw.y,-fw.x),dd=p-uBow.xy;
+    float ff=dot(dd,fw),ll=dot(dd,rt),back=-ff;
+    if(back>-1.3&&back<42.0){
+      float bk=max(back,0.0);
+      float arm=0.36*bk+0.18;                       // brazo de la V (~20°) con un poco de apertura en la proa
+      float wd=0.09+0.05*bk;                       // se ensancha y se desvanece hacia atrás
+      float dl=abs(abs(ll)-arm);
+      float line=exp(-(dl*dl)/(wd*wd))*(1.0-bk/42.0)*smoothstep(-1.2,0.4,back);
+      float brk=0.55+0.45*vnoise(vec2(bk*0.9-uTime*1.2,ll*0.6));   // la espuma va en tramos
+      float bowF=exp(-(ff*ff)/1.2)*exp(-(ll*ll)/0.9)*0.5;           // espuma en la punta de la proa
+      float inside=smoothstep(arm,arm*0.2,abs(ll))*(1.0-bk/30.0)*0.12*vnoise(p*1.3+uTime*0.3)*smoothstep(0.3,4.0,back); // nace suave detrás de la proa: sin corte recto // agua revuelta entre los brazos
+      foam+=(line*brk*1.3+bowF+max(inside,0.0))*uWakeK;
+    }
+    // rayitas: cada celda de 5 m lleva una raya alineada con el rumbo, fija en el mundo
+    vec2 cp=p/5.0,ci=floor(cp);float sk=0.0;
+    for(int j=0;j<2;j++){for(int i=0;i<2;i++){
+      vec2 c=ci+vec2(float(i)-0.5,float(j)-0.5)+0.5;
+      float h1=hash(c),h2=hash(c+7.7);
+      vec2 ctr=(c+vec2(h1,h2)-0.5)*5.0-p;            // del punto a la raya
+      float al=dot(ctr,fw),ac=dot(ctr,rt);
+      float len=1.2+2.8*h1,th=0.06+0.04*h2;
+      float tw=0.5+0.5*sin(uTime*0.7+h1*40.0);
+      float on=step(0.45,h2);
+      sk+=on*tw*exp(-(ac*ac)/(th*th))*smoothstep(len,len*0.4,abs(al));
+    }}
+    float near=1.0-smoothstep(25.0,70.0,t);
+    foam+=sk*0.9*near*uWakeK;
+  }
+  float fn=0.45+0.9*vnoise(p*2.2+vec2(uTime*0.1,0.0));
+  foam=clamp(foam*(uWakeK>0.0?mix(1.0,fn,0.5):fn),0.0,1.0);
+  col=mix(col,mix(uHor,vec3(1.0),0.55),foam*0.6);
+  float fg=1.0-exp(-t*uFogDen);
+  col=mix(col,uHor,fg);
+  return col;
+}
+void main(){
+  vec3 rd=normalize(uFwd+vN.x*uAspect*uTanH*uRight+vN.y*uTanH*uUp);
+  vec3 col=(rd.y>-0.0004)?sky(rd):water(uCamPos,rd);
+  col*=1.0-0.22*dot(vN,vN)*0.5;
+  gl_FragColor=vec4(col,1.0);
+}`;
+const VS_MESH=`
+attribute vec3 aPos;attribute vec3 aNor;attribute vec3 aCol;
+uniform mat4 uVP;uniform mat4 uModel;
+varying vec3 vW;varying vec3 vN;varying vec3 vC;
+void main(){vec4 w=uModel*vec4(aPos,1.0);vW=w.xyz;vN=mat3(uModel)*aNor;vC=aCol;gl_Position=uVP*w;}`;
+const FS_MESH=`
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec3 vW;varying vec3 vN;varying vec3 vC;
+uniform vec3 uTint,uSunDir,uSunCol,uAmbT,uAmbB,uFog,uCam;
+uniform float uSpec,uFogDen,uMirror,uAlpha,uClip;
+${genWaveGLSL()}
+void main(){
+  if(uMirror>0.5){ if(vW.y>0.0) discard; }
+  float wy=0.0;
+  if(uClip>0.5&&uMirror<0.5){ wy=vW.y-waveLow(vW.xz); if(wy<0.0) discard; }
+  vec3 N=normalize(vN);
+  vec3 L=normalize(uSunDir);
+  float ndl=max(dot(N,L),0.0);
+  vec3 hemi=mix(uAmbB,uAmbT,N.y*0.5+0.5);
+  vec3 base=vC*uTint;
+  vec3 col=base*(hemi+uSunCol*ndl);
+  vec3 V=normalize(uCam-vW);vec3 H=normalize(L+V);
+  col+=uSunCol*pow(max(dot(N,H),0.0),40.0)*uSpec;
+  if(uClip>0.5&&uMirror<0.5) col=mix(vec3(0.93,0.96,1.0),col,smoothstep(0.0,0.07,wy));
+  if(uMirror>0.5) col=mix(col,uFog*0.35,0.3);
+  float d=length(uCam-vW);
+  col=mix(col,uFog,1.0-exp(-d*uFogDen));
+  gl_FragColor=vec4(col,uMirror>0.5?uAlpha:1.0);
+}`;
+
+/* ---------- WebGL ---------- */
+const cv=document.createElement('canvas');
+const gl=cv.getContext('webgl',{antialias:false,alpha:false,powerPreference:'high-performance'})||cv.getContext('experimental-webgl');
+if(!gl)throw new Error('este navegador no da WebGL');
+function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const log=gl.getShaderInfoLog(s);console.error(log);throw new Error('shader: '+log);}return s;}
+function program(vs,fs,attrs){const p=gl.createProgram();gl.attachShader(p,compile(gl.VERTEX_SHADER,vs));gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fs));
+  attrs.forEach((a,i)=>gl.bindAttribLocation(p,i,a));gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error('link: '+gl.getProgramInfoLog(p));
+  p._u={};return p;}
+function U(p,n){if(!(n in p._u))p._u[n]=gl.getUniformLocation(p,n);return p._u[n];}
+const PSKY=program(VS_SKY,FS_SKY,['aP']);
+const PMESH=program(VS_MESH,FS_MESH,['aPos','aNor','aCol']);
+const triBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,triBuf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+
+/* ---------- 4. Geometría procedural ---------- */
+function newG(){return {v:[],i:[]};}
+function pv(g,p,n,c){g.v.push(p[0],p[1],p[2],n[0],n[1],n[2],c[0],c[1],c[2]);return g.v.length/9-1;}
+function gBox(g,cx,cy,cz,sx,sy,sz,c){
+  const hx=sx/2,hy=sy/2,hz=sz/2;
+  const F=[[[1,0,0],[[hx,-hy,-hz],[hx,hy,-hz],[hx,hy,hz],[hx,-hy,hz]]],[[-1,0,0],[[-hx,-hy,hz],[-hx,hy,hz],[-hx,hy,-hz],[-hx,-hy,-hz]]],
+    [[0,1,0],[[-hx,hy,-hz],[-hx,hy,hz],[hx,hy,hz],[hx,hy,-hz]]],[[0,-1,0],[[-hx,-hy,hz],[-hx,-hy,-hz],[hx,-hy,-hz],[hx,-hy,hz]]],
+    [[0,0,1],[[-hx,-hy,hz],[hx,-hy,hz],[hx,hy,hz],[-hx,hy,hz]]],[[0,0,-1],[[hx,-hy,-hz],[-hx,-hy,-hz],[-hx,hy,-hz],[hx,hy,-hz]]]];
+  F.forEach(f=>{const b=g.v.length/9;f[1].forEach(p=>pv(g,[p[0]+cx,p[1]+cy,p[2]+cz],f[0],c));g.i.push(b,b+1,b+2,b,b+2,b+3);});
+}
+function gCyl(g,cx,cy,cz,r0,r1,h,seg,c,caps){
+  const sl=(r0-r1)/h;
+  const base=g.v.length/9;
+  for(let i=0;i<=seg;i++){const a=i/seg*2*Math.PI,co=Math.cos(a),si=Math.sin(a),n=V.norm([co,sl,si]);
+    pv(g,[cx+co*r0,cy,cz+si*r0],n,c);pv(g,[cx+co*r1,cy+h,cz+si*r1],n,c);}
+  for(let i=0;i<seg;i++){const a=base+i*2;g.i.push(a,a+1,a+2,a+1,a+3,a+2);}
+  if(caps!==false){[[0,r0,-1],[h,r1,1]].forEach(([y,r,ny])=>{if(r<=0.001)return;const cb=pv(g,[cx,cy+y,cz],[0,ny,0],c);let first=-1,prev=-1;
+    for(let i=0;i<=seg;i++){const a=i/seg*2*Math.PI;const q=pv(g,[cx+Math.cos(a)*r,cy+y,cz+Math.sin(a)*r],[0,ny,0],c);if(prev>=0)g.i.push(cb,prev,q);prev=q;}});}
+}
+function gSphere(g,cx,cy,cz,r,sg,c,sy){
+  sy=sy||1;const lat=sg,lon=sg*2,base=g.v.length/9;
+  for(let i=0;i<=lat;i++){const th=i/lat*Math.PI,st=Math.sin(th),ct=Math.cos(th);
+    for(let j=0;j<=lon;j++){const ph=j/lon*2*Math.PI;const n=[st*Math.cos(ph),ct,st*Math.sin(ph)];
+      pv(g,[cx+n[0]*r,cy+n[1]*r*sy,cz+n[2]*r],n,c);}}
+  for(let i=0;i<lat;i++)for(let j=0;j<lon;j++){const a=base+i*(lon+1)+j,b=a+lon+1;g.i.push(a,b,a+1,a+1,b,b+1);}
+}
+function hullPt(o,s,th){
+  const e=Math.abs(2*s-1),z=(s-.5)*o.L;
+  const w=o.W*Math.pow(Math.sin(Math.PI*s),o.wp||.55);
+  const top=o.top+(o.topEnd-o.top)*Math.pow(e,3),keel=o.keel+(o.keelEnd-o.keel)*Math.pow(e,2.5);
+  const ym=(top+keel)/2,ht=top-ym,hb=ym-keel,u=Math.cos(th),v=Math.sin(th);
+  return [w*Math.sign(u)*Math.pow(Math.abs(u),.75),ym+(v>=0?ht:hb)*Math.sign(v)*Math.pow(Math.abs(v),.9),z,ym];
+}
+function gHull(g,o){
+  const nu=o.nu||36,nv=o.nv||24,base=g.v.length/9,eps=1e-3;
+  for(let i=0;i<=nu;i++){const s=clamp(i/nu,.002,.998);
+    for(let j=0;j<=nv;j++){const th=j/nv*2*Math.PI;
+      const p=hullPt(o,s,th);
+      const a=hullPt(o,s+eps,th),b=hullPt(o,s-eps,th),c=hullPt(o,s,th+eps),d=hullPt(o,s,th-eps);
+      let n=V.cross([a[0]-b[0],a[1]-b[1],a[2]-b[2]],[c[0]-d[0],c[1]-d[1],c[2]-d[2]]);
+      const out=[p[0],p[1]-p[3],0];
+      if(V.len(n)<1e-9)n=out;else if(V.dot(n,out)<0)n=V.mul(n,-1);
+      n=V.norm(n);const vv=Math.sin(th);
+      pv(g,[p[0],p[1],p[2]],n,Math.abs(vv)<.1?o.stripe:vv>0?o.deck:o.hull);}}
+  for(let i=0;i<nu;i++)for(let j=0;j<nv;j++){const a=base+i*(nv+1)+j,b=a+nv+1;g.i.push(a,b,a+1,a+1,b,b+1);}
+}
+function upload(g){
+  if(g.v.length/9>65000)console.warn('malla grande',g.v.length/9);
+  const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(g.v),gl.STATIC_DRAW);
+  const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(g.i),gl.STATIC_DRAW);
+  return {vb,ib,n:g.i.length};
+}
+
+const WHITE=[1,1,1];
+// kayak (casco rojo, como tu versión del Editor)
+const MESH={};
+(function(){
+  let g=newG();
+  gHull(g,{L:5.2,W:.26,wp:.55,top:.30,topEnd:.50,keel:-.10,keelEnd:.26,deck:[.86,.10,.08],hull:[.52,.06,.05],stripe:[.96,.93,.9]});
+  gBox(g,0,.30,-.12,.46,.07,.50,[.05,.05,.06]);          // falda del cockpit
+  MESH.kayak=upload(g);
+  g=newG();gBox(g,0,.27,0,.36,.54,.22,[.95,.46,.10]);        // chaleco naranja
+  gBox(g,0,.15,0,.372,.035,.232,[.95,.9,.25]);gBox(g,0,.38,0,.372,.035,.232,[.95,.9,.25]); // reflectivas
+  MESH.torso=upload(g);
+  g=newG();gSphere(g,0,.65,.02,.105,9,[.86,.66,.52]);gSphere(g,0,.705,.0,.112,9,[.12,.09,.07],.55);
+  MESH.head=upload(g);
+  g=newG();gCyl(g,0,0,0,1,1,1,8,WHITE,false);MESH.cyl=upload(g);
+  g=newG();gSphere(g,0,0,0,1,7,WHITE);MESH.ball=upload(g);
+  g=newG();gBox(g,0,0,0,.5,.2,.018,[.08,.08,.09]);gBox(g,-.2,0,0,.07,.2,.022,[.98,.85,.1]);MESH.blade=upload(g);
+  g=newG();gSphere(g,0,.12,0,.42,8,WHITE,.8);gCyl(g,0,.45,0,.05,.05,.9,6,WHITE);gCyl(g,0,1.2,0,.26,.02,.38,8,WHITE);
+  MESH.buoy=upload(g);
+  g=newG(); // velero fondeado
+  gHull(g,{L:9.5,W:1.5,wp:.5,top:.9,topEnd:1.25,keel:-1.0,keelEnd:-.1,deck:[.93,.93,.9],hull:[.12,.20,.42],stripe:[.95,.95,.95],nu:30,nv:20});
+  gBox(g,0,1.25,-.5,1.6,.7,2.6,[.9,.9,.88]);gBox(g,0,1.64,-.5,1.62,.05,2.62,[.6,.6,.62]);
+  gCyl(g,0,1.0,1.4,.07,.05,11,6,[.85,.85,.88]);gBox(g,0,2.4,-.6,.1,.1,4.2,[.85,.85,.88]);
+  MESH.velero=upload(g);
+})();
+
+/* ---------- 4b. Mundos (escenas) ---------- */
+// Un "mundo" = ruta + estáticos (terreno, edificios, calles, muelles) + objetos animados + datos para HUD.
+// Coordenadas del mundo: X = −este, Z = norte (así, mirando al norte, el este queda a la derecha, como en la realidad).
+let W3=null;
+const MODELOS={};
+const OFF_DEF=[0,25,60,120,220,400,700];
+function Baker(){this.g=newG();this.out=[];}
+Baker.prototype.chk=function(){if(this.g.v.length/9>52000){this.out.push(upload(this.g));this.g=newG();}};
+Baker.prototype.fin=function(){if(this.g.i.length)this.out.push(upload(this.g));this.g=newG();return this.out;};
+function hzTexturas(w){ // v2.3: el horizonte real de Rumbo (n filas por distancia × na rumbos × 7 valores) a dos texturas RGBA, con una columna extra = la primera para que cierre el círculo
+  const hz=w&&w.hz;if(!hz)return;
+  try{const n=hz.n,na=hz.na,U=hz.u,W=na+1;if(U.length<n*na*7)throw new Error('el horizonte viene incompleto ('+U.length+' de '+(n*na*7)+' bytes)');
+    const A=new Uint8Array(W*n*4),B=new Uint8Array(W*n*4);
+    for(let i=0;i<n;i++)for(let j=0;j<W;j++){const q=(i*na+(j%na))*7,o=(i*W+j)*4;
+      A[o]=U[q];A[o+1]=U[q+1];A[o+2]=U[q+2];A[o+3]=U[q+3];B[o]=U[q+4];B[o+1]=U[q+5];B[o+2]=U[q+6];B[o+3]=255;}
+    const mk=d=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,W,n,0,gl.RGBA,gl.UNSIGNED_BYTE,d);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);return t;};
+    w.hzTex=[mk(A),mk(B)];
+  }catch(e){w.hzTex=null;w.hzErr=e.message;console.warn('horizonte real: '+e.message);}
+}
+function liberar(w){if(!w)return;(w.hzTex||[]).forEach(t=>gl.deleteTexture(t));(w.statics||[]).forEach(s=>{gl.deleteBuffer(s.m.vb);gl.deleteBuffer(s.m.ib);});}
+function b64u8(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;}
+const hex3=h=>{const n=parseInt(h.slice(1),16);return [(n>>16&255)/255,(n>>8&255)/255,(n&255)/255];};
+const mix3=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+
+// ruta: puntos del mundo [x,z] → curva suave (Catmull-Rom cada ~2,5 m) con at(s) → {x,z,h}
+function crearRuta(P,loop){
+  const Q=P.slice();
+  if(loop&&Q.length>2){const a=Q[0],b=Q[Q.length-1];if(Math.hypot(a[0]-b[0],a[1]-b[1])<3)Q.pop();}
+  const n=Q.length,get=i=>loop?Q[((i%n)+n)%n]:Q[Math.max(0,Math.min(n-1,i))],D=[],nseg=loop?n:n-1;
+  for(let i=0;i<nseg;i++){
+    const p0=get(i-1),p1=get(i),p2=get(i+1),p3=get(i+2),len=Math.hypot(p2[0]-p1[0],p2[1]-p1[1]),m=Math.max(1,Math.ceil(len/2.5));
+    for(let k=0;k<m;k++){const t=k/m,t2=t*t,t3=t2*t;
+      D.push([0,1].map(c=>0.5*((2*p1[c])+(-p0[c]+p2[c])*t+(2*p0[c]-5*p1[c]+4*p2[c]-p3[c])*t2+(-p0[c]+3*p1[c]-3*p2[c]+p3[c])*t3)));}
+  }
+  if(!loop)D.push(get(n-1));
+  const N=D.length,cum=[0];
+  for(let i=1;i<N;i++)cum.push(cum[i-1]+Math.hypot(D[i][0]-D[i-1][0],D[i][1]-D[i-1][1]));
+  const L=loop?cum[N-1]+Math.hypot(D[0][0]-D[N-1][0],D[0][1]-D[N-1][1]):cum[N-1];
+  const V5=5;
+  function at(s){
+    s=loop?((s%L)+L)%L:clamp(s,0,L);
+    let lo=0,hi=N-1;while(hi-lo>1){const m=(lo+hi)>>1;if(cum[m]<=s)lo=m;else hi=m;}
+    const a=D[lo],b=D[(lo+1)%N],segL=(lo+1<N?cum[lo+1]:L)-cum[lo],f=segL>0?(s-cum[lo])/segL:0;
+    // v2.4: el rumbo se interpola entre el punto de acá y el siguiente (antes se tomaba el punto entero, y el rumbo cambiaba a saltos cada 2,5 m)
+    const hAt=i=>{const q0=D[loop?((i-V5)%N+N)%N:Math.max(0,i-V5)],q3=D[loop?(i+V5)%N:Math.min(N-1,i+V5)];return Math.atan2(q3[0]-q0[0],q3[1]-q0[1]);};
+    const h0=hAt(lo),h1=hAt(loop?(lo+1)%N:Math.min(N-1,lo+1)),dh=Math.atan2(Math.sin(h1-h0),Math.cos(h1-h0));
+    return {x:a[0]+(b[0]-a[0])*f,z:a[1]+(b[1]-a[1])*f,h:h0+dh*f};
+  }
+  return {L,at,pts:D,loop};
+}
+// marcas cada `paso` m, del lado de adentro del circuito, y compuerta roja en la salida
+function marcasDeRuta(ruta,paso,items){
+  const D=ruta.pts;let cx=0,cz=0;D.forEach(p=>{cx+=p[0];cz+=p[1];});cx/=D.length;cz/=D.length;
+  const p=ruta.at(ruta.L*0.25),nx=-Math.cos(p.h),nz=Math.sin(p.h);
+  const dentro=Math.hypot(p.x+nx*6-cx,p.z+nz*6-cz)<Math.hypot(p.x-cx,p.z-cz)?1:-1;
+  const marcas=[];
+  for(let s=paso;s<ruta.L-30;s+=paso){const q=ruta.at(s);
+    items.push({m:MESH.buoy,x:q.x-Math.cos(q.h)*8*dentro,z:q.z+Math.sin(q.h)*8*dentro,tint:[1,.82,.1],bob:1,sc:1,rot:0,vis:700});marcas.push(s);}
+  const q=ruta.at(0);
+  [-1,1].forEach(k=>items.push({m:MESH.buoy,x:q.x+Math.cos(q.h)*8*k,z:q.z-Math.sin(q.h)*8*k,tint:[.92,.12,.1],bob:1,sc:1.5,rot:0,vis:700}));
+  return marcas;
+}
+
+/* --- primitivas extra --- */
+function gQuadN(g,P,c,ref){
+  let n=V.cross(V.sub(P[1],P[0]),V.sub(P[2],P[0])),l=V.len(n);
+  if(l<1e-9){n=V.cross(V.sub(P[2],P[0]),V.sub(P[3],P[0]));l=V.len(n);}
+  if(l<1e-9)return;n=V.mul(n,1/l);
+  if(ref){const m=[(P[0][0]+P[2][0])/2,(P[0][1]+P[2][1])/2,(P[0][2]+P[2][2])/2];if(V.dot(n,V.sub(m,ref))<0)n=V.mul(n,-1);}
+  else if(n[1]<0)n=V.mul(n,-1);
+  const b0=g.v.length/9,multi=Array.isArray(c[0]);
+  P.forEach((p,i)=>pv(g,p,n,multi?c[i]:c));g.i.push(b0,b0+1,b0+2,b0,b0+2,b0+3);
+}
+function gTriN(g,P,c,ref){
+  let n=V.cross(V.sub(P[1],P[0]),V.sub(P[2],P[0])),l=V.len(n);if(l<1e-9)return;n=V.mul(n,1/l);
+  if(ref){const m=[(P[0][0]+P[1][0]+P[2][0])/3,(P[0][1]+P[1][1]+P[2][1])/3,(P[0][2]+P[1][2]+P[2][2])/3];if(V.dot(n,V.sub(m,ref))<0)n=V.mul(n,-1);}
+  else if(n[1]<0)n=V.mul(n,-1);
+  const b0=g.v.length/9;P.forEach(p=>pv(g,p,n,c));g.i.push(b0,b0+1,b0+2);
+}
+function triangular(P){ // oreja a oreja; P = [[x,z]…] sin repetir el primero
+  const n=P.length;if(n<3)return [];
+  const idx=[...Array(n).keys()];let ar=0;
+  for(let i=0;i<n;i++){const j=(i+1)%n;ar+=P[i][0]*P[j][1]-P[j][0]*P[i][1];}
+  if(ar<0)idx.reverse();
+  const inT=(p,a,b,c)=>{const s=(u,v,w)=>(u[0]-w[0])*(v[1]-w[1])-(v[0]-w[0])*(u[1]-w[1]),d1=s(p,a,b),d2=s(p,b,c),d3=s(p,c,a);return !(((d1<0)||(d2<0)||(d3<0))&&((d1>0)||(d2>0)||(d3>0)));};
+  const tris=[];let guard=0;
+  while(idx.length>3&&guard++<4000){
+    let cut=false;
+    for(let i=0;i<idx.length;i++){
+      const a=idx[(i+idx.length-1)%idx.length],b=idx[i],c=idx[(i+1)%idx.length];
+      if((P[b][0]-P[a][0])*(P[c][1]-P[a][1])-(P[b][1]-P[a][1])*(P[c][0]-P[a][0])<=1e-9)continue;
+      let ok=true;for(const q of idx){if(q===a||q===b||q===c)continue;if(inT(P[q],P[a],P[b],P[c])){ok=false;break;}}
+      if(ok){tris.push([a,b,c]);idx.splice(i,1);cut=true;break;}
+    }
+    if(!cut)break;
+  }
+  if(idx.length===3)tris.push([idx[0],idx[1],idx[2]]);
+  else if(idx.length>3){for(let i=1;i+1<idx.length;i++)tris.push([idx[0],idx[i],idx[i+1]]);}
+  return tris;
+}
+function gCinta(g,pts,half,c){ // pts [[x,y,z]…]
+  for(let i=0;i+1<pts.length;i++){
+    const a=pts[i],b=pts[i+1],dx=b[0]-a[0],dz=b[2]-a[2],l=Math.hypot(dx,dz);if(l<0.05)continue;
+    const nx=-dz/l*half,nz=dx/l*half;
+    gQuadN(g,[[a[0]+nx,a[1],a[2]+nz],[b[0]+nx,b[1],b[2]+nz],[b[0]-nx,b[1],b[2]-nz],[a[0]-nx,a[1],a[2]-nz]],c,null);
+  }
+}
+function gEdificio(g,E){
+  const cy=(E.z0+E.zt)/2,ref=[E.cx,cy,E.cz];
+  const top=E.C.map(c=>[c[0],E.zt,c[1]]),bot=E.C.map(c=>[c[0],E.z0,c[1]]);
+  for(let i=0;i<4;i++){const j=(i+1)%4;gQuadN(g,[bot[i],bot[j],top[j],top[i]],E.pared,ref);}
+  if(E.gable){
+    const r0=[E.cx-E.ux*E.w/2,E.zr,E.cz-E.uz*E.w/2],r1=[E.cx+E.ux*E.w/2,E.zr,E.cz+E.uz*E.w/2];
+    gQuadN(g,[top[0],top[1],r1,r0],E.techo,null);gQuadN(g,[top[3],top[2],r1,r0],E.techo,null);
+    gTriN(g,[top[1],top[2],r1],E.pared,ref);gTriN(g,[top[0],top[3],r0],E.pared,ref);
+  }else gQuadN(g,top,E.techo,null);
+}
+function gMuelle(g,poly,H,col,colLado){
+  const tris=triangular(poly);let cx=0,cz=0;poly.forEach(p=>{cx+=p[0];cz+=p[1];});cx/=poly.length;cz/=poly.length;
+  tris.forEach(t=>gTriN(g,t.map(i=>[poly[i][0],H,poly[i][1]]),col,null));
+  for(let i=0;i<poly.length;i++){
+    const a=poly[i],b=poly[(i+1)%poly.length];
+    gQuadN(g,[[a[0],H-0.6,a[1]],[b[0],H-0.6,b[1]],[b[0],H,b[1]],[a[0],H,a[1]]],colLado,[cx,H-0.3,cz]);
+    const l=Math.hypot(b[0]-a[0],b[1]-a[1]),m=Math.max(1,Math.floor(l/5));
+    for(let k=0;k<m;k++){const t=k/m;gCyl(g,a[0]+(b[0]-a[0])*t,-2.2,a[1]+(b[1]-a[1])*t,.2,.2,H+2.2-0.6,6,[.24,.17,.11],false);}
+  }
+}
+
+/* --- modelos de barcos (unidad: metros del modelo; luego se escalan al largo real) --- */
+function modeloBarco(k){
+  if(MODELOS[k])return MODELOS[k];
+  if(k==='velero')return MODELOS[k]={m:MESH.velero,base:9.5};
+  const g=newG();let base;
+  if(k==='lancha'){
+    base=5.5;
+    gHull(g,{L:5.5,W:.95,wp:.5,top:.55,topEnd:.85,keel:-.35,keelEnd:-.05,deck:[.93,.93,.93],hull:[.14,.24,.44],stripe:[.95,.95,.95],nu:20,nv:14});
+    gBox(g,0,.9,-.3,.9,.7,.9,[.9,.9,.92]);gBox(g,0,.55,-2.75,.35,.55,.3,[.08,.08,.1]);
+  }else if(k==='crucero'){
+    base=250;
+    gHull(g,{L:250,W:15,wp:.35,top:9,topEnd:14,keel:-7,keelEnd:3,deck:[.95,.95,.95],hull:[.07,.11,.24],stripe:[.9,.9,.92],nu:36,nv:14});
+    for(let i=0;i<6;i++){const y=9+1.7+3.5*i,len=170-i*16;
+      gBox(g,0,y,-8+i*2,27,3.4,len,[.96,.96,.97]);gBox(g,0,y+.2,-8+i*2,27.4,.9,len-3,[.1,.14,.2]);}
+    gBox(g,0,34,-62,9,8,18,[.85,.2,.14]);gBox(g,0,31,40,16,3,30,[.9,.9,.92]);
+  }else if(k==='naval'){
+    base=90;
+    gHull(g,{L:90,W:6.3,wp:.4,top:5,topEnd:8,keel:-3.5,keelEnd:1,deck:[.58,.6,.62],hull:[.42,.45,.48],stripe:[.7,.7,.7],nu:30,nv:12});
+    gBox(g,0,8.5,-6,9,7,26,[.6,.62,.64]);gBox(g,0,13.5,-2,6,4,10,[.55,.57,.6]);
+    gCyl(g,0,15,-2,.35,.25,15,6,[.5,.5,.52]);gCyl(g,0,5,28,.9,.6,3,6,[.4,.42,.44]);gBox(g,0,5.6,16,5,.8,6,[.5,.5,.52]);
+  }else{ // encallado: casco oxidado
+    base=20;
+    gHull(g,{L:20,W:3,wp:.5,top:1.8,topEnd:3.2,keel:-1.6,keelEnd:0,deck:[.42,.27,.2],hull:[.32,.2,.15],stripe:[.5,.35,.25],nu:20,nv:12});
+    gBox(g,0,3,-3,3.2,2,5,[.5,.4,.33]);
+  }
+  return MODELOS[k]={m:upload(g),base};
+}
+
+/* --- mundo de demostración: el óvalo de antes --- */
+function mundoDemo(){
+  const Rx=120,Rz=260,N=360,P=[];
+  for(let i=0;i<N;i++){const u=i/N*2*Math.PI,k=1+0.07*Math.sin(3*u+0.6);P.push([-Rx*(1-Math.cos(u))*k,Rz*Math.sin(u)*(1+0.04*Math.sin(2*u+1))]);}
+  const ruta=crearRuta(P,true),items=[],bk=new Baker(),g0=()=>bk.g,r=rng(7),cx=48;
+  gBox(g0(),cx+1500,-.1,0,3000,2.2,6000,[.17,.24,.13]);gBox(g0(),cx-5,-.45,0,10,2,6000,[.72,.65,.5]);
+  const tree=(x,z,s)=>{const gr=.10+r()*.08;gCyl(g0(),x,1,z,.3*s,.22*s,2.2*s,5,[.28,.19,.12]);
+    gCyl(g0(),x,2.2*s,z,2.3*s,.05,7*s,6,[.05,gr+.06,.07]);gCyl(g0(),x,6.4*s,z,1.5*s,.05,5*s,6,[.06,gr+.09,.08]);bk.chk();};
+  for(let i=0;i<150;i++)tree(cx+8+r()*70,-500+r()*1100,.9+r()*.9);
+  for(let i=0;i<260;i++)tree(cx+80+r()*600,-900+r()*1800,1.2+r()*1.2);
+  {const x0=8,x1=46,z=100,an=3.2;
+    gBox(g0(),(x0+x1)/2,1.15,z,x1-x0,.25,an,[.42,.30,.20]);
+    for(let x=x0+2;x<=x1;x+=4)for(const dz of[-1,1])gCyl(g0(),x,-1.6,z+dz*(an/2-.15),.16,.16,3.6,6,[.25,.17,.11]);
+    gBox(g0(),x0+.2,1.6,z,.2,1.0,an,[.5,.36,.24]);}
+  const veleros=[[-120,-125,.7],[-112,150,2.2],[-150,25,4.0],[-272,70,1.1],[-285,-130,3.3],[-252,205,5.4]];
+  veleros.forEach((v,i)=>items.push({m:MESH.velero,x:v[0],z:v[1],tint:WHITE,bob:2,sc:1,rot:v[2],swing:.18,ph:i*1.3,spec:.4,vis:900}));
+  const marcas=marcasDeRuta(ruta,100,items);
+  const e0=-290,e1=60,n0=-300,n1=310;
+  return {nombre:'Demo (óvalo)',real:false,ruta,statics:bk.fin().map(m=>({m,mirror:true})),items,marcas,mtnRot:Math.PI/2,
+    bearing:h=>(((90-h*180/Math.PI)%360)+360)%360,mapa:mapaBase(ruta,[e0,e1,n0,n1],c=>{
+      c.fillStyle='rgba(60,110,60,.55)';const a=mapTo([e0,e1,n0,n1],-48,0);c.fillRect(0,0,a[0],MAPH);
+      items.forEach(it=>{if(it.bob!==2)return;const p=mapTo([e0,e1,n0,n1],-it.x,it.z);c.fillStyle='#fff';c.beginPath();c.arc(p[0],p[1],3,0,6.3);c.fill();});})};
+}
+const MAPW=172,MAPH=232;
+function mapTo(b,e,n){const sc=Math.min(MAPW/(b[1]-b[0]),MAPH/(b[3]-b[2])),ox=(MAPW-(b[1]-b[0])*sc)/2,oy=(MAPH-(b[3]-b[2])*sc)/2;return [ox+(e-b[0])*sc,MAPH-oy-(n-b[2])*sc];}
+function mapaBase(ruta,b,extra){
+  const cv=document.createElement('canvas');cv.width=MAPW;cv.height=MAPH;const c=cv.getContext('2d');
+  if(extra)extra(c);
+  c.strokeStyle='rgba(255,255,255,.9)';c.lineWidth=2;c.beginPath();
+  ruta.pts.forEach((p,i)=>{const q=mapTo(b,-p[0],p[1]);i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]);});if(ruta.loop)c.closePath();c.stroke();
+  return {cv,b};
+}
+
+/* --- mundo desde una escena de Rumbo (KAYAKESC) --- */
+function filtrarOrillas(R){
+  const n=R.xy.length,U=R.sh,out=[],NR=R.off.length;
+  for(const lado of [0,1]){
+    const d=new Float32Array(n),alto=new Float32Array(n),prof=new Float32Array(n*NR),verde=new Uint8Array(n);
+    for(let k=0;k<n;k++){
+      const ds=[],hs=[];
+      for(let j=Math.max(0,k-3);j<=Math.min(n-1,k+3);j++){const v=U[j*10+lado];if(v!==255){ds.push(v*8);hs.push(U[j*10+2+lado]);}}
+      const tot=Math.min(n-1,k+3)-Math.max(0,k-3)+1;
+      if(ds.length*2<=tot){d[k]=NaN;continue;}
+      ds.sort((a,b)=>a-b);hs.sort((a,b)=>a-b);
+      d[k]=ds[ds.length>>1];alto[k]=Math.min(400,hs[hs.length>>1]);
+      const q=k*10+(lado?7:4),c=[U[q],U[q+1],U[q+2]];
+      verde[k]=(c[1]>c[0]*1.2&&c[1]>c[2]*1.03&&c[0]+c[1]+c[2]<420)?1:0;
+    }
+    const forma=[0,0.35,0.7,1,1,0.9,0.8];
+    for(let k=0;k<n;k++){
+      if(isNaN(d[k]))continue;
+      for(let j=0;j<NR;j++){
+        if(!R.pf){prof[k*NR+j]=alto[k]*(forma[j]||0.8);continue;}
+        let sum=0,c=0;
+        for(let q=Math.max(0,k-2);q<=Math.min(n-1,k+2);q++){if(U[q*10+lado]===255)continue;sum+=R.pf[q*14+lado*7+j]*2;c++;}
+        prof[k*NR+j]=c?sum/c:0;
+      }
+    }
+    out.push({d,alto,prof,verde});
+  }
+  const mind=new Float32Array(n);
+  for(let k=0;k<n;k++){const a0=out[0].d[k],b0=out[1].d[k];mind[k]=Math.min(isNaN(a0)?1e9:a0,isNaN(b0)?1e9:b0);}
+  for(const lado of [0,1]){
+    const F=out[lado],ok=new Uint8Array(n),sg=lado===0?1:-1;
+    for(let k=0;k<n;k++){
+      if(isNaN(F.d[k]))continue;
+      const a=R.xy[Math.max(0,k-3)],b=R.xy[Math.min(n-1,k+3)],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1;
+      const sx=R.xy[k][0]+(-dy/l)*sg*F.d[k],sy=R.xy[k][1]+(dx/l)*sg*F.d[k];
+      let bien=1;
+      for(let i=0;i<n;i++){if(mind[i]>5e8)continue;if(Math.hypot(R.xy[i][0]-sx,R.xy[i][1]-sy)<0.4*mind[i]-8){bien=0;break;}}
+      ok[k]=bien;
+    }
+    F.ok=ok;
+  }
+  R.orF=out;return out;
+}
+// altura del terreno (m sobre el agua) en un punto este/norte, con el mismo perfil que dibuja el terreno
+function sueloZ(R,x,y){
+  const n=R.xy.length,NR=R.off.length;let k=0,md=1e18;
+  for(let i=0;i<n;i++){const dd=(R.xy[i][0]-x)**2+(R.xy[i][1]-y)**2;if(dd<md){md=dd;k=i;}}
+  const a=R.xy[Math.max(0,k-3)],b=R.xy[Math.min(n-1,k+3)],tx=b[0]-a[0],ty=b[1]-a[1],l=Math.hypot(tx,ty)||1;
+  const lat=((x-R.xy[k][0])*-ty+(y-R.xy[k][1])*tx)/l,lado=lat>0?0:1,F=R.orF[lado],ds=F.d[k];
+  if(isNaN(ds))return 0;
+  const u=Math.abs(lat)-ds;if(u<=0)return 0;
+  const O=R.off.concat([1400,3000]),zl=F.prof[k*NR+NR-1],Z=[];
+  for(let j=0;j<NR;j++){let z=F.prof[k*NR+j];if(F.verde[k]&&j>0&&z>0.5)z+=6;Z.push(j===0?0:z);}
+  Z.push(zl*1.15+18);Z.push(zl*1.4+110);
+  for(let j=1;j<O.length;j++)if(u<=O[j]){const t=(u-O[j-1])/(O[j]-O[j-1]);return Z[j-1]*(1-t)+Z[j]*t;}
+  return Z[Z.length-1];
+}
+function anilloEje(xy){ // de un contorno cerrado: posición, rumbo (desde el norte), largo y ancho; proa = extremo más angosto
+  const P=[];for(let i=0;i+1<xy.length;i++){const a=xy[i],b=xy[i+1],l=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.max(1,Math.ceil(l));for(let k=0;k<n;k++)P.push([a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n]);}
+  let cx=0,cy=0;for(const q of P){cx+=q[0];cy+=q[1];}cx/=P.length;cy/=P.length;
+  let sxx=0,syy=0,sxy=0;for(const q of P){const x=q[0]-cx,y=q[1]-cy;sxx+=x*x;syy+=y*y;sxy+=x*y;}
+  const ang=0.5*Math.atan2(2*sxy,sxx-syy),ux=Math.cos(ang),uy=Math.sin(ang),vx=-uy,vy=ux;
+  let a0=1e9,a1=-1e9,b0=1e9,b1=-1e9;
+  const A=P.map(q=>{const x=q[0]-cx,y=q[1]-cy,a=x*ux+y*uy,b=x*vx+y*vy;a0=Math.min(a0,a);a1=Math.max(a1,a);b0=Math.min(b0,b);b1=Math.max(b1,b);return [a,b];});
+  const L=a1-a0,Wd=b1-b0,tr=L*0.25;
+  const ancho=fn=>{let lo=1e9,hi=-1e9;for(const q of A)if(fn(q[0])){lo=Math.min(lo,q[1]);hi=Math.max(hi,q[1]);}return hi-lo;};
+  const sg=ancho(a=>a>a1-tr)<=ancho(a=>a<a0+tr)?1:-1,mid=(a0+a1)/2;
+  return {pos:[cx+ux*mid,cy+uy*mid],th:Math.atan2(ux*sg,uy*sg),L,W:Wd};
+}
+const BARCO_L={velero:10,lancha:6,carguero:180,crucero:250,encallado:40,naval:90,patrullera:30};
+const BARCO_MODELO={velero:'velero',lancha:'lancha',crucero:'crucero',carguero:'crucero',naval:'naval',patrullera:'naval',encallado:'encallado'};
+const EDIF_PARED=['#d9d2c3','#c9b99a','#b8c4cf','#c7d3c2','#d9b7a6','#cfc7d6','#e0d7a8','#e8e4da'].map(hex3),EDIF_TECHO=['#7a4b3a','#5b6670','#8a8f94','#6e5a4a','#7b3f3a','#4f5d52'].map(hex3);
+const CALLE_ANCHO={1:9,2:6,3:3.5,4:2.2},CALLE_COLOR={1:[.22,.23,.25],2:[.30,.31,.33],3:[.40,.40,.40],4:[.74,.71,.65]};
+
+async function mundoRumbo(o){
+  const ll=o.ll,lat0=ll[0][0],lon0=ll[0][1],kx=Math.cos(lat0*Math.PI/180)*111320,ky=111320;
+  const ENU=p=>[(p[1]-lon0)*kx,(p[0]-lat0)*ky],WD=(e,n)=>[-e,n];
+  const R={nombre:o.name,loop:!!o.loop,xy:ll.map(ENU),sh:o.shore&&(o.shore.u||(o.shore.d?b64u8(o.shore.d):null)),pf:o.shore&&(o.shore.pu||(o.shore.p?b64u8(o.shore.p):null)),off:(o.shore&&o.shore.off)||OFF_DEF};
+  const n=R.xy.length,bk=new Baker(),items=[],rnd=rng(11);
+  const ruta=crearRuta(R.xy.map(p=>WD(p[0],p[1])),R.loop);
+  const info={terreno:false,quads:0,arboles:0,edificios:0,calles:0,muelles:0,barcos:0};
+  const conTerreno=!!(R.sh&&n>=3);
+  let mirrorStat=[];
+  // ---- terreno por franjas (misma lógica que dibujarOrillas de Kayak Indoor) ----
+  const costa=[]; // puntos de costa para el minimapa [e,n]
+  if(conTerreno){
+    const F=filtrarOrillas(R),NR=R.off.length;
+    const T=new Baker(),TR=new Baker();let ntree=0;
+    for(const lado of [1,-1]){
+      const FO=F[lado>0?0:1],S=[];
+      for(let k=0;k<n;k++){
+        if(isNaN(FO.d[k])||!FO.ok[k]){S.push(null);continue;}
+        const a=R.xy[Math.max(0,k-3)],b=R.xy[Math.min(n-1,k+3)],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1;
+        const nx=-dy/l*lado,ny=dx/l*lado,B=R.xy[k],q=k*10+(lado>0?4:7),U=R.sh,col=[U[q]/255,U[q+1]/255,U[q+2]/255],verde=!!FO.verde[k];
+        const W=[];
+        for(let j=0;j<NR;j++){const dd=FO.d[k]+R.off[j];let z=FO.prof[k*NR+j];if(verde&&j>0&&z>0.5)z+=6;W.push([B[0]+nx*dd,B[1]+ny*dd,j===0?0:z]);}
+        let lim=NR;for(let j=2;j<NR;j++)if(FO.prof[k*NR+j]<=0.5){lim=j;break;}
+        if(lim===NR){const zl=W[NR-1][2];
+          // v2.6: el terreno lejano sube como lomadas con altura que varía a lo largo de la costa (antes era casi un plano: una franja pálida con borde recto contra las montañas)
+          const nzv=Math.max(0.35,0.9+0.28*Math.sin(k*0.13+lado*1.7)*Math.cos(k*0.071+0.9)+0.2*Math.sin(k*0.83+lado*3.1)+0.12*Math.sin(k*2.3+1.1));
+          W.push([B[0]+nx*(FO.d[k]+1400),B[1]+ny*(FO.d[k]+1400),(zl*1.15+40)*nzv]);W.push([B[0]+nx*(FO.d[k]+3000),B[1]+ny*(FO.d[k]+3000),(zl*1.4+170)*nzv]);lim=NR+2;}
+        costa.push(W[0]);
+        S.push({W,dist:FO.d[k],col,verde,ang:Math.atan2(dy,dx),lim});
+      }
+      for(let i=0;i+1<S.length;i++){
+        const a=S[i],b=S[i+1];if(!a||!b)continue;
+        if(Math.abs(a.dist-b.dist)>60+0.4*Math.min(a.dist,b.dist))continue;
+        {let da=Math.abs(a.ang-b.ang);if(da>Math.PI)da=2*Math.PI-da;if(da>0.5)continue;}
+        const jm=Math.min(a.lim,b.lim);
+        for(let j=0;j+1<jm;j++){
+          const z0=Math.min(a.W[j][2],b.W[j][2]),z1=Math.min(a.W[j+1][2],b.W[j+1][2]);
+          if(j===0?z1<=0:((z0<=0||z1<=0)&&Math.max(z0,z1)<3))continue;
+          const sub=Math.abs(((a.W[j+1][2]+b.W[j+1][2])-(a.W[j][2]+b.W[j][2]))/2)/Math.max(1,(R.off[j+1]||3000)-(R.off[j]||1400)),roca=Math.max(0,Math.min(1,(sub-0.5)/0.4));
+          let c=roca>0?mix3(a.col,[.46,.41,.37],0.7*roca):a.col;
+          if(j>=3&&j<NR-1)c=mix3(c,[.38,.44,.46],0.12*(j-2));                 // v2.6: la tierra lejana se vuelve gris azulada con la distancia (perspectiva aérea)
+          if(j>=NR-1)c=mix3(c,[.34,.40,.44],Math.min(.88,0.55+0.17*(j-NR+1)));
+          const hz=(a.W[j+1][2]+b.W[j+1][2])/2;if(hz>230&&j<NR-1)c=mix3(c,[.92,.94,.96],Math.min(.9,(hz-230)/120));
+          if(j===0&&a.verde)c=c.map(v=>v*0.82);
+          const P=[a.W[j],b.W[j],b.W[j+1],a.W[j+1]].map(w=>[-w[0],w[2],w[1]]);
+          if(j===0&&!a.verde&&!b.verde&&a.W[1][2]<=2.6&&b.W[1][2]<=2.6&&a.W[2][2]<=3.6&&b.W[2][2]<=3.6){
+            // v2.9: costa baja (el perfil de Rumbo da 0-2 m en los primeros 100 m tierra adentro) = playa: espuma, arena mojada, arena seca y después el color real de la zona
+            const dry=[.77,.71,.57],stops=[[0,[.88,.90,.88]],[.03,[.40,.36,.30]],[.12,[.57,.51,.41]],[.55,dry],[1,mix3(dry,a.col,0.5)]];
+            const pb=(Wd,t)=>[Wd[0][0]+(Wd[1][0]-Wd[0][0])*t,Wd[0][1]+(Wd[1][1]-Wd[0][1])*t,Wd[0][2]+(Wd[1][2]-Wd[0][2])*t];
+            for(let q=0;q+1<stops.length;q++){const t0=stops[q][0],t1=stops[q+1][0],c0=stops[q][1],c1=stops[q+1][1];
+              const PP=[pb(a.W,t0),pb(b.W,t0),pb(b.W,t1),pb(a.W,t1)].map(w=>[-w[0],w[2],w[1]]);
+              gQuadN(T.g,PP,[c0,c0,c1,c1],null);T.chk();info.quads++;}
+          }else if(j>=NR-1){ // v2.7: tierra lejana en 5 franjas con relieve irregular y degradé de color (antes: un solo polígono plano con bordes rectos)
+            const SS=5,cl=mix3(a.col,[.10,.14,.15],0.88),ch=[.14,.19,.20]; // v2.8: más oscuras (la luz de cielo y la bruma las aclaran): que combinen con los cerros oscuros del fondo
+            const pt=(Wd,kk,t)=>{const z0=Wd[j][2],z1=Wd[j+1][2],e=(t>0&&t<1)?(1+0.30*Math.sin(kk*0.9+t*6.1+j*1.7)+0.16*Math.sin(kk*2.7+t*11.3)):1;
+              return [Wd[j][0]+(Wd[j+1][0]-Wd[j][0])*t,Wd[j][1]+(Wd[j+1][1]-Wd[j][1])*t,Math.max(0,(z0+(z1-z0)*t)*e)];};
+            const cg=(t,sj)=>{const q=Math.min(1,((j-NR+1)+t)/2),v=0.9+0.2*(0.5+0.5*Math.sin(sj*12.9+i*0.7)*Math.cos(i*1.3+sj*3.1));return mix3(cl,ch,0.12+0.8*q).map(x=>x*v);};
+            for(let sj=0;sj<SS;sj++){const t0=sj/SS,t1=(sj+1)/SS;
+              const A0=pt(a.W,i,t0),B0=pt(b.W,i+1,t0),B1=pt(b.W,i+1,t1),A1=pt(a.W,i,t1);
+              const PP=[A0,B0,B1,A1].map(w=>[-w[0],w[2],w[1]]),c0=cg(t0,sj),c1=cg(t1,sj);
+              gQuadN(T.g,PP,[c0,c0,c1,c1],null);T.chk();info.quads++;}
+          }else{gQuadN(T.g,P,c,null);T.chk();info.quads++;}
+          if(j>=1&&j<=4&&a.verde&&ntree<420&&z0>0.5){
+            for(let t=0;t<2;t++){
+              const u=rnd(),v=rnd(),px=(P[0][0]*(1-u)+P[1][0]*u)*(1-v)+(P[3][0]*(1-u)+P[2][0]*u)*v,py=(P[0][1]*(1-u)+P[1][1]*u)*(1-v)+(P[3][1]*(1-u)+P[2][1]*u)*v,pz=(P[0][2]*(1-u)+P[1][2]*u)*(1-v)+(P[3][2]*(1-u)+P[2][2]*u)*v;
+              const hh=6+rnd()*7,gr=.08+rnd()*.07;
+              gCyl(TR.g,px,py-.5,pz,1.6+hh*.12,.05,hh,6,[.05,gr+.06,.07]);TR.chk();ntree++;}
+          }
+        }
+      }
+    }
+    info.terreno=true;info.arboles=ntree;
+    T.fin().forEach(m=>mirrorStat.push({m,mirror:true}));
+    TR.fin().forEach(m=>mirrorStat.push({m,mirror:false}));
+  }
+  // ---- edificios ----
+  const B2=new Baker();
+  if(conTerreno)for(const b of (o.edif||[])){
+    if(!Array.isArray(b)||b.length<7||!(b[0]>0))continue;
+    const e=(b[3]-lon0)*kx,nn=(b[2]-lat0)*ky,w=Math.max(2,b[4]),dd=Math.max(2,b[5]),a=b[6]*Math.PI/180;
+    const u=[Math.sin(a),Math.cos(a)],v=[Math.cos(a),-Math.sin(a)];
+    const Ce=[[-w/2,-dd/2],[w/2,-dd/2],[w/2,dd/2],[-w/2,dd/2]].map(q=>[e+u[0]*q[0]+v[0]*q[1],nn+u[1]*q[0]+v[1]*q[1]]);
+    let zmin=1e9,zmax=-1e9;for(const c of Ce){const z=Math.max(0,sueloZ(R,c[0],c[1]));zmin=Math.min(zmin,z);zmax=Math.max(zmax,z);}
+    if(zmax<=0.2)continue; // en el agua
+    const hs=Math.round(Math.abs(b[2]*1000+b[3]*777))%997,zt=zmax+b[0],gable=b[0]<=9&&w*dd<450&&dd>=4;
+    const ctr=WD(e,nn),uw=WD(u[0],u[1]);
+    gEdificio(B2.g,{C:Ce.map(c=>WD(c[0],c[1])),cx:ctr[0],cz:ctr[1],ux:-u[0],uz:u[1],w,z0:zmin-3,zt,zr:zt+Math.min(2.6,dd*0.3),gable,pared:EDIF_PARED[hs%EDIF_PARED.length],techo:EDIF_TECHO[(hs>>3)%EDIF_TECHO.length]});
+    B2.chk();info.edificios++;
+  }
+  B2.fin().forEach(m=>mirrorStat.push({m,mirror:false}));
+  // ---- calles ----
+  const C2=new Baker();
+  if(conTerreno)for(const c of (o.calles||[])){
+    if(!Array.isArray(c)||!Array.isArray(c[1])||c[1].length<2)continue;
+    const cl=(c[0]|0)||2,xy=c[1].map(ENU);let run=[];
+    const flush=()=>{if(run.length>=2){gCinta(C2.g,run,(CALLE_ANCHO[cl]||4)/2,CALLE_COLOR[cl]||CALLE_COLOR[2]);C2.chk();info.calles++;}run=[];};
+    for(let i=0;i+1<xy.length;i++){
+      const a=xy[i],b=xy[i+1],l=Math.hypot(b[0]-a[0],b[1]-a[1]),m=Math.max(1,Math.ceil(l/14));
+      for(let k=(i?1:0);k<=m;k++){const t=k/m,e=a[0]+(b[0]-a[0])*t,nn=a[1]+(b[1]-a[1])*t,z=sueloZ(R,e,nn);
+        if(z>0.4){const w=WD(e,nn);run.push([w[0],z+1.4,w[1]]);}else flush();}
+    }
+    flush();
+  }
+  C2.fin().forEach(m=>mirrorStat.push({m,mirror:false}));
+  // ---- muelles, puentes, balizas ----
+  const M2=new Baker(),elemsXY=[];
+  for(const e of (o.elems||[])){
+    if(!e||!e.k||!Array.isArray(e.p)||!e.p.length)continue;
+    const xy=e.p.map(ENU);elemsXY.push({k:e.k,xy});
+    const cerr=xy.length>=3&&Math.hypot(xy[0][0]-xy[xy.length-1][0],xy[0][1]-xy[xy.length-1][1])<1.5;
+    if(e.k==='muelle'){
+      info.muelles++;
+      const poly=(cerr?xy.slice(0,-1):xy).map(p=>WD(p[0],p[1]));
+      if(cerr&&poly.length>=3){
+        let ar=0;for(let i=0;i<poly.length;i++){const j=(i+1)%poly.length;ar+=poly[i][0]*poly[j][1]-poly[j][0]*poly[i][1];}ar=Math.abs(ar)/2;
+        const grande=ar>12000;
+        gMuelle(M2.g,poly,grande?2.6:1.2,grande?[.58,.58,.56]:[.45,.33,.22],grande?[.45,.45,.44]:[.32,.23,.15]);
+      }else{
+        const pts=poly.map(p=>[p[0],1.2,p[1]]);gCinta(M2.g,pts,1.4,[.45,.33,.22]);
+        for(let i=0;i+1<poly.length;i++){const a=poly[i],b=poly[i+1],l=Math.hypot(b[0]-a[0],b[1]-a[1]),m=Math.max(1,Math.floor(l/4));
+          for(let k=0;k<=m;k++){const t=k/m;for(const s of[-1,1]){const dx=(b[1]-a[1])/(l||1),dz=-(b[0]-a[0])/(l||1);
+            gCyl(M2.g,a[0]+(b[0]-a[0])*t+dx*s*1.25,-2,a[1]+(b[1]-a[1])*t+dz*s*1.25,.16,.16,3.3,6,[.24,.17,.11],false);}}}
+      }
+      M2.chk();
+    }else if(e.k==='puente'){
+      const w=xy.map(p=>WD(p[0],p[1])),zs=xy.map(p=>sueloZ(R,p[0],p[1])),yv=Math.max(...zs)+1.2;
+      gCinta(M2.g,w.map(p=>[p[0],yv,p[1]]),5,[.55,.55,.53]);
+      for(const k of [0,w.length-1])gBox(M2.g,w[k][0],yv/2-.5,w[k][1],4,yv+1,4,[.5,.5,.48]);M2.chk();
+    }else if(e.k==='baliza'||e.k==='faro'){
+      const p=WD(xy[0][0],xy[0][1]);gCyl(M2.g,p[0],-1,p[1],.5,.3,7,6,[.9,.2,.15]);gSphere(M2.g,p[0],6.4,p[1],.55,6,[1,.9,.4]);M2.chk();
+    }else if(BARCO_MODELO[e.k]){
+      let pos,th,L;
+      if(cerr&&xy.length>=4){const m=anilloEje(xy);pos=m.pos;th=m.th;L=Math.max(3,m.L);}
+      else{const a=xy[0],b=xy[xy.length-1],dx=b[0]-a[0],dy=b[1]-a[1],lg=Math.hypot(dx,dy);L=e.a>0?e.a:(lg>=3?lg:(BARCO_L[e.k]||10));pos=[(a[0]+b[0])/2,(a[1]+b[1])/2];th=lg>=0.5?Math.atan2(dx,dy):0;}
+      if(e.a>0)L=e.a;
+      const md=modeloBarco(BARCO_MODELO[e.k]),w=WD(pos[0],pos[1]),sc=clamp(L/md.base,0.3,3),grande=md.base>=80;
+      items.push({m:md.m,x:w[0],z:w[1],tint:WHITE,bob:grande?0:(e.k==='encallado'?3:2),sc,rot:-th,swing:grande?0:0.05,ph:w[0]*0.1,spec:.35,vis:grande?3500:1000,tilt:e.k==='encallado'?[0.12,0.2]:null});
+      info.barcos++;
+    }
+    // terraplén, desmonte y túnel no se dibujan en el agua
+  }
+  M2.fin().forEach(m=>mirrorStat.push({m,mirror:true}));
+  const marcas=marcasDeRuta(ruta,100,items);
+  const mapa=null;
+  return {nombre:o.name,real:true,ruta,statics:mirrorStat,items,marcas,mtnRot:0,info,
+    hz:(o.hz&&(o.hz.u||o.hz.d)&&o.hz.n&&o.hz.na)?Object.assign({},o.hz,{u:o.hz.u||b64u8(o.hz.d)}):null,
+    bearing:h=>(((-h*180/Math.PI)%360)+360)%360,mapa};
+}
+
+function aplicarMundo(w){
+  const ant=W3;W3=w;liberar(ant);hzTexturas(w);
+  S.distanciaM=0;S.tiempo=0;S.velSim=0;trail.length=0;KP.eyeSm=null;
+  const p=w.ruta.at(S.distanciaM);KP.camYaw=p.h;
+}
+/* ---------- 5. Estado ---------- */
+const S={modo:'sim',velMs:0,cadPpm:cfg.cad,distanciaM:0,ext:null,tiempo:0,pausa:false,
+  c:0,act:0,sOff:0,cLast:0,velSim:0};
+const trail=[],rings=new Float32Array(18),trailArr=new Float32Array(64);
+for(let i=0;i<6;i++){rings[i*3+2]=-1000;}
+let ringIdx=0;
+const KP={x:0,y:0,z:0,h:0,Mk:M4.id(),draws:[],eye:[0,3,-7],camYaw:0,eyeSm:null,speed:0};
+// v145: el estado lo manda Kayak Indoor en cada cuadro (st): d = metros en la ruta de Kayak 3D, velMs, cad (ppm), T = fase del Editor (0–8, la misma tGlobalVivo de la app)
+let Tprev=null;
+function update(dt,st){
+  tWave+=dt;
+  S.velMs=st.velMs;S.cadPpm=st.cad;S.distanciaM=st.d;S.dHz=st.dHz;
+  const remando=st.cad>2;
+  S.act+=((remando?1:0)-S.act)*(1-Math.exp(-dt/0.5));
+  const cPrev=S.c;
+  if(Tprev===null)S.c=(st.T-5)/4;else{const dT=((st.T-Tprev)%8+8)%8;if(dT<4)S.c+=dT/4;}
+  Tprev=st.T;
+  const pos=W3.ruta.at(S.distanciaM);
+  if(Math.hypot(pos.x-KP.x,pos.z-KP.z)>30){KP.eyeSm=null;KP.camYaw=pos.h;trail.length=0;}   // saltó (deslizador, otra ruta): la cámara no vuela hasta allá
+  KP.x=pos.x;KP.z=pos.z;KP.h=pos.h;
+  if(Math.floor(S.c)>Math.floor(cPrev)&&remando){
+    const side=(Math.floor(S.c)%2===0)?1:-1;
+    const w=M4.pt(KP.Mk,[side*0.95,0,0.1]);
+    rings[ringIdx*3]=w[0];rings[ringIdx*3+1]=w[2];rings[ringIdx*3+2]=tWave;ringIdx=(ringIdx+1)%6;
+  }
+  const last=trail[trail.length-1];
+  if(last&&Math.hypot(KP.x-last.x,KP.z-last.z)>30)trail.length=0;      // saltó (deslizador, vuelta del circuito)
+  if(!trail.length||Math.hypot(KP.x-trail[trail.length-1].x,KP.z-trail[trail.length-1].z)>0.8){trail.push({x:KP.x,z:KP.z,t:tWave,s:clamp(S.velMs/1.8,0,1.2)});if(trail.length>15)trail.shift();}
+  buildPose(dt);
+  if(st.ghost!=null){const g=W3.ruta.at(st.ghost),hg=waveH(g.x,g.z)*0.85;
+    KP.ghost=M4.mul(M4.T(g.x,hg,g.z),M4.RY(g.h));}else KP.ghost=null;
+}
+
+let KF_APP=null;
+const KF_DATA={"entradaD":{"rotacion":0.171,"der":{"elX":0.129,"elY":0.315,"wrX":-0.098,"wrY":0.669,"escalaPala":0.544},"izq":{"elX":-0.336,"elY":-0.185,"wrX":-0.207,"wrY":-0.597,"escalaPala":0.93}},
+"traccionD":{"rotacion":0.01,"der":{"elX":0.371,"elY":0.408,"wrX":0.439,"wrY":0.707,"escalaPala":0},"izq":{"elX":0.308,"elY":-0.241,"wrX":0.56,"wrY":-0.587,"escalaPala":1}},
+"salidaD":{"rotacion":-0.158,"der":{"elX":0.362,"elY":0.42,"wrX":0.74,"wrY":0.563,"escalaPala":1},"izq":{"elX":0.232,"elY":0.022,"wrX":0.815,"wrY":0.043,"escalaPala":0.7}},
+"recuperacionD":{"rotacion":-0.284,"der":{"elX":0.43,"elY":0.1,"wrX":0.761,"wrY":-0.045,"escalaPala":0.803},"izq":{"elX":-0.15,"elY":0.2,"wrX":-0.2,"wrY":-0.065,"escalaPala":0.45}},
+"entradaI":{"rotacion":-0.3,"der":{"elX":0.016,"elY":-0.129,"wrX":-0.34,"wrY":-0.22,"escalaPala":1},"izq":{"elX":-0.135,"elY":0.266,"wrX":-0.046,"wrY":0.257,"escalaPala":0.45}},
+"traccionI":{"rotacion":-0.1,"der":{"elX":-0.32,"elY":-0.35,"wrX":-0.55,"wrY":-0.581,"escalaPala":1},"izq":{"elX":-0.219,"elY":0.398,"wrX":-0.304,"wrY":0.78,"escalaPala":0}},
+"salidaI":{"rotacion":0.1,"der":{"elX":-0.319,"elY":0.032,"wrX":-0.859,"wrY":0.08,"escalaPala":0.618},"izq":{"elX":-0.219,"elY":0.429,"wrX":-0.524,"wrY":0.873,"escalaPala":1}},
+"recuperacionI":{"rotacion":0.3,"der":{"elX":0.099,"elY":0.037,"wrX":-0.168,"wrY":0.004,"escalaPala":0.45},"izq":{"elX":-0.312,"elY":0.149,"wrX":-0.741,"wrY":0.049,"escalaPala":0.934}}};
+
+/* Remada desde el Editor de Kayak Indoor: 8 poses (vista trasera, x lateral / y hacia abajo, relativos al hombro, en unidades de alto de torso).
+   Se interpolan en ciclo con suavizado coseno (igual que el editor). Supuestos propios: escala 0.5 m por unidad, giro de tronco = rotación×1.5 rad,
+   y profundidad (adelante/atrás) de cada mano por clave, porque el editor no la tiene (es 2D). */
+const KF_ORD=['entradaD','traccionD','salidaD','recuperacionD','entradaI','traccionI','salidaI','recuperacionI'];
+const KF_Z=[.32,.18,-.02,.10,.20,.24,.30,.26];   // profundidad de la mano DERECHA por clave (m, adelante +); la izquierda usa la clave opuesta
+const KF_ESC=0.5,KF_GIRO=1.5;
+function kfPose(c){
+  let T=(5+4*c)%8;if(T<0)T+=8;          // c=0 → tracción izquierda (pala izq. abajo), c=1 → tracción derecha
+  const KD=KF_APP||KF_DATA,i=Math.floor(T)%8,j=(i+1)%8,f=T-Math.floor(T),e=(1-Math.cos(f*Math.PI))/2,A=KD[KF_ORD[i]]||KF_DATA[KF_ORD[i]],B=KD[KF_ORD[j]]||KF_DATA[KF_ORD[j]];
+  const L=(a,b)=>a+(b-a)*e,lado=k=>{const a=A[k],b=B[k];return{elX:L(a.elX,b.elX),elY:L(a.elY,b.elY),wrX:L(a.wrX,b.wrX),wrY:L(a.wrY,b.wrY)};};
+  return{rot:L(A.rotacion,B.rotacion),der:lado('der'),izq:lado('izq'),zD:L(KF_Z[i],KF_Z[j]),zI:L(KF_Z[(i+4)%8],KF_Z[(j+4)%8])};
+}
+
+function buildPose(dt){
+  const x=KP.x,z=KP.z,th=KP.h;
+  const hgt=waveH(x,z)*0.85;
+  const g=waveG(x,z);
+  const sF=g[0]*Math.sin(th)+g[1]*Math.cos(th),sR=g[0]*Math.cos(th)-g[1]*Math.sin(th);
+  const pitch=-Math.atan(sF)*0.9,roll0=Math.atan(sR)*0.8;
+  const c=S.c,act=S.act;
+  const roll=roll0-0.05*Math.cos(Math.PI*c)*act;
+  const Mk=M4.mul(M4.mul(M4.mul(M4.T(x,hgt,z),M4.RY(th)),M4.RX(pitch)),M4.RZ(roll));
+  KP.Mk=Mk;KP.y=hgt;
+  const d=[];
+  const draw=(mesh,M,tint,spec)=>d.push({m:mesh,M:M4.mul(Mk,M),tint:tint||WHITE,spec:spec||0});
+  draw(MESH.kayak,M4.id(),WHITE,.5);
+  // pose del cuerpo y la pala
+  const usarKF=cfg.remada!=='proc';
+  let psi=-0.5*Math.sin(Math.PI*c)*act,al=0.84*Math.cos(Math.PI*c)*act,kfp=null;
+  if(usarKF){kfp=kfPose(c);}
+  const psiT=usarKF?-kfp.rot*KF_GIRO*act:psi*0.9,lean=0.12+0.04*Math.abs(Math.sin(Math.PI*c))*act;
+  const Mt=M4.mul(M4.mul(M4.T(0,0.28,-0.12),M4.RY(-psiT)),M4.RX(lean));
+  const fp=(cfg.camara===3);
+  if(!fp){draw(MESH.torso,Mt,WHITE,.1);draw(MESH.head,Mt,WHITE,.05);}
+  let C=[0,0.62,0.22],dir=[Math.cos(al)*Math.cos(psi),-Math.sin(al),Math.cos(al)*Math.sin(psi)],hands=null,elb=null;
+  if(usarKF){
+    const loc=(sd,d,z)=>[sd*0.21-d.wrX*KF_ESC,0.46-d.wrY*KF_ESC,z];
+    const hR=M4.pt(Mt,loc(-1,kfp.der,kfp.zD)),hL=M4.pt(Mt,loc(1,kfp.izq,kfp.zI));
+    const nR=[-0.34,0.62,0.22],nL=[0.34,0.62,0.22],q=1-act;
+    hands={'-1':V.add(V.mul(hR,act),V.mul(nR,q)),'1':V.add(V.mul(hL,act),V.mul(nL,q))};
+    const el=(sd,d,z)=>M4.pt(Mt,[sd*0.21-d.elX*KF_ESC,0.46-d.elY*KF_ESC,z*0.4-0.05]);
+    elb={'-1':el(-1,kfp.der,kfp.zD),'1':el(1,kfp.izq,kfp.zI)};
+    C=V.mul(V.add(hands['1'],hands['-1']),.5);
+    dir=V.norm(V.sub(hands['1'],hands['-1']));
+  }
+  draw(MESH.cyl,segMatrix(V.sub(C,V.mul(dir,.64)),V.add(C,V.mul(dir,.64)),0.019),[.06,.06,.07],.3);
+  [1,-1].forEach(sd=>{
+    const a=V.mul(dir,sd),ctr=V.add(C,V.mul(a,.87));
+    const Zp=V.norm(V.sub([0,0,1],V.mul(a,a[2]))),Yp=V.cross(Zp,a);
+    draw(MESH.blade,M4.basis(a,Yp,Zp,ctr),WHITE,.4);
+    const sh=M4.pt(Mt,[sd*0.21,0.46,0]);
+    const hand=usarKF?hands[sd]:V.add(C,V.mul(dir,sd*0.34));
+    const pole=usarKF?V.sub(elb[sd],V.mul(V.add(sh,hand),.5)):[sd*.7,-.6,-.4];
+    const el=ik2(sh,hand,.30,.30,pole);
+    draw(MESH.cyl,segMatrix(sh,el,.046),[.10,.16,.34],0);
+    draw(MESH.cyl,segMatrix(el,hand,.040),[.10,.16,.34],0);
+    draw(MESH.ball,M4.mul(M4.T(hand[0],hand[1],hand[2]),M4.S(.058,.058,.058)),[.08,.08,.09],.1);
+  });
+  KP.draws=d;
+  // ---- cámara ----
+  const fw=[Math.sin(th),0,Math.cos(th)];
+  KP.camYaw+=wrapPI(th-KP.camYaw)*(1-Math.exp(-dt/0.6));
+  const cf=[Math.sin(KP.camYaw),0,Math.cos(KP.camYaw)];
+  const kp=[x,hgt,z];
+  let eye,tgt;
+  const m=cfg.camara;
+  if(m===0){eye=V.add(V.sub(kp,V.mul(cf,7.2)),[0,2.3,0]);tgt=V.add(V.add(kp,V.mul(cf,4)),[0,.7,0]);}
+  else if(m===1){eye=V.add(V.add(kp,V.mul(fw,6.5)),[0,1.7,0]);tgt=V.add(kp,[0,.75,0]);}
+  else if(m===2){eye=V.add(V.sub(kp,V.mul(cf,14)),[0,9,0]);tgt=V.add(kp,V.mul(cf,8));}
+  else{eye=M4.pt(Mk,[0,1.0,-0.02]);tgt=M4.pt(Mk,[0,.55,8]);}
+  if(m!==3){
+    if(!KP.eyeSm)KP.eyeSm=eye.slice();
+    const k=1-Math.exp(-dt/0.22);
+    KP.eyeSm=[lerp(KP.eyeSm[0],eye[0],k),lerp(KP.eyeSm[1],eye[1],k),lerp(KP.eyeSm[2],eye[2],k)];
+    eye=KP.eyeSm.slice();
+  }else KP.eyeSm=null;
+  eye[1]=Math.max(eye[1],0.45);
+  KP.eye=eye;KP.tgt=tgt;
+}
+
+/* ---------- 6. Render ---------- */
+let scale=1;
+const dprCap=Math.min(window.devicePixelRatio||1,2);
+function resize(w,h){const r=dprCap*scale,W=Math.max(2,Math.round(w*r)),H=Math.max(2,Math.round(h*r));
+  if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H;}gl.viewport(0,0,cv.width,cv.height);}
+
+function setMeshGlobals(VP,mirror){
+  const p=PMESH;
+  gl.uniformMatrix4fv(U(p,'uVP'),false,VP);
+  gl.uniform3fv(U(p,'uSunDir'),sunDir());gl.uniform3fv(U(p,'uSunCol'),CL.sunC.map(v=>v*0.95));
+  gl.uniform3fv(U(p,'uAmbT'),CL.ambT);gl.uniform3fv(U(p,'uAmbB'),CL.ambB);
+  gl.uniform3fv(U(p,'uFog'),CL.hor);gl.uniform3fv(U(p,'uCam'),KP.eye);
+  gl.uniform1f(U(p,'uFogDen'),CL.fog);gl.uniform1f(U(p,'uTime'),tWave);gl.uniform1f(U(p,'uWave'),CL.wave);gl.uniform1f(U(p,'uChop'),CL.chop);
+  gl.uniform1f(U(p,'uMirror'),mirror?1:0);gl.uniform1f(U(p,'uAlpha'),0.42/(1+CL.wave*1.1));
+}
+const MIRR=M4.S(1,-1,1);
+function sunDir(){return V.norm(W3&&W3.real&&CL.sr?CL.sr:CL.sun);}
+function drawMesh(m,M,tint,spec,clip,mirror){
+  const p=PMESH;
+  gl.uniformMatrix4fv(U(p,'uModel'),false,mirror?M4.mul(MIRR,M):M);
+  gl.uniform3fv(U(p,'uTint'),tint);gl.uniform1f(U(p,'uSpec'),spec);gl.uniform1f(U(p,'uClip'),clip?1:0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,m.vb);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,m.ib);
+  gl.vertexAttribPointer(0,3,gl.FLOAT,false,36,0);gl.vertexAttribPointer(1,3,gl.FLOAT,false,36,12);gl.vertexAttribPointer(2,3,gl.FLOAT,false,36,24);
+  gl.drawElements(gl.TRIANGLES,m.n,gl.UNSIGNED_SHORT,0);
+}
+const IDM=M4.id();
+function drawScene(mirror){
+  for(const st of W3.statics){if(mirror&&!st.mirror)continue;drawMesh(st.m,IDM,WHITE,0,true,mirror);}
+  for(const it of W3.items){
+    const dx=it.x-KP.x,dz=it.z-KP.z,vis=it.vis||900;if(dx*dx+dz*dz>vis*vis)continue;
+    const sc=it.sc||1;let M;
+    if(it.bob===2){
+      const h=waveH(it.x,it.z),g=waveG(it.x,it.z),rot=it.rot+(it.swing||0)*Math.sin(tWave*0.12+(it.ph||0));
+      M=M4.mul(M4.mul(M4.mul(M4.mul(M4.T(it.x,h*0.8,it.z),M4.RY(rot)),M4.RX(-Math.atan(g[0]*Math.sin(rot)+g[1]*Math.cos(rot))*0.7)),M4.RZ(Math.atan(g[0]*Math.cos(rot)-g[1]*Math.sin(rot))*0.6)),M4.S(sc,sc,sc));
+    }else if(it.bob===1){
+      const h=waveH(it.x,it.z),g=waveG(it.x,it.z);
+      M=M4.mul(M4.mul(M4.mul(M4.T(it.x,h,it.z),M4.RX(-g[1]*0.8)),M4.RZ(g[0]*0.8)),M4.S(sc,sc,sc));
+    }else{
+      const t=it.tilt||[0,0];
+      M=M4.mul(M4.mul(M4.mul(M4.mul(M4.T(it.x,it.bob===3?-0.4:0,it.z),M4.RY(it.rot)),M4.RX(t[0])),M4.RZ(t[1])),M4.S(sc,sc,sc));
+    }
+    drawMesh(it.m,M,it.tint||WHITE,it.spec||.3,true,mirror);
+  }
+  for(const d of KP.draws)drawMesh(d.m,d.M,d.tint,d.spec,true,mirror);
+  if(KP.ghost){drawMesh(MESH.kayak,KP.ghost,[.55,.6,.68],.2,true,mirror);drawMesh(MESH.torso,M4.mul(KP.ghost,M4.T(0,0.28,-0.12)),[.55,.6,.68],0,true,mirror);drawMesh(MESH.head,M4.mul(KP.ghost,M4.T(0,0.28,-0.12)),[.55,.6,.68],0,true,mirror);}
+}
+function render(){
+  const asp=cv.width/cv.height;
+  const hfov=asp>1.2?1.05:1.30,fy=clamp(2*Math.atan(Math.tan(hfov/2)/asp),0.75,1.25),tanH=Math.tan(fy/2);
+  const f=V.norm(V.sub(KP.tgt,KP.eye)),r=V.norm(V.cross(f,[0,1,0])),u=V.cross(r,f);
+  const VP=M4.mul(M4.persp(fy,asp,0.15,8000),M4.look(KP.eye,KP.tgt,[0,1,0]));
+  // --- cielo + agua ---
+  gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);
+  gl.useProgram(PSKY);
+  gl.disableVertexAttribArray(1);gl.disableVertexAttribArray(2);gl.enableVertexAttribArray(0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,triBuf);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+  const p=PSKY;
+  gl.uniform3fv(U(p,'uCamPos'),KP.eye);gl.uniform3fv(U(p,'uRight'),r);gl.uniform3fv(U(p,'uUp'),u);gl.uniform3fv(U(p,'uFwd'),f);
+  gl.uniform1f(U(p,'uTanH'),tanH);gl.uniform1f(U(p,'uAspect'),asp);gl.uniform1f(U(p,'uTime'),tWave);
+  gl.uniform1f(U(p,'uWave'),CL.wave);gl.uniform1f(U(p,'uChop'),CL.chop);gl.uniform1f(U(p,'uCrest'),CL.crest);
+  {const hzw=W3&&W3.hzTex&&W3.hz;
+    if(hzw){let d=S.dHz;
+      if(hzw.inv)d=hzw.inv-d;else if(hzw.fold)d=d<=hzw.fold?d:2*hzw.fold-d;
+      const k=clamp(d/hzw.sp,0,hzw.n-1);
+      gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,W3.hzTex[0]);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,W3.hzTex[1]);gl.activeTexture(gl.TEXTURE0);
+      gl.uniform1i(U(p,'uHzA'),0);gl.uniform1i(U(p,'uHzB'),1);gl.uniform4f(U(p,'uHz'),1,(k+0.5)/hzw.n,hzw.na,hzw.snow||0);
+    }else{gl.uniform4f(U(p,'uHz'),0,0,1,0);}}
+  gl.uniform3fv(U(p,'uSunDir'),sunDir());gl.uniform3fv(U(p,'uSunCol'),CL.sunC);gl.uniform1f(U(p,'uMtnRot'),W3.mtnRot);
+  gl.uniform3fv(U(p,'uHor'),CL.hor);gl.uniform3fv(U(p,'uZen'),CL.zen);gl.uniform3fv(U(p,'uDeep'),CL.deep);gl.uniform3fv(U(p,'uShal'),CL.shal);
+  gl.uniform3fv(U(p,'uMtn'),CL.mtn);gl.uniform3fv(U(p,'uSnow'),CL.snow);gl.uniform3fv(U(p,'uCloudL'),CL.cl);gl.uniform3fv(U(p,'uCloudD'),CL.cd);
+  gl.uniform1f(U(p,'uSunGlow'),CL.glow);gl.uniform1f(U(p,'uCloudLo'),CL.clo);gl.uniform1f(U(p,'uCloudHi'),CL.chi);gl.uniform1f(U(p,'uFogDen'),CL.fog);
+  // estela: entrada 0 = proa (viva); el resto, historial
+  const hd=KP.h,bx=KP.x+Math.sin(hd)*0.6,bz=KP.z+Math.cos(hd)*0.6;
+  trailArr.fill(0);for(let i=0;i<16;i++)trailArr[i*4+2]=99;
+  trailArr[0]=bx;trailArr[1]=bz;trailArr[2]=0.0;trailArr[3]=clamp(S.velMs/2.0,0,1)*0.6;
+  for(let i=0;i<trail.length;i++){const t=trail[trail.length-1-i],o=(i+1)*4;trailArr[o]=t.x;trailArr[o+1]=t.z;trailArr[o+2]=tWave-t.t;trailArr[o+3]=t.s*0.5;}
+  gl.uniform4fv(U(p,'uTrail[0]'),trailArr);gl.uniform4f(U(p,'uBow'),KP.x+Math.sin(hd)*2.5,KP.z+Math.cos(hd)*2.5,Math.sin(hd),Math.cos(hd));gl.uniform1f(U(p,'uWakeK'),cfg.estela===false?0:clamp(S.velMs/1.6,0,1));gl.uniform3fv(U(p,'uRing[0]'),rings);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  // --- mallas (reflejo + real) ---
+  gl.useProgram(PMESH);
+  gl.enableVertexAttribArray(0);gl.enableVertexAttribArray(1);gl.enableVertexAttribArray(2);
+  gl.enable(gl.DEPTH_TEST);gl.depthMask(true);gl.clear(gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+  setMeshGlobals(VP,true);drawScene(true);
+  gl.disable(gl.BLEND);gl.clear(gl.DEPTH_BUFFER_BIT);
+  setMeshGlobals(VP,false);drawScene(false);
+}
+
+
+cv.addEventListener('webglcontextlost',e=>{e.preventDefault();lost=true;note('contexto gráfico perdido');});
+cv.addEventListener('webglcontextrestored',()=>{failed='se perdió el contexto gráfico: recargá la página';});
+return {cv,gl,mundoRumbo,aplicarMundo,update,render,resize,CLIMAS,setClima:k=>{if(CLIMAS[k]){cfg.clima=k;CL=CLIMAS[k];}},setCam:i=>{cfg.camara=i;},
+  setKF:k=>{KF_APP=k;},dbg:()=>({x:KP.x,z:KP.z,h:KP.h,eye:KP.eye,tgt:KP.tgt,d:S.distanciaM,L:W3&&W3.ruta.L}),W:()=>W3,info:()=>W3&&W3.info,L:()=>W3?W3.ruta.L:0};
+}
+// st: {key (ruta+sentido), o (paquete), dRuta (m en la ruta de la app), Lapp, velMs, cad, T, ghost (m en la ruta de la app o null), clima, cam, kf}
+function draw(ctx,w,h,st){
+  if(failed||lost)return false;
+  try{
+    if(!E)E=crear();
+    if(st.key!==clave){
+      if(armando&&armando.key===st.key)return false;
+      const k=st.key;armando={key:k};const t0=performance.now();
+      E.mundoRumbo(st.o).then(m=>{if(armando&&armando.key===k){E.aplicarMundo(m);clave=k;armando=null;ultimo=0;note('mundo armado en '+Math.round(performance.now()-t0)+' ms');}})
+        .catch(e=>{failed='no pude armar el mundo: '+(e.message||e);note(failed);armando=null;});
+      return false;
+    }
+    const now=performance.now(),dt=ultimo?Math.min(0.05,(now-ultimo)/1000):0.016;ultimo=now;
+    if(st.clima)E.setClima(st.clima);E.setCam(st.cam|0);E.setKF(st.kf||null);
+    const L=E.L(),k=st.Lapp>0?L/st.Lapp:1,dd=st.dRuta*k;
+    const t0=performance.now();
+    E.update(dt,{d:dd,dHz:st.dRuta,velMs:st.velMs||0,cad:st.cad||0,T:st.T||0,ghost:st.ghost!=null?st.ghost*k:null});
+    E.resize(w,h);E.render();
+    ctx.drawImage(E.cv,0,0,w,h);
+    ms=ms*0.9+(performance.now()-t0)*0.1;
+    return true;
+  }catch(e){failed=e.message||String(e);note('falló: '+failed);return false;}
+}
+return {draw,dbg:()=>E&&E.dbg(),ok:()=>!failed&&!lost,listo:k=>clave===k,
+  diag:()=>'Kayak 3D: '+(failed?'DESACTIVADO — '+failed:lost?'contexto perdido':!E?'sin usar todavía':armando?'armando el mundo…':'activo')+(ms?' · '+ms.toFixed(1)+' ms/cuadro':'')+(E&&E.info()?' · '+JSON.stringify(E.info()):'')+(msgs.length?' · '+msgs.join(' | '):''),
+  reset:()=>{failed='';}};
+})();
+/*K3D-FIN*/
 /*GLK-INI*/
 // ================= v143/v144: vista WebGL de la escena del recorrido (Kayak Indoor): agua, cerros reales, orillas, edificios y calles =================
 // Reemplaza el dibujo "de lejos a cerca" de dibujarOrillas: el terreno de la costa, las casas y las calles van como triángulos 3D en un canvas WebGL aparte
@@ -6610,7 +7674,7 @@ function escenaDiagnostico() {
     filas.push([k, Math.round(R.cum[k]), Math.round(R.xy[k][0]), Math.round(R.xy[k][1]), f(R.orF[0].d[k]), f(R.orF[0].alto[k]), f(R.orF[1].d[k]), f(R.orF[1].alto[k]), R.sh ? [R.sh[q + 4], R.sh[q + 5], R.sh[q + 6], R.sh[q + 7], R.sh[q + 8], R.sh[q + 9]] : null, R.pf ? Array.from(R.pf.subarray(k * 14, k * 14 + 14)) : null]);
   }
   return JSON.stringify({ v: (document.querySelector('.ver') || {}).textContent, ruta: R.nombre, L: Math.round(R.L), d: Math.round(d), az: Math.round(rumboCamara(R, d) * 180 / Math.PI), hz: !!R.hz, sh: !!R.sh, pf: !!R.pf,
-    elems: (R.elemsRaw || []).map(e => e.k).join(','), gl: GLK.diag(), wx: !!wxPara(R), sesion: !!sesionActiva, off: R.off || null, 'k,cum,x,y,dIzq,altoIzq,dDer,altoDer,color,perfil(izq7,der7; x2 m)': filas });
+    elems: (R.elemsRaw || []).map(e => e.k).join(','), gl: K3D.diag() + ' · ' + GLK.diag(), wx: !!wxPara(R), sesion: !!sesionActiva, off: R.off || null, 'k,cum,x,y,dIzq,altoIzq,dDer,altoDer,color,perfil(izq7,der7; x2 m)': filas });
 }
 // v118: la escena completa (ruta, orillas, perfil y elementos de Rumbo) en un solo texto comprimido, para recrearla idéntica en la compu.
 // Mismo formato que el paquete de Rumbo sin horizonte ni cerros: se puede abrir con #rumbo=z… en Kayak.
@@ -7178,13 +8242,52 @@ function dibujarFarosRumbo(ctx, w, horizonY, R, d, az, f) {
 }
 let glErrAvisado = false;
 function errorGL(e) { console.warn(e); if (!glErrAvisado) { glErrAvisado = true; toast('La vista 3D de la costa falló y vuelvo al dibujo de siempre: ' + (e && e.message || e)); } }
-function glInfoTxt() { return glkOn() ? (GLK.ok() ? 'Prendida. ' : 'Se desactivó sola: ') + GLK.diag().replace('Vista 3D de la costa (WebGL): ', '') : 'Apagada: se usa el dibujo de siempre.'; }
+/* v145: Kayak 3D en la sesión y la vista previa. El paquete sale de la ruta ya con su sentido (bytes de orillas y perfil, horizonte con inv/fold),
+   más los edificios, calles y elems de Rumbo. La distancia de la sesión sube de a un segundo: acá se interpola con la velocidad para que el kayak avance parejo. */
+let k3dCad = 0, k3dDLast = null, k3dTLast = 0, k3dVisible = false, k3dRAF = null, k3dLast = 0;
+function k3dPaquete(R) { const o = R.raw || {};
+  return { name: R.nombre, ll: R.ll, loop: R.loop, shore: R.sh ? { u: R.sh, pu: R.pf, off: R.off || undefined } : null, hz: R.hz, edif: R.edifRaw, calles: R.callesRaw, elems: o.elems || [] }; }
+function k3dClima(R) { const W = wxPara(R); if (!W) return 'dia'; if ((W.lluvia || 0) > 0.2 || (W.raf || 0) > 15) return 'tormenta'; if ((W.nubes || 0) > 92) return 'niebla'; return 'dia'; }
+function dibujarK3D(ctx, w, h, horizonY) {
+  const R = rutaActiva; if (!R || !R.ll || R.ll.length < 2) return false;
+  const now = performance.now(); let dT = distanciaParaRuta(), vel = 0, cad = 0, gap = null;
+  if (sesionActiva) {
+    vel = sesionActiva.velAnterior || 0; cad = k3dCad || 0;
+    if (k3dDLast !== sesionActiva.distanciaM) { k3dDLast = sesionActiva.distanciaM; k3dTLast = now; }
+    dT = sesionActiva.distanciaM + vel * Math.min(1.2, (now - k3dTLast) / 1000);
+    gap = calcularGapFantasma(sesionActiva.distanciaM, (Date.now() - sesionActiva.inicio) / 1000);
+  } else if (rutaPlayRAF) vel = 3;
+  const d = distanciaEnRuta(R, dT);
+  const ok = K3D.draw(ctx, w, h, { key: R.nombre + '|' + (R.sentido || '') + '|' + Math.round(R.L), o: k3dPaquete(R), dRuta: d, Lapp: R.L, velMs: vel, cad, T: tGlobalVivo,
+    ghost: gap != null && gap < 0 ? distanciaEnRuta(R, dT - gap) : null, clima: k3dClima(R), cam: 0, kf: typeof editorDatos !== 'undefined' ? editorDatos : null });
+  if (!ok) return false;
+  dibujarBadgeFantasma(ctx, w, gap);
+  dibujarMapitaRuta(ctx, w, h, dT);
+  wxEncima(ctx, w, h, horizonY, R, dT, vel);
+  return true;
+}
+// en la vista previa, sin sesión, el agua y las nubes se mueven solas (30 cuadros por segundo, solo con la vista a la vista)
+function k3dAnimar() {
+  if (k3dRAF) return;
+  const paso = ts => { k3dRAF = null;
+    if (!rutaActiva || !glkOn() || sesionActiva || rutaPlayRAF || document.hidden || !k3dVisible || !K3D.ok()) return;
+    if (ts - k3dLast >= 33) { k3dLast = ts; try { renderSesionVivo(); } catch (e) { errorGL(e); return; } }
+    k3dRAF = requestAnimationFrame(paso); };
+  k3dRAF = requestAnimationFrame(paso);
+}
+(function () { try {
+  const c = document.getElementById('canvasSesionVivo'); if (!c || !window.IntersectionObserver) return;
+  new IntersectionObserver(es => { k3dVisible = es.some(e => e.isIntersecting); if (k3dVisible) k3dAnimar(); }).observe(c);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) k3dAnimar(); });
+} catch (e) { console.warn(e); } })();
+function glInfoTxt() { return glkOn() ? (K3D.ok() ? 'Prendida. ' : 'Kayak 3D se desactivó solo (queda el 3D simple): ') + K3D.diag().replace('Kayak 3D: ', '') : 'Apagada: se usa el dibujo de siempre.'; }
 function glCambio() {
   const on = document.getElementById('glOn').checked;
   try { localStorage.setItem(K_GL, on ? '1' : '0'); } catch (e) { toast('No pude guardar el ajuste: ' + e.message); }
-  if (on) GLK.reset();
+  if (on) { GLK.reset(); K3D.reset(); }
   try { renderSesionVivo(); } catch (e) { errorGL(e); }
   document.getElementById('glInfo').textContent = glInfoTxt();
+  k3dAnimar();
 }
 function elemErrorDibujo(e) { console.warn(e); if (!elemErrAvisado) { elemErrAvisado = true; toast('No pude dibujar los muelles y veleros: ' + (e && e.message || e)); } }
 
