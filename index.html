@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v146</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v147</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2658,6 +2658,8 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v147: 👻 EL FANTASMA REMA ENTERO (Hugo, 17-nov, captura en sesión: "el fantasma no tiene brazos para remar"): en el 3D el fantasma era solo
+         casco, torso y cabeza; ahora usa todas las piezas del kayakista (brazos, pala, casco) con la misma pose, en gris azulado.
    v146: 📷 CÁMARAS COMO EN KAYAK 3D (Hugo, 17-nov: "¿se puede cambiar de vista como en kayak 3d?"): trasera, frontal, alta y primera persona.
          Tocando la vista 3D pasa a la siguiente (con un cartel), o con los botones de la tarjeta Recorrido; se guarda en kayak_k3d_cam.
    v145: 🛶 KAYAK 3D ADENTRO DE KAYAK INDOOR (Hugo, 17-nov, con capturas de v144 y del prototipo kayak3d_v2_9.html: "¿no se puede hacer la misma
@@ -7092,7 +7094,7 @@ function buildPose(dt){
   const Mk=M4.mul(M4.mul(M4.mul(M4.T(x,hgt,z),M4.RY(th)),M4.RX(pitch)),M4.RZ(roll));
   KP.Mk=Mk;KP.y=hgt;
   const d=[];
-  const draw=(mesh,M,tint,spec)=>d.push({m:mesh,M:M4.mul(Mk,M),tint:tint||WHITE,spec:spec||0});
+  const draw=(mesh,M,tint,spec)=>d.push({m:mesh,L:M,M:M4.mul(Mk,M),tint:tint||WHITE,spec:spec||0});
   draw(MESH.kayak,M4.id(),WHITE,.5);
   // pose del cuerpo y la pala
   const usarKF=cfg.remada!=='proc';
@@ -7101,7 +7103,7 @@ function buildPose(dt){
   const psiT=usarKF?-kfp.rot*KF_GIRO*act:psi*0.9,lean=0.12+0.04*Math.abs(Math.sin(Math.PI*c))*act;
   const Mt=M4.mul(M4.mul(M4.T(0,0.28,-0.12),M4.RY(-psiT)),M4.RX(lean));
   const fp=(cfg.camara===3);
-  if(!fp){draw(MESH.torso,Mt,WHITE,.1);draw(MESH.head,Mt,WHITE,.05);}
+  draw(MESH.torso,Mt,WHITE,.1);draw(MESH.head,Mt,WHITE,.05);if(fp){d[d.length-1].oculto=d[d.length-2].oculto=true;}   // v147: en primera persona no se ven, pero el fantasma sí los usa
   let C=[0,0.62,0.22],dir=[Math.cos(al)*Math.cos(psi),-Math.sin(al),Math.cos(al)*Math.sin(psi)],hands=null,elb=null;
   if(usarKF){
     const loc=(sd,d,z)=>[sd*0.21-d.wrX*KF_ESC,0.46-d.wrY*KF_ESC,z];
@@ -7191,8 +7193,8 @@ function drawScene(mirror){
     }
     drawMesh(it.m,M,it.tint||WHITE,it.spec||.3,true,mirror);
   }
-  for(const d of KP.draws)drawMesh(d.m,d.M,d.tint,d.spec,true,mirror);
-  if(KP.ghost){drawMesh(MESH.kayak,KP.ghost,[.55,.6,.68],.2,true,mirror);drawMesh(MESH.torso,M4.mul(KP.ghost,M4.T(0,0.28,-0.12)),[.55,.6,.68],0,true,mirror);drawMesh(MESH.head,M4.mul(KP.ghost,M4.T(0,0.28,-0.12)),[.55,.6,.68],0,true,mirror);}
+  for(const d of KP.draws)if(!d.oculto)drawMesh(d.m,d.M,d.tint,d.spec,true,mirror);
+  if(KP.ghost){for(const d of KP.draws)drawMesh(d.m,M4.mul(KP.ghost,d.L),[.62,.68,.78],d.spec,true,mirror);}   // v147: el fantasma rema entero (mismas piezas y pose que el kayakista)
 }
 function render(){
   const asp=cv.width/cv.height;
