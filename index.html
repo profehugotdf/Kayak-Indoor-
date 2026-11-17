@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v147</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v148</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2658,6 +2658,9 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v148: 👻 EL FANTASMA REMA A SU CADENCIA (Hugo, 17-nov: "tiene que tener la cadencia de acuerdo al historial"): en el 3D el fantasma toma la
+         cadencia de cada segundo de la sesión guardada (puntos[].cadencia) y tiene su propia fase de palada (antes copiaba la tuya). Si la sesión
+         vieja no guardó cadencia, se estima con su velocidad. Cuando el fantasma ya terminó su sesión, queda quieto.
    v147: 👻 EL FANTASMA REMA ENTERO (Hugo, 17-nov, captura en sesión: "el fantasma no tiene brazos para remar"): en el 3D el fantasma era solo
          casco, torso y cabeza; ahora usa todas las piezas del kayakista (brazos, pala, casco) con la misma pose, en gris azulado.
    v146: 📷 CÁMARAS COMO EN KAYAK 3D (Hugo, 17-nov: "¿se puede cambiar de vista como en kayak 3d?"): trasera, frontal, alta y primera persona.
@@ -7035,7 +7038,7 @@ for(let i=0;i<6;i++){rings[i*3+2]=-1000;}
 let ringIdx=0;
 const KP={x:0,y:0,z:0,h:0,Mk:M4.id(),draws:[],eye:[0,3,-7],camYaw:0,eyeSm:null,speed:0};
 // v145: el estado lo manda Kayak Indoor en cada cuadro (st): d = metros en la ruta de Kayak 3D, velMs, cad (ppm), T = fase del Editor (0–8, la misma tGlobalVivo de la app)
-let Tprev=null;
+let Tprev=null;const GH={c:0,act:0,Tp:null};
 function update(dt,st){
   tWave+=dt;
   S.velMs=st.velMs;S.cadPpm=st.cad;S.distanciaM=st.d;S.dHz=st.dHz;
@@ -7056,8 +7059,13 @@ function update(dt,st){
   if(last&&Math.hypot(KP.x-last.x,KP.z-last.z)>30)trail.length=0;      // saltó (deslizador, vuelta del circuito)
   if(!trail.length||Math.hypot(KP.x-trail[trail.length-1].x,KP.z-trail[trail.length-1].z)>0.8){trail.push({x:KP.x,z:KP.z,t:tWave,s:clamp(S.velMs/1.8,0,1.2)});if(trail.length>15)trail.shift();}
   buildPose(dt);
-  if(st.ghost!=null){const g=W3.ruta.at(st.ghost),hg=waveH(g.x,g.z)*0.85;
-    KP.ghost=M4.mul(M4.T(g.x,hg,g.z),M4.RY(g.h));}else KP.ghost=null;
+  if(st.ghost!=null){const g=W3.ruta.at(st.ghost),hg=waveH(g.x,g.z)*0.85,gc=st.ghostCad||0;
+    GH.act+=((gc>2?1:0)-GH.act)*(1-Math.exp(-dt/0.5));
+    if(GH.Tp===null)GH.c=(st.ghostT-5)/4;else{const dT=((st.ghostT-GH.Tp)%8+8)%8;if(dT<4)GH.c+=dT/4;}
+    GH.Tp=st.ghostT;
+    KP.ghost=M4.mul(M4.mul(M4.T(g.x,hg,g.z),M4.RY(g.h)),M4.RZ(-0.05*Math.cos(Math.PI*GH.c)*GH.act));
+    KP.ghostDraws=piezas(GH.c,GH.act,KP.ghost,false);
+  }else{KP.ghost=null;KP.ghostDraws=null;GH.Tp=null;}
 }
 
 let KF_APP=null;
@@ -7083,16 +7091,7 @@ function kfPose(c){
   return{rot:L(A.rotacion,B.rotacion),der:lado('der'),izq:lado('izq'),zD:L(KF_Z[i],KF_Z[j]),zI:L(KF_Z[(i+4)%8],KF_Z[(j+4)%8])};
 }
 
-function buildPose(dt){
-  const x=KP.x,z=KP.z,th=KP.h;
-  const hgt=waveH(x,z)*0.85;
-  const g=waveG(x,z);
-  const sF=g[0]*Math.sin(th)+g[1]*Math.cos(th),sR=g[0]*Math.cos(th)-g[1]*Math.sin(th);
-  const pitch=-Math.atan(sF)*0.9,roll0=Math.atan(sR)*0.8;
-  const c=S.c,act=S.act;
-  const roll=roll0-0.05*Math.cos(Math.PI*c)*act;
-  const Mk=M4.mul(M4.mul(M4.mul(M4.T(x,hgt,z),M4.RY(th)),M4.RX(pitch)),M4.RZ(roll));
-  KP.Mk=Mk;KP.y=hgt;
+function piezas(c,act,Mk,fp){
   const d=[];
   const draw=(mesh,M,tint,spec)=>d.push({m:mesh,L:M,M:M4.mul(Mk,M),tint:tint||WHITE,spec:spec||0});
   draw(MESH.kayak,M4.id(),WHITE,.5);
@@ -7102,7 +7101,6 @@ function buildPose(dt){
   if(usarKF){kfp=kfPose(c);}
   const psiT=usarKF?-kfp.rot*KF_GIRO*act:psi*0.9,lean=0.12+0.04*Math.abs(Math.sin(Math.PI*c))*act;
   const Mt=M4.mul(M4.mul(M4.T(0,0.28,-0.12),M4.RY(-psiT)),M4.RX(lean));
-  const fp=(cfg.camara===3);
   draw(MESH.torso,Mt,WHITE,.1);draw(MESH.head,Mt,WHITE,.05);if(fp){d[d.length-1].oculto=d[d.length-2].oculto=true;}   // v147: en primera persona no se ven, pero el fantasma sí los usa
   let C=[0,0.62,0.22],dir=[Math.cos(al)*Math.cos(psi),-Math.sin(al),Math.cos(al)*Math.sin(psi)],hands=null,elb=null;
   if(usarKF){
@@ -7128,6 +7126,19 @@ function buildPose(dt){
     draw(MESH.cyl,segMatrix(el,hand,.040),[.10,.16,.34],0);
     draw(MESH.ball,M4.mul(M4.T(hand[0],hand[1],hand[2]),M4.S(.058,.058,.058)),[.08,.08,.09],.1);
   });
+  return d;
+}
+function buildPose(dt){
+  const x=KP.x,z=KP.z,th=KP.h;
+  const hgt=waveH(x,z)*0.85;
+  const g=waveG(x,z);
+  const sF=g[0]*Math.sin(th)+g[1]*Math.cos(th),sR=g[0]*Math.cos(th)-g[1]*Math.sin(th);
+  const pitch=-Math.atan(sF)*0.9,roll0=Math.atan(sR)*0.8;
+  const c=S.c,act=S.act;
+  const roll=roll0-0.05*Math.cos(Math.PI*c)*act;
+  const Mk=M4.mul(M4.mul(M4.mul(M4.T(x,hgt,z),M4.RY(th)),M4.RX(pitch)),M4.RZ(roll));
+  KP.Mk=Mk;KP.y=hgt;
+  const d=piezas(c,act,Mk,cfg.camara===3);
   KP.draws=d;
   // ---- cámara ----
   const fw=[Math.sin(th),0,Math.cos(th)];
@@ -7194,7 +7205,7 @@ function drawScene(mirror){
     drawMesh(it.m,M,it.tint||WHITE,it.spec||.3,true,mirror);
   }
   for(const d of KP.draws)if(!d.oculto)drawMesh(d.m,d.M,d.tint,d.spec,true,mirror);
-  if(KP.ghost){for(const d of KP.draws)drawMesh(d.m,M4.mul(KP.ghost,d.L),[.62,.68,.78],d.spec,true,mirror);}   // v147: el fantasma rema entero (mismas piezas y pose que el kayakista)
+  if(KP.ghostDraws){for(const d of KP.ghostDraws)drawMesh(d.m,d.M,[.62,.68,.78],d.spec,true,mirror);}   // v147: el fantasma rema entero (mismas piezas y pose que el kayakista)
 }
 function render(){
   const asp=cv.width/cv.height;
@@ -7260,7 +7271,7 @@ function draw(ctx,w,h,st){
     if(st.clima)E.setClima(st.clima);E.setCam(st.cam|0);E.setKF(st.kf||null);
     const L=E.L(),k=st.Lapp>0?L/st.Lapp:1,dd=st.dRuta*k;
     const t0=performance.now();
-    E.update(dt,{d:dd,dHz:st.dRuta,velMs:st.velMs||0,cad:st.cad||0,T:st.T||0,ghost:st.ghost!=null?st.ghost*k:null});
+    E.update(dt,{d:dd,dHz:st.dRuta,velMs:st.velMs||0,cad:st.cad||0,T:st.T||0,ghost:st.ghost!=null?st.ghost*k:null,ghostT:st.ghostT||0,ghostCad:st.ghostCad||0});
     E.resize(w,h);E.render();
     ctx.drawImage(E.cv,0,0,w,h);
     ms=ms*0.9+(performance.now()-t0)*0.1;
@@ -8270,6 +8281,21 @@ let k3dCad = 0, k3dDLast = null, k3dTLast = 0, k3dVisible = false, k3dRAF = null
 function k3dPaquete(R) { const o = R.raw || {};
   return { name: R.nombre, ll: R.ll, loop: R.loop, shore: R.sh ? { u: R.sh, pu: R.pf, off: R.off || undefined } : null, hz: R.hz, edif: R.edifRaw, calles: R.callesRaw, elems: o.elems || [] }; }
 function k3dClima(R) { const W = wxPara(R); if (!W) return 'dia'; if ((W.lluvia || 0) > 0.2 || (W.raf || 0) > 15) return 'tormenta'; if ((W.nubes || 0) > 92) return 'niebla'; return 'dia'; }
+// v148: el fantasma rema con SU cadencia: la del segundo de la sesión guardada (puntos[].cadencia). Si esa sesión no la tiene (cadencia null), se estima
+// con su velocidad y la relación paladas/velocidad de ahora (o 60 ppm si todavía no remás). Las sesiones se leen una sola vez por sesión, no en cada cuadro.
+let k3dFant = { clave: '', puntos: null }, k3dGT = 0, k3dGLast = 0;
+function k3dCadFantasma(tSeg, cadPropia, velPropia) {
+  const clave = (lsGet(K_FANTASMA_ID, null) || '') + '|' + (sesionActiva ? sesionActiva.inicio : '');
+  if (k3dFant.clave !== clave) { const f = obtenerFantasma(); k3dFant = { clave, puntos: f && f.puntos && f.puntos.length ? f.puntos : null }; }
+  const P = k3dFant.puntos; if (!P) return 0;
+  let lo = 0, hi = P.length - 1; if (tSeg > P[hi].t) return 0;   // el fantasma ya terminó
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (P[m].t <= tSeg) lo = m; else hi = m; }
+  const p = P[lo];
+  if (p.cadencia != null) return p.cadencia;
+  const v = p.velocidad != null ? p.velocidad : (lo > 0 ? (p.distAcum - P[lo - 1].distAcum) / Math.max(1, p.t - P[lo - 1].t) : 0);
+  if (!(v > 0.3)) return 0;
+  return cadPropia > 5 && velPropia > 0.3 ? Math.min(140, cadPropia * v / velPropia) : 60;
+}
 function dibujarK3D(ctx, w, h, horizonY) {
   const R = rutaActiva; if (!R || !R.ll || R.ll.length < 2) return false;
   const now = performance.now(); let dT = distanciaParaRuta(), vel = 0, cad = 0, gap = null;
@@ -8280,8 +8306,12 @@ function dibujarK3D(ctx, w, h, horizonY) {
     gap = calcularGapFantasma(sesionActiva.distanciaM, (Date.now() - sesionActiva.inicio) / 1000);
   } else if (rutaPlayRAF) vel = 3;
   const d = distanciaEnRuta(R, dT);
+  let gCad = 0;
+  if (gap != null && gap < 0) { gCad = k3dCadFantasma((Date.now() - sesionActiva.inicio) / 1000, cad, vel);
+    const dtG = k3dGLast ? Math.min(0.1, (now - k3dGLast) / 1000) : 0; k3dGT = (k3dGT + (gCad / 15) * dtG) % 8; }
+  k3dGLast = now;
   const ok = K3D.draw(ctx, w, h, { key: R.nombre + '|' + (R.sentido || '') + '|' + Math.round(R.L), o: k3dPaquete(R), dRuta: d, Lapp: R.L, velMs: vel, cad, T: tGlobalVivo,
-    ghost: gap != null && gap < 0 ? distanciaEnRuta(R, dT - gap) : null, clima: k3dClima(R), cam: k3dCam, kf: typeof editorDatos !== 'undefined' ? editorDatos : null });
+    ghost: gap != null && gap < 0 ? distanciaEnRuta(R, dT - gap) : null, ghostT: k3dGT, ghostCad: gCad, clima: k3dClima(R), cam: k3dCam, kf: typeof editorDatos !== 'undefined' ? editorDatos : null });
   k3dActiva = ok;
   if (!ok) return false;
   if (now - k3dCamCartel < 1600) {   // v146: cartel de la cámara elegida
