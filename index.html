@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v153</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v154</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -735,6 +735,9 @@
       <div class="fila" style="margin-bottom:6px; align-items:center;"><span class="nota" style="flex:none;">Escenario:</span>
         <select id="selRutaCarrera" onchange="elegirRutaCarrera(this.value)" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2,#1c2630); color:inherit;"></select></div>
       <div id="selectorCamaraCarrera" class="fila" style="flex-wrap:wrap;"></div>
+      <div id="k3dCamsCarrera" class="fila" style="flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px;"><span class="nota" style="flex:none;">Vista:</span>
+        <button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(0)">Trasera</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(1)">Frontal</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(2)">Alta</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(3)">Primera persona</button>
+      </div>
       <div class="carrera-anim"><canvas id="canvasCarrera" height="260"></canvas></div>
       <div id="listaPosicionesCarrera" style="margin-top:10px;"></div>
       <div style="margin-top:10px; font-family:var(--mono); text-align:center;" id="tiempoCarrera">0:00 / 0:00</div>
@@ -2658,6 +2661,9 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v154: 📷 VISTAS EN LA CARRERA VIRTUAL (Hugo, 17-nov: "también me gustaría poder cambiar de vista en el modo carrera virtual"): fila "Vista:" con
+         Trasera, Frontal, Alta y Primera persona (la misma elección que en la sesión, kayak_k3d_cam); la fila de corredores pasa a llamarse "Seguir a:".
+         Tocar la vista también cambia la cámara, como antes.
    v153: 🪶 PALA WING EN EL 3D (Hugo, 17-nov: "¿podrías hacer las palas tipo wing?"): la hoja plana de Kayak 3D pasa a ser una pala de ala: cuchara
          asimétrica en forma de gota (angosta en el cuello, ancha hacia la punta, borde de arriba más ancho), cara de tracción cóncava hacia popa y algo
          de torsión; carbono negro con la franja amarilla en el cuello. Vale para el propio, el fantasma y la carrera. El dibujo 2D y el Editor no cambian.
@@ -5559,9 +5565,10 @@ function elegirCamaraCarrera(idx) {
   renderCarrera();
 }
 function renderSelectorCamaraCarrera() {
+  document.querySelectorAll('#k3dCamsCarrera button').forEach((b, j) => b.classList.toggle('sel', j === k3dCam));   // v154
   const cont = document.getElementById('selectorCamaraCarrera');
   if (!cont) return;
-  cont.innerHTML = '<span class="nota" style="flex:none; align-self:center;">Cámara:</span>' + carreraCorredores.map((c, i) =>
+  cont.innerHTML = '<span class="nota" style="flex:none; align-self:center;">Seguir a:</span>' + carreraCorredores.map((c, i) =>
     '<button class="btn chico' + (i === carreraCamaraIdx ? ' sel' : '') + '" style="width:auto;" onclick="elegirCamaraCarrera(' + i + ')">' +
     '<span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:' + c.color + '; margin-right:4px;"></span>corredor ' + (i + 1) + '</button>'
   ).join('');
@@ -5633,7 +5640,7 @@ function dibujarCarreraK3D(ctx, w, h, posiciones, idxCam) {
   return true;
 }
 let k3dActivaCarrera = false;
-(function () { try { const c = document.getElementById('canvasCarrera'); if (c) c.addEventListener('click', () => { if (k3dActivaCarrera) { k3dPonerCam(k3dCam + 1); renderCarrera(); } }); } catch (e) { console.warn(e); } })();
+(function () { try { const c = document.getElementById('canvasCarrera'); if (c) c.addEventListener('click', () => { if (k3dActivaCarrera) k3dPonerCam(k3dCam + 1); }); } catch (e) { console.warn(e); } })();
 function calcularLadoOtroCorredor(contadorOtros) {
   return contadorOtros % 2 === 0 ? -1 : 1;
 }
@@ -8345,7 +8352,9 @@ function k3dPonerCam(i) {
   k3dCam = ((i % 4) + 4) % 4; k3dCamCartel = performance.now();
   try { localStorage.setItem(K_K3D_CAM, String(k3dCam)); } catch (e) { toast('No pude guardar la cámara: ' + e.message); }
   document.querySelectorAll('#k3dCams button').forEach((b, j) => b.classList.toggle('activo', j === k3dCam));
+  document.querySelectorAll('#k3dCamsCarrera button').forEach((b, j) => b.classList.toggle('sel', j === k3dCam));   // v154
   try { renderSesionVivo(); } catch (e) { errorGL(e); }
+  try { if (carreraCorredores.length) renderCarrera(); } catch (e) { errorGL(e); }   // v154: también en la carrera
 }
 (function () { try { const c = document.getElementById('canvasSesionVivo'); if (c) c.addEventListener('click', () => { if (k3dActiva) k3dPonerCam(k3dCam + 1); }); } catch (e) { console.warn(e); } })();
 let k3dCad = 0, k3dDLast = null, k3dTLast = 0, k3dVisible = false, k3dRAF = null, k3dLast = 0;
