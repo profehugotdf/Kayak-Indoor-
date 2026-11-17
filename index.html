@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v152</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v153</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2658,6 +2658,9 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v153: 🪶 PALA WING EN EL 3D (Hugo, 17-nov: "¿podrías hacer las palas tipo wing?"): la hoja plana de Kayak 3D pasa a ser una pala de ala: cuchara
+         asimétrica en forma de gota (angosta en el cuello, ancha hacia la punta, borde de arriba más ancho), cara de tracción cóncava hacia popa y algo
+         de torsión; carbono negro con la franja amarilla en el cuello. Vale para el propio, el fantasma y la carrera. El dibujo 2D y el Editor no cambian.
    v152: 🌬️ LAS RAYAS DEL AGUA SIGUEN EL VIENTO (Hugo, 17-nov, captura de la carrera con "de frente 6": "esas líneas de viento en la superficie
          ¿no deberían correr de acuerdo a la dirección de la flecha?"). Eran dos cosas: las rayitas de espuma de Kayak 3D (alineadas con el rumbo del
          kayak, para dar sensación de velocidad) y las rachas 2D de wxAire dibujadas en pantalla para la vista 2D. Ahora, con clima, las rayitas van
@@ -6625,6 +6628,24 @@ function gHull(g,o){
       pv(g,[p[0],p[1],p[2]],n,Math.abs(vv)<.1?o.stripe:vv>0?o.deck:o.hull);}}
   for(let i=0;i<nu;i++)for(let j=0;j<nv;j++){const a=base+i*(nv+1)+j,b=a+nv+1;g.i.push(a,b,a+1,a+1,b,b+1);}
 }
+/* v153: pala WING (ala, la de kayak de velocidad): hoja de cuchara asimétrica en forma de gota, angosta en el cuello y ancha hacia la punta,
+   con el borde de arriba más ancho que el de abajo, cara de tracción cóncava (mira a popa, -z) y un poco de torsión a lo largo.
+   Local: x a lo largo del eje (raíz en -0,25, punta en +0,27), y hacia arriba, z hacia proa. Dos caras separadas 6 mm (no hay culling). */
+function gWing(g){
+  const NU=16,NV=10,L=.52,x0=-.25,th=.003,carb=[.06,.06,.07],ama=[.98,.85,.1];
+  const P=(u,v)=>{ const s=Math.sin(Math.PI*Math.pow(clamp(u,0,1),1.9)),k=Math.pow(Math.max(0,s),.6);
+    const top=.012+.125*k,bot=.012+.08*k,y=v>=0?v*top:v*bot,t=v;           // v: -1 abajo, +1 arriba
+    let z=.034*k*(1-t*t);                                                     // cuchara: el centro hacia proa, los bordes hacia popa (cara cóncava atrás)
+    const tw=.28*u,c=Math.cos(tw),sn=Math.sin(tw);                            // torsión a lo largo de la hoja
+    return [x0+u*L,y*c-z*sn,y*sn+z*c]; };
+  for(const side of [1,-1]){ const base=g.v.length/9;
+    for(let i=0;i<=NU;i++){const u=i/NU;for(let j=0;j<=NV;j++){const v=-1+2*j/NV,e=1e-3;
+      const p=P(u,v),du=V.sub(P(u+e,v),P(u-e,v)),dv=V.sub(P(u,v+e),P(u,v-e));
+      let n=V.norm(V.cross(du,dv));if(n[2]*side<0)n=V.mul(n,-1);
+      pv(g,V.add(p,V.mul(n,th)),n,u<.1?ama:carb);}}
+    for(let i=0;i<NU;i++)for(let j=0;j<NV;j++){const a=base+i*(NV+1)+j,b=a+NV+1;g.i.push(a,b,a+1,a+1,b,b+1);}
+  }
+}
 function upload(g){
   if(g.v.length/9>65000)console.warn('malla grande',g.v.length/9);
   const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(g.v),gl.STATIC_DRAW);
@@ -6647,7 +6668,7 @@ const MESH={};
   MESH.head=upload(g);
   g=newG();gCyl(g,0,0,0,1,1,1,8,WHITE,false);MESH.cyl=upload(g);
   g=newG();gSphere(g,0,0,0,1,7,WHITE);MESH.ball=upload(g);
-  g=newG();gBox(g,0,0,0,.5,.2,.018,[.08,.08,.09]);gBox(g,-.2,0,0,.07,.2,.022,[.98,.85,.1]);MESH.blade=upload(g);
+  g=newG();gWing(g);MESH.blade=upload(g);   // v153: pala wing
   g=newG();gSphere(g,0,.12,0,.42,8,WHITE,.8);gCyl(g,0,.45,0,.05,.05,.9,6,WHITE);gCyl(g,0,1.2,0,.26,.02,.38,8,WHITE);
   MESH.buoy=upload(g);
   g=newG(); // velero fondeado
@@ -7167,7 +7188,7 @@ function piezas(c,act,Mk,fp){
   [1,-1].forEach(sd=>{
     const a=V.mul(dir,sd),ctr=V.add(C,V.mul(a,.87));
     const Zp=V.norm(V.sub([0,0,1],V.mul(a,a[2]))),Yp=V.cross(Zp,a);
-    draw(MESH.blade,M4.basis(a,Yp,Zp,ctr),WHITE,.4);
+    draw(MESH.blade,M4.basis(a,V.mul(Yp,sd),Zp,ctr),WHITE,.4);   // v153: la pala wing no es simétrica: el borde ancho siempre arriba
     const sh=M4.pt(Mt,[sd*0.21,0.46,0]);
     const hand=usarKF?hands[sd]:V.add(C,V.mul(dir,sd*0.34));
     const pole=usarKF?V.sub(elb[sd],V.mul(V.add(sh,hand),.5)):[sd*.7,-.6,-.4];
