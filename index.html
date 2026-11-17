@@ -141,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v142</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v143</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -232,6 +232,8 @@
         <label class="nota" for="selSentido" style="display:block; margin-bottom:4px;">🔄 Sentido</label>
         <select id="selSentido" onchange="cambiarSentido(this.value)" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2); color:var(--texto); margin-bottom:8px;">
           <option value="">Normal (como lo mandó Rumbo)</option><option value="inv">↔ Invertido (al revés)</option><option value="iyv">⇄ Ida y vuelta</option></select>
+        <label class="fila" style="align-items:center; gap:8px; margin-bottom:4px;"><input type="checkbox" id="glOn" onchange="glCambio()" style="width:22px;height:22px;"> 🧊 Costa, casas y calles en 3D (WebGL)</label>
+        <p class="nota" id="glInfo" style="margin:0 0 8px;"></p>
         <input type="range" id="sliderRuta" min="0" max="1000" value="0" step="5" oninput="moverPreviewRuta(this.value)" style="width:100%; touch-action:pan-y;">
         <div class="fila">
           <button class="btn chico" id="btnPlayRuta" onclick="togglePlayRuta()">▶ Recorrer sin remar</button>
@@ -2648,6 +2650,15 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v143: 🧊 COSTA, CASAS Y CALLES EN WEBGL (Hugo, 17-nov: "vamos a integrar el WebGL en kayak indoor que ya se ve muy bien"; en Bici Indoor
+         v180–v191 ya andaba). Primer paso: el terreno de las orillas (y las tapas), los edificios de Rumbo y las calles de Rumbo van como triángulos
+         3D en un canvas WebGL aparte (GLK, abajo, antes de orillasGrupos) y el resultado se copia encima del cielo, el horizonte y el agua que sigue
+         dibujando el 2D. La cámara es la misma (f = 0,65·ancho, horizonte en horizonY, 4 m de altura), así lo que se dibuja después en 2D (muelles,
+         barcos, el kayakista, boyas) queda en su lugar. Mismos cuadritos y mismos descartes que dibujarOrillas, misma luz (LUZ) y misma bruma
+         (hasta 80 % a 2,9 km). Con buffer de profundidad: ya no hay que ordenar "de lejos a cerca" ni se tapan mal las casas. Tilde en la tarjeta
+         Recorrido (kayak_gl_costa, por defecto prendido); si WebGL falla se desactiva solo y vuelve al 2D (aviso una vez). El diagnóstico va en
+         "Copiar datos de esta vista" (campo gl). dibujarOrillas reparte el armado de muestras en orillasGrupos (la usan las dos vistas). Falta: agua
+         en 3D con reflejo del sol, sombras, muelles y barcos en 3D (siguen en 2D encima), espuma y reflejo de la costa.
    v142: ☀️ EL SOL QUEDA EN SU LUGAR CUANDO DOBLÁS (Hugo, 10-nov: "me parece medio raro que el reflejo sobre el agua esté
          siempre en el mismo lugar a pesar de los cambios de dirección"). En un recorrido de Rumbo el sol ahora tiene un rumbo
          fijo en el mundo (al norte en el hemisferio sur, al sur en el norte, un poco hacia el este): el disco, el camino de
@@ -6173,13 +6184,125 @@ function tapaMuestras(R, T, OFF, proy) {
   }
   return out;
 }
-function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
-  if (!R.orF) filtrarOrillas(R);
-  const n = R.xy.length, cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)];
-  const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 3), H = RUTA_CAM_H, t = performance.now() / 1000, cielo = [201, 211, 200];
-  const OFF = R.off || ORILLA_OFF_DEF, NR = OFF.length;
-  const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
-  const quads = [], grupos = [];
+/*GLK-INI*/
+// ================= v143: vista WebGL de las orillas, los edificios y las calles del recorrido (Kayak Indoor) =================
+// Reemplaza el dibujo "de lejos a cerca" de dibujarOrillas: el terreno de la costa, las casas y las calles van como triángulos 3D en un canvas WebGL aparte
+// (con buffer de profundidad, así nada se tapa mal) y el resultado se copia encima del cielo, el horizonte y el agua que ya dibujó el canvas 2D. La cámara es la misma
+// de siempre (pinhole con el horizonte en horizonY y f = 0,65·ancho), así lo que se dibuja después en 2D (muelles, barcos, el kayakista) queda en su lugar.
+// Si WebGL no está o falla, devuelve false y la app dibuja con el 2D de siempre. Mundo: x = este, y = arriba (relativo a la cámara), z = norte.
+const GLK=(()=>{'use strict';
+const VS='attribute vec3 aPos;attribute vec3 aNor;attribute vec3 aCol;uniform mat4 uVP;uniform vec3 uSun;varying vec3 vC;varying float vD;'+
+ 'void main(){vec4 p=uVP*vec4(aPos,1.0);gl_Position=p;vD=p.w;vec3 n=normalize(aNor);float l=0.62+0.55*max(dot(n,uSun),0.0);vC=aCol*l;}';
+const FS='precision mediump float;varying vec3 vC;varying float vD;uniform vec3 uFog;uniform float uK;'+
+ 'void main(){float f=min(vD*uK,0.8);gl_FragColor=vec4(mix(min(vC,vec3(1.0)),uFog,f),1.0);}';
+let cv=null,gl=null,prog=null,vbo=null,failed='',lost=false,msgs=[],msB=0,nTri=0;
+const U={};
+const note=m=>{msgs.push(m);if(msgs.length>6)msgs.shift();};
+const hexA=h=>{const n=parseInt(String(h).slice(1,7),16);return [(n>>16&255)/255,(n>>8&255)/255,(n&255)/255];};
+function tri(B,a,b,c,k,hint){const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2],vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
+  let nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;const l=Math.hypot(nx,ny,nz)||1;nx/=l;ny/=l;nz/=l;
+  if(hint){const mx=(a[0]+b[0]+c[0])/3-hint[0],my=(a[1]+b[1]+c[1])/3-hint[1],mz=(a[2]+b[2]+c[2])/3-hint[2];if(nx*mx+ny*my+nz*mz<0){nx=-nx;ny=-ny;nz=-nz;}}
+  else if(ny<0){nx=-nx;ny=-ny;nz=-nz;}
+  B.push(a[0],a[1],a[2],nx,ny,nz,k[0],k[1],k[2],b[0],b[1],b[2],nx,ny,nz,k[0],k[1],k[2],c[0],c[1],c[2],nx,ny,nz,k[0],k[1],k[2]);}
+const quad=(B,a,b,c,d,k,hint)=>{tri(B,a,b,c,k,hint);tri(B,a,c,d,k,hint);};
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error('shader: '+gl.getShaderInfoLog(o));return o;}
+function prep(){prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+  ['aPos','aNor','aCol'].forEach((a,i)=>gl.bindAttribLocation(prog,i,a));gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error('link: '+gl.getProgramInfoLog(prog));
+  for(const n of ['uVP','uSun','uFog','uK'])U[n]=gl.getUniformLocation(prog,n);vbo=gl.createBuffer();}
+function init(){
+  cv=document.createElement('canvas');
+  gl=cv.getContext('webgl',{antialias:true,alpha:true,premultipliedAlpha:true})||cv.getContext('experimental-webgl');
+  if(!gl)throw new Error('este navegador no da WebGL');
+  prep();
+  cv.addEventListener('webglcontextlost',e=>{e.preventDefault();lost=true;note('contexto gráfico perdido');});
+  cv.addEventListener('webglcontextrestored',()=>{try{lost=false;prep();note('contexto gráfico recuperado');}catch(e){failed=e.message;}});
+}
+function flush(B,VP,fog){
+  if(!B.length)return;
+  gl.bindBuffer(gl.ARRAY_BUFFER,vbo);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(B),gl.DYNAMIC_DRAW);
+  for(let i=0;i<3;i++){gl.enableVertexAttribArray(i);gl.vertexAttribPointer(i,3,gl.FLOAT,false,36,i*12);}
+  gl.uniformMatrix4fv(U.uVP,false,VP);gl.uniform3fv(U.uFog,fog);gl.uniform1f(U.uK,1/3600);
+  gl.drawArrays(gl.TRIANGLES,0,B.length/9);nTri+=B.length/27;
+}
+// matriz que reproduce la proyección del 2D: x_pant = w/2 + f·X/Z, y_pant = horizonY + f·(H − z)/Z (Z = distancia hacia delante)
+function matriz(w,h,hy,f,az){const a=2*f/w,b=2*f/h,s=1-2*hy/h,sn=Math.sin(az),cs=Math.cos(az),N=1,F=9000,A=(F+N)/(F-N),B=-2*F*N/(F-N),m=new Float32Array(16);
+  m[0]=a*cs;m[8]=-a*sn;m[1]=s*sn;m[5]=b;m[9]=s*cs;m[2]=A*sn;m[10]=A*cs;m[14]=B;m[3]=sn;m[11]=cs;return m;}
+/* ---- el mundo ---- */
+function mundo(S){
+  const cx=S.cam[0],cy=S.cam[1],H=S.H, P=(x,y,z)=>[x-cx,z-H,y-cy];       // plano local de la app (x este, y norte, z arriba) → mundo relativo a la cámara
+  const T=[],Rd=[], OFF=S.OFF, NR=OFF.length, sn=Math.sin(S.az), cs=Math.cos(S.az);
+  /* terreno: mismos cuadritos y mismos descartes que dibujarOrillas */
+  for(const muestras of S.grupos){
+    for(let i=0;i+1<muestras.length;i++){
+      const a=muestras[i],b=muestras[i+1]; if(!a||!b)continue;
+      if(Math.abs(a.dist-b.dist)>60+0.4*Math.min(a.dist,b.dist))continue;
+      {let da=Math.abs(a.ang-b.ang); if(da>Math.PI)da=2*Math.PI-da; if(da>0.5)continue;}
+      for(let j=0,jm=Math.min(a.lim,b.lim);j+1<jm;j++){
+        const fw=[a.W[j],b.W[j],b.W[j+1],a.W[j+1]].map(p=>(p[0]-cx)*sn+(p[1]-cy)*cs);
+        if(fw[0]<4||fw[1]<4||fw[2]<4||fw[3]<4)continue;
+        {const z0=Math.min(a.W[j][2],b.W[j][2]),z1=Math.min(a.W[j+1][2],b.W[j+1][2]); if(j===0?z1<=0:(z0<=0||z1<=0)&&Math.max(z0,z1)<3)continue;}
+        const sub=Math.abs(((a.W[j+1][2]+b.W[j+1][2])-(a.W[j][2]+b.W[j][2]))/2)/Math.max(1,OFF[j+1]-OFF[j]), roca=Math.max(0,Math.min(1,(sub-0.5)/0.4));
+        const base=roca>0?a.col.map((x,m)=>x*(1-0.7*roca)+[118,104,94][m]*0.7*roca):a.col, k=1.08*(1-0.25*roca)/255*(j===0&&a.verde?0.86:1);
+        quad(T,P(...a.W[j]),P(...b.W[j]),P(...b.W[j+1]),P(...a.W[j+1]),[base[0]*k,base[1]*k,base[2]*k]);
+      }
+    }
+  }
+  /* casas: paredes, techo a dos aguas o plano */
+  for(const b of S.edif){
+    const fwc=(b.x-cx)*sn+(b.y-cy)*cs; if(fwc<6||fwc>3100)continue;
+    const c0=b.C.map(c=>P(c[0],c[1],b.z0)), c1=b.C.map(c=>P(c[0],c[1],b.zt)), cen=P(b.x,b.y,(b.z0+b.zt)/2), pa=hexA(b.pared), te=hexA(b.techo);
+    const rs=b.gable?[P(b.x-b.u[0]*b.w/2,b.y-b.u[1]*b.w/2,b.zr),P(b.x+b.u[0]*b.w/2,b.y+b.u[1]*b.w/2,b.zr)]:null;
+    for(let i=0;i<4;i++){const j=(i+1)%4;
+      quad(T,c0[i],c0[j],c1[j],c1[i],pa,cen);
+      if(rs&&(i===1||i===3)) tri(T,c1[i],c1[j],i===1?rs[1]:rs[0],pa,cen);}     // la punta del techo en las paredes de los extremos
+    if(rs){ quad(T,c1[0],c1[1],rs[1],rs[0],te.map(v=>v*1.05),cen); quad(T,c1[3],c1[2],rs[1],rs[0],te.map(v=>v*1.05),cen); }
+    else quad(T,c1[0],c1[1],c1[2],c1[3],pa,cen);
+  }
+  /* calles: cintas pegadas al suelo (tanda con polygon offset) */
+  for(const c of S.calles){
+    const half=(S.calleCfg.ancho[c.cl]||4)/2, vis=S.calleCfg.vis[c.cl]||800, col=hexA(S.calleCfg.color[c.cl]||'#575a5e'), n=c.pts.length;
+    for(let i=0;i+1<n;i++){
+      const a=c.pts[i],b=c.pts[i+1]; if(a[2]<0.2&&b[2]<0.2)continue;
+      const fa=(a[0]-cx)*sn+(a[1]-cy)*cs, fb=(b[0]-cx)*sn+(b[1]-cy)*cs, fm=(fa+fb)/2; if(fm<6||fm>vis||fa<3||fb<3)continue;
+      const dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1,nx=-dy/l*half,ny=dx/l*half;
+      quad(Rd,P(a[0]+nx,a[1]+ny,a[2]),P(b[0]+nx,b[1]+ny,b[2]),P(b[0]-nx,b[1]-ny,b[2]),P(a[0]-nx,a[1]-ny,a[2]),col);
+    }
+  }
+  return {T,Rd};
+}
+function draw(ctx,w,h,S){
+  if(failed)return false;
+  try{
+    if(!gl)init(); if(lost)return false;
+    const W=Math.max(2,Math.round(w)), Hh=Math.max(2,Math.round(h)); if(cv.width!==W||cv.height!==Hh){cv.width=W;cv.height=Hh;}
+    const t0=performance.now(), m=mundo(S); msB=msB*.9+(performance.now()-t0)*.1;
+    const VP=matriz(W,Hh,S.horizonY,S.f,S.az), fog=S.fog.map(v=>v/255);
+    gl.viewport(0,0,W,Hh);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.useProgram(prog);gl.uniform3fv(U.uSun,[S.luz[0],S.luz[2],S.luz[1]]);   // LUZ de la app está en (este, norte, arriba)
+    nTri=0;flush(m.T,VP,fog);
+    gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(-2,-60);flush(m.Rd,VP,fog);gl.disable(gl.POLYGON_OFFSET_FILL);
+    ctx.drawImage(cv,0,0,w,h);
+    return true;
+  }catch(e){failed=e.message||String(e);note('falló: '+failed);return false;}
+}
+return {draw, ok:()=>!failed&&!lost, diag:()=>'Vista 3D de la costa (WebGL): '+(failed?'DESACTIVADA — '+failed:(lost?'contexto perdido':(gl?'activa':'sin usar todavía')))+(msB?' · armar el mundo: '+msB.toFixed(1)+' ms/cuadro · '+Math.round(nTri)+' triángulos':'')+(msgs.length?' · '+msgs.join(' | '):''), reset:()=>{failed='';}};
+})();
+/*GLK-FIN*/
+const K_GL = LS_PREFIX + 'gl_costa';
+function glkOn() { try { return localStorage.getItem(K_GL) !== '0'; } catch (e) { return true; } }
+// v143: la vista WebGL de la costa. Arma las muestras con una proyección barata (solo la distancia hacia delante) y le pasa todo a GLK.
+function dibujarOrillasGL(ctx, w, h, horizonY, R, d, az, f, cam, k0, OFF) {
+  const F = [Math.sin(az), Math.cos(az)];
+  const proy = (x, y, z) => ({ fw: (x - cam[0]) * F[0] + (y - cam[1]) * F[1] });
+  const grupos = orillasGrupos(R, d, proy, cam, k0, OFF);
+  return GLK.draw(ctx, w, h, { horizonY, f, az, cam, H: RUTA_CAM_H, grupos, OFF, edif: edificiosPara(R), calles: callesPara(R), luz: LUZ, fog: [201, 211, 200],
+    calleCfg: { ancho: CALLE_ANCHO, color: CALLE_COLOR, vis: CALLE_VIS } });
+}
+// v143: la parte que arma las muestras de orilla (puntos 3D de cada costado y de las tapas) sale de dibujarOrillas para que la use también la vista WebGL
+function orillasGrupos(R, d, proy, cam, k0, OFF) {
+  const n = R.xy.length, NR = OFF.length;
+  const grupos = [];
   for (const lado of [1, -1]) {
     const FO = R.orF[lado > 0 ? 0 : 1], muestras = [];
     for (let s = 0; s < n; s++) {
@@ -6206,6 +6329,16 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
   }
   // v139: la tierra de frente a cada punta del recorrido (tapa), con los mismos cuadritos que las orillas
   for (const T of R.tapas || []) { if (Math.hypot(T.x - cam[0], T.y - cam[1]) > 5200) continue; grupos.push(tapaMuestras(R, T, OFF, proy)); }
+  return grupos;
+}
+function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
+  if (!R.orF) filtrarOrillas(R);
+  const n = R.xy.length, cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], Rt = [Math.cos(az), -Math.sin(az)];
+  const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 3), H = RUTA_CAM_H, t = performance.now() / 1000, cielo = [201, 211, 200];
+  const OFF = R.off || ORILLA_OFF_DEF, NR = OFF.length;
+  const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
+  if (glkOn()) { try { if (dibujarOrillasGL(ctx, w, h, horizonY, R, d, az, f, cam, k0, OFF)) return; } catch (e) { errorGL(e); } }   // v143
+  const quads = [], grupos = orillasGrupos(R, d, proy, cam, k0, OFF);
   for (const muestras of grupos) {
     for (let i = 0; i + 1 < muestras.length; i++) {
       const a = muestras[i], b = muestras[i + 1]; if (!a || !b) continue;
@@ -6426,7 +6559,7 @@ function escenaDiagnostico() {
     filas.push([k, Math.round(R.cum[k]), Math.round(R.xy[k][0]), Math.round(R.xy[k][1]), f(R.orF[0].d[k]), f(R.orF[0].alto[k]), f(R.orF[1].d[k]), f(R.orF[1].alto[k]), R.sh ? [R.sh[q + 4], R.sh[q + 5], R.sh[q + 6], R.sh[q + 7], R.sh[q + 8], R.sh[q + 9]] : null, R.pf ? Array.from(R.pf.subarray(k * 14, k * 14 + 14)) : null]);
   }
   return JSON.stringify({ v: (document.querySelector('.ver') || {}).textContent, ruta: R.nombre, L: Math.round(R.L), d: Math.round(d), az: Math.round(rumboCamara(R, d) * 180 / Math.PI), hz: !!R.hz, sh: !!R.sh, pf: !!R.pf,
-    elems: (R.elemsRaw || []).map(e => e.k).join(','), wx: !!wxPara(R), sesion: !!sesionActiva, off: R.off || null, 'k,cum,x,y,dIzq,altoIzq,dDer,altoDer,color,perfil(izq7,der7; x2 m)': filas });
+    elems: (R.elemsRaw || []).map(e => e.k).join(','), gl: GLK.diag(), wx: !!wxPara(R), sesion: !!sesionActiva, off: R.off || null, 'k,cum,x,y,dIzq,altoIzq,dDer,altoDer,color,perfil(izq7,der7; x2 m)': filas });
 }
 // v118: la escena completa (ruta, orillas, perfil y elementos de Rumbo) en un solo texto comprimido, para recrearla idéntica en la compu.
 // Mismo formato que el paquete de Rumbo sin horizonte ni cerros: se puede abrir con #rumbo=z… en Kayak.
@@ -6985,6 +7118,16 @@ function dibujarFarosRumbo(ctx, w, horizonY, R, d, az, f) {
     if (e.n && fw > 8 && fw < 600) { const c = cp(x, y, zb + h * 1.15); if (c.fw > NEAR) { const S = pant(c); ctx.font = '600 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,30,40,.75)'; ctx.fillStyle = '#fff'; ctx.strokeText(e.n, S.x, Math.max(12, S.y - 4)); ctx.fillText(e.n, S.x, Math.max(12, S.y - 4)); ctx.textAlign = 'start'; } }
   }
 }
+let glErrAvisado = false;
+function errorGL(e) { console.warn(e); if (!glErrAvisado) { glErrAvisado = true; toast('La vista 3D de la costa falló y vuelvo al dibujo de siempre: ' + (e && e.message || e)); } }
+function glInfoTxt() { return glkOn() ? (GLK.ok() ? 'Prendida. ' : 'Se desactivó sola: ') + GLK.diag().replace('Vista 3D de la costa (WebGL): ', '') : 'Apagada: se usa el dibujo de siempre.'; }
+function glCambio() {
+  const on = document.getElementById('glOn').checked;
+  try { localStorage.setItem(K_GL, on ? '1' : '0'); } catch (e) { toast('No pude guardar el ajuste: ' + e.message); }
+  if (on) GLK.reset();
+  try { renderSesionVivo(); } catch (e) { errorGL(e); }
+  document.getElementById('glInfo').textContent = glInfoTxt();
+}
 function elemErrorDibujo(e) { console.warn(e); if (!elemErrAvisado) { elemErrAvisado = true; toast('No pude dibujar los muelles y veleros: ' + (e && e.message || e)); } }
 
 // ---- la tarjeta ----
@@ -7120,6 +7263,7 @@ async function renderCardRuta() {
   document.getElementById('previewRuta').style.display = R ? 'block' : 'none';
   document.getElementById('infoRuta').textContent = R ? ((R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (R.loop ? ' · circuito' : '') + (R.sentido === 'inv' ? ' · al revés' : R.sentido === 'iyv' ? ' · ida y vuelta' : '') + (R.hz ? ' · montañas reales' : '') + (R.peaks.length ? ' con nombres' : '') + (R.sh ? ' · orillas reales' + (R.mar ? ' (sin picos sobre el agua' + (R.marOwn ? ', con ' + R.marOwn + ' costa' + (R.marOwn > 1 ? 's trazadas' : ' trazada') + ' a mano' : '') + ')' : ' (sin limpiar con la costa' + (R.marWhy ? ': ' + R.marWhy : '') + ' — volvé a mandarla desde Rumbo)') : '') + (R.sh ? (R.tapas && R.tapas.length ? ' · con la tierra de frente en ' + (R.tapas.length > 2 ? 'puntas y esquinas (' + R.tapas.length + ')' : 'la llegada') : (R.R0 || R).loop ? '' : ' · sin la tierra de frente a la llegada (volvé a mandarla desde Rumbo)') : '') + (R.his ? ' · dibujado en Rumbo cerca: ' + R.his : '') + (R.elemsRaw && R.elemsRaw.length ? ' · ' + elemResumenRumbo(R) : '') + (R.edifRaw && R.edifRaw.length ? ' · ' + R.edifRaw.length + ' edificios (' + R.edifRaw.filter(b => b[1]).length + ' con altura real)' : R.sh ? ' · sin edificios (' + (R.edifWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + (R.callesRaw && R.callesRaw.length ? ' · ' + R.callesRaw.length + ' calles' : R.sh ? ' · sin calles (' + (R.callesWhy || 'esta ruta se mandó antes: volvé a mandarla desde Rumbo') + ')' : '') + '. La distancia que remás te mueve por la ruta; al terminar, vuelve a empezar.') : 'Las rutas llegan desde Rumbo: en una ruta o un track de kayak, "🛶 Entrenar en Kayak Indoor".';
   const ss = document.getElementById('selSentido'); if (ss) ss.value = R && R.sentido || '';   // v133
+  const go = document.getElementById('glOn'); if (go) { go.checked = glkOn(); document.getElementById('glInfo').textContent = glInfoTxt(); }   // v143
   const sl = document.getElementById('sliderRuta'); if (R) { sl.max = Math.round(R.L); sl.value = Math.round(distanciaEnRuta(R, rutaPreviewD)); }
   document.getElementById('canvasSesionVivo').height = R ? 280 : 220;
   try { elemEditandoId = null; elemUI(); } catch (e) { console.warn(e); } // v112
