@@ -141,7 +141,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v143</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v144</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2650,6 +2650,14 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v144: 🌊 AGUA Y CERROS EN WEBGL (Hugo, 17-nov, con v143 en el teléfono: "no se ve tipo WebGL": en v143 solo la costa era 3D). Ahora una sola pasada 3D
+         dibuja el agua (plano con reflejo de Fresnel: lejos refleja el cielo, cerca deja ver el fondo; ondas por normales que se mueven y se afinan
+         con la distancia; camino de luz del sol con destellos, con el mismo sol de solDeRumbo), los cerros reales del horizonte (hzSample en tres capas
+         a 8, 6,5 y 5 km, columnas de 1,5° con ángulos absolutos, con nieve), la costa, las casas y las calles, todo con buffer de profundidad. El cielo,
+         las nubes y el clima siguen en 2D abajo de todo; los cerros con nombre (dibujarCerrosNombre, salió de dibujarHorizonteReal) y los muelles, barcos
+         y el kayakista van en 2D encima. dibujarMundoGL reemplaza a dibujarOrillasGL y se llama desde dibujarEscenaRutaCon (si falla: dibujo 2D de
+         siempre). Sin horizonte real de Rumbo, los cerros inventados del 2D se dibujan antes y el agua 3D va encima. Falta: reflejo de la costa y los
+         cerros en el agua, sombras, espuma en la orilla, muelles y barcos en 3D.
    v143: 🧊 COSTA, CASAS Y CALLES EN WEBGL (Hugo, 17-nov: "vamos a integrar el WebGL en kayak indoor que ya se ve muy bien"; en Bici Indoor
          v180–v191 ya andaba). Primer paso: el terreno de las orillas (y las tapas), los edificios de Rumbo y las calles de Rumbo van como triángulos
          3D en un canvas WebGL aparte (GLK, abajo, antes de orillasGrupos) y el resultado se copia encima del cielo, el horizonte y el agua que sigue
@@ -6010,7 +6018,11 @@ function dibujarHorizonteReal(ctx, w, horizonY, az, f, R, d) {
   capa(4, mezclarHex('#8c9fb3', '#c9d3c8', 0.4)); nieve(4, 5, 6);
   capa(1, '#6f8499'); nieve(1, 2, 3);
   capa(0, '#4d6275');
-  // cerros con nombre
+  dibujarCerrosNombre(ctx, w, horizonY, az, f, R, d);
+}
+// v144: los cerros con nombre (etiquetas) van aparte para dibujarlos también encima de la vista WebGL
+function dibujarCerrosNombre(ctx, w, horizonY, az, f, R, d) {
+  const hz = R.hz, toD = 180 / Math.PI, camE = 1.6, Y = a => horizonY - f * Math.tan(Math.max(-15, hzAng(a)) / toD);
   if (R.peaks.length) {
     const p0 = puntoEnRuta(R, d), lat = R.lat0 + p0[1] / R.ky, lon = R.lon0 + p0[0] / R.kx, kc = Math.cos(lat * Math.PI / 180), out = [];
     for (const p of R.peaks) {
@@ -6185,18 +6197,30 @@ function tapaMuestras(R, T, OFF, proy) {
   return out;
 }
 /*GLK-INI*/
-// ================= v143: vista WebGL de las orillas, los edificios y las calles del recorrido (Kayak Indoor) =================
+// ================= v143/v144: vista WebGL de la escena del recorrido (Kayak Indoor): agua, cerros reales, orillas, edificios y calles =================
 // Reemplaza el dibujo "de lejos a cerca" de dibujarOrillas: el terreno de la costa, las casas y las calles van como triángulos 3D en un canvas WebGL aparte
 // (con buffer de profundidad, así nada se tapa mal) y el resultado se copia encima del cielo, el horizonte y el agua que ya dibujó el canvas 2D. La cámara es la misma
 // de siempre (pinhole con el horizonte en horizonY y f = 0,65·ancho), así lo que se dibuja después en 2D (muelles, barcos, el kayakista) queda en su lugar.
 // Si WebGL no está o falla, devuelve false y la app dibuja con el 2D de siempre. Mundo: x = este, y = arriba (relativo a la cámara), z = norte.
 const GLK=(()=>{'use strict';
-const VS='attribute vec3 aPos;attribute vec3 aNor;attribute vec3 aCol;uniform mat4 uVP;uniform vec3 uSun;varying vec3 vC;varying float vD;'+
- 'void main(){vec4 p=uVP*vec4(aPos,1.0);gl_Position=p;vD=p.w;vec3 n=normalize(aNor);float l=0.62+0.55*max(dot(n,uSun),0.0);vC=aCol*l;}';
+const VS='attribute vec3 aPos;attribute vec3 aNor;attribute vec3 aCol;uniform mat4 uVP;uniform vec3 uSun;uniform float uU;varying vec3 vC;varying float vD;'+
+ 'void main(){vec4 p=uVP*vec4(aPos,1.0);gl_Position=p;vD=p.w;vec3 n=normalize(aNor);float l=mix(1.0,0.62+0.55*max(dot(n,uSun),0.0),uU);vC=aCol*l;}';
 const FS='precision mediump float;varying vec3 vC;varying float vD;uniform vec3 uFog;uniform float uK;'+
  'void main(){float f=min(vD*uK,0.8);gl_FragColor=vec4(mix(min(vC,vec3(1.0)),uFog,f),1.0);}';
-let cv=null,gl=null,prog=null,vbo=null,failed='',lost=false,msgs=[],msB=0,nTri=0;
-const U={};
+// agua: reflejo de Fresnel (lejos refleja el cielo, cerca deja ver el fondo), ondas por normales que se mueven, camino de luz del sol con destellos
+const WVS='attribute vec3 aPos;uniform mat4 uVP;varying vec3 vP;void main(){gl_Position=uVP*vec4(aPos,1.0);vP=aPos;}';
+const WFS='#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n'+
+ 'varying vec3 vP;uniform vec2 uCam;uniform float uT;uniform vec3 uSun;uniform float uSunK;uniform vec3 uH;uniform vec3 uZ;uniform vec3 uDeep;uniform vec3 uMid;uniform float uRip;'+
+ 'void main(){vec3 P=vP;float D=length(P);vec3 v=-P/D;vec2 w=P.xz+uCam;float amp=uRip/(1.0+D*0.012);float t=uT;'+
+ 'float nx=cos(w.x*0.9+w.y*0.4+t*1.3)*0.5+cos(w.x*0.37-w.y*0.8+t*0.9)*0.7+cos(w.x*2.1+w.y*1.7-t*2.0)*0.25;'+
+ 'float nz=cos(w.x*0.5+w.y*1.1+t*1.1)*0.5+cos(w.y*0.43+w.x*0.9-t*1.2)*0.7+cos(w.x*1.6-w.y*2.3+t*1.8)*0.25;'+
+ 'vec3 n=normalize(vec3(nx*amp,1.0,nz*amp));float c=clamp(dot(n,v),0.0,1.0);float F=0.02+0.98*pow(1.0-c,5.0);'+
+ 'vec3 r=reflect(-v,n);r.y=abs(r.y);float sk=pow(1.0-clamp(r.y,0.0,1.0),2.0);vec3 sky=mix(uZ,uH,sk);'+
+ 'vec3 deep=mix(uDeep,uMid,pow(1.0-c,2.0));vec3 col=mix(deep,sky,F);'+
+ 'float d=max(dot(r,uSun),0.0);float sp=pow(d,900.0)*1.1+pow(d,90.0)*0.16;col+=vec3(1.0,0.95,0.8)*sp*uSunK;'+
+ 'gl_FragColor=vec4(min(col,vec3(1.0)),1.0);}';
+let cv=null,gl=null,prog=null,progW=null,vbo=null,failed='',lost=false,msgs=[],msB=0,nTri=0,nM=0;
+const U={},UW={};
 const note=m=>{msgs.push(m);if(msgs.length>6)msgs.shift();};
 const hexA=h=>{const n=parseInt(String(h).slice(1,7),16);return [(n>>16&255)/255,(n>>8&255)/255,(n&255)/255];};
 function tri(B,a,b,c,k,hint){const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2],vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
@@ -6209,7 +6233,10 @@ function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShade
 function prep(){prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
   ['aPos','aNor','aCol'].forEach((a,i)=>gl.bindAttribLocation(prog,i,a));gl.linkProgram(prog);
   if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error('link: '+gl.getProgramInfoLog(prog));
-  for(const n of ['uVP','uSun','uFog','uK'])U[n]=gl.getUniformLocation(prog,n);vbo=gl.createBuffer();}
+  for(const n of ['uVP','uSun','uFog','uK','uU'])U[n]=gl.getUniformLocation(prog,n);
+  progW=gl.createProgram();gl.attachShader(progW,sh(gl.VERTEX_SHADER,WVS));gl.attachShader(progW,sh(gl.FRAGMENT_SHADER,WFS));gl.bindAttribLocation(progW,0,'aPos');gl.linkProgram(progW);
+  if(!gl.getProgramParameter(progW,gl.LINK_STATUS))throw new Error('link agua: '+gl.getProgramInfoLog(progW));
+  for(const n of ['uVP','uCam','uT','uSun','uSunK','uH','uZ','uDeep','uMid','uRip'])UW[n]=gl.getUniformLocation(progW,n);vbo=gl.createBuffer();}
 function init(){
   cv=document.createElement('canvas');
   gl=cv.getContext('webgl',{antialias:true,alpha:true,premultipliedAlpha:true})||cv.getContext('experimental-webgl');
@@ -6218,15 +6245,15 @@ function init(){
   cv.addEventListener('webglcontextlost',e=>{e.preventDefault();lost=true;note('contexto gráfico perdido');});
   cv.addEventListener('webglcontextrestored',()=>{try{lost=false;prep();note('contexto gráfico recuperado');}catch(e){failed=e.message;}});
 }
-function flush(B,VP,fog){
+function flush(B,VP,fog,K){
   if(!B.length)return;
   gl.bindBuffer(gl.ARRAY_BUFFER,vbo);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(B),gl.DYNAMIC_DRAW);
   for(let i=0;i<3;i++){gl.enableVertexAttribArray(i);gl.vertexAttribPointer(i,3,gl.FLOAT,false,36,i*12);}
-  gl.uniformMatrix4fv(U.uVP,false,VP);gl.uniform3fv(U.uFog,fog);gl.uniform1f(U.uK,1/3600);
+  gl.uniformMatrix4fv(U.uVP,false,VP);gl.uniform3fv(U.uFog,fog);gl.uniform1f(U.uK,K==null?1/3600:K);
   gl.drawArrays(gl.TRIANGLES,0,B.length/9);nTri+=B.length/27;
 }
 // matriz que reproduce la proyección del 2D: x_pant = w/2 + f·X/Z, y_pant = horizonY + f·(H − z)/Z (Z = distancia hacia delante)
-function matriz(w,h,hy,f,az){const a=2*f/w,b=2*f/h,s=1-2*hy/h,sn=Math.sin(az),cs=Math.cos(az),N=1,F=9000,A=(F+N)/(F-N),B=-2*F*N/(F-N),m=new Float32Array(16);
+function matriz(w,h,hy,f,az){const a=2*f/w,b=2*f/h,s=1-2*hy/h,sn=Math.sin(az),cs=Math.cos(az),N=1,F=14000,A=(F+N)/(F-N),B=-2*F*N/(F-N),m=new Float32Array(16);
   m[0]=a*cs;m[8]=-a*sn;m[1]=s*sn;m[5]=b;m[9]=s*cs;m[2]=A*sn;m[10]=A*cs;m[14]=B;m[3]=sn;m[11]=cs;return m;}
 /* ---- el mundo ---- */
 function mundo(S){
@@ -6269,7 +6296,19 @@ function mundo(S){
       quad(Rd,P(a[0]+nx,a[1]+ny,a[2]),P(b[0]+nx,b[1]+ny,b[2]),P(b[0]-nx,b[1]-ny,b[2]),P(a[0]-nx,a[1]-ny,a[2]),col);
     }
   }
-  return {T,Rd};
+  /* cerros reales (hzSample): tres capas, columnas de 1,5° con ángulos absolutos (no parpadean al girar), a 8, 6,5 y 5 km; sin luz ni bruma (colores fijos como en el 2D) */
+  const M=[];
+  if(S.hz){ const camE=1.6, toD=180/Math.PI, DA=1.5*Math.PI/180, half=48*Math.PI/180, a0=Math.floor((S.az-half)/DA), a1=Math.ceil((S.az+half)/DA), cols=[];
+    for(let q=a0;q<=a1;q++){ const A=q*DA; cols.push({A,v:S.hz.f(A),tn:1+((((q*7919)%13)+13)%13-6)*0.006}); }
+    const yAt=(Rr,A,ang)=>{ const Zc=Rr*Math.cos(A-S.az), y=Zc*Math.tan(Math.max(-15,S.hz.ang(ang))/toD); return Math.max(y,-Zc/S.f); };
+    const capas=[[4,8000,hexA('#9eafb9'),5,6],[1,6500,hexA('#6f8499'),2,3],[0,5000,hexA('#4d6275'),-1,-1]];
+    for(const [ia,Rr,cc,ie,id] of capas){
+      for(let i=0;i+1<cols.length;i++){ const a=cols[i],b=cols[i+1], pt=(c,y)=>[Rr*Math.sin(c.A),y,Rr*Math.cos(c.A)];
+        const ya=yAt(Rr,a.A,a.v[ia]), yb=yAt(Rr,b.A,b.v[ia]), k=(a.tn+b.tn)/2, col=cc.map(x=>Math.min(1,x*k));
+        quad(M,pt(a,-80),pt(b,-80),pt(b,yb),pt(a,ya),col);
+        if(ie>=0&&S.hz.snow){ const sn_=c=>{ const e=c.v[ie],dd=c.v[id]; return e>S.hz.snow&&dd>0?Math.atan((S.hz.snow-camE)/dd)*toD:null; }, sa=sn_(a), sb=sn_(b);
+          if(sa!=null&&sb!=null){ const za=Math.min(ya-0.5,yAt(Rr,a.A,sa)), zb=Math.min(yb-0.5,yAt(Rr,b.A,sb)); quad(M,pt(a,za),pt(b,zb),pt(b,yb),pt(a,ya),[.93,.95,.97]); } } } } }
+  return {T,Rd,M};
 }
 function draw(ctx,w,h,S){
   if(failed)return false;
@@ -6280,24 +6319,37 @@ function draw(ctx,w,h,S){
     const VP=matriz(W,Hh,S.horizonY,S.f,S.az), fog=S.fog.map(v=>v/255);
     gl.viewport(0,0,W,Hh);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.useProgram(prog);gl.uniform3fv(U.uSun,[S.luz[0],S.luz[2],S.luz[1]]);   // LUZ de la app está en (este, norte, arriba)
-    nTri=0;flush(m.T,VP,fog);
+    nTri=0;nM=m.M.length/27;
+    if(m.M.length){gl.uniform1f(U.uU,0);flush(m.M,VP,fog,0);}                                                        // cerros: colores fijos, sin luz ni bruma
+    if(S.agua){ const A=S.agua, B=12000, H=S.H; gl.useProgram(progW);
+      gl.uniformMatrix4fv(UW.uVP,false,VP);gl.uniform2f(UW.uCam,S.cam[0],S.cam[1]);gl.uniform1f(UW.uT,S.t);gl.uniform3fv(UW.uSun,A.sun);gl.uniform1f(UW.uSunK,A.sunK);
+      gl.uniform3fv(UW.uH,A.h);gl.uniform3fv(UW.uZ,A.z);gl.uniform3fv(UW.uDeep,A.deep);gl.uniform3fv(UW.uMid,A.mid);gl.uniform1f(UW.uRip,A.rip);
+      gl.bindBuffer(gl.ARRAY_BUFFER,vbo);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-B,-H,-B,B,-H,-B,B,-H,B,-B,-H,-B,B,-H,B,-B,-H,B]),gl.DYNAMIC_DRAW);
+      gl.disableVertexAttribArray(1);gl.disableVertexAttribArray(2);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,3,gl.FLOAT,false,12,0);gl.drawArrays(gl.TRIANGLES,0,6);
+      gl.useProgram(prog); }
+    gl.uniform1f(U.uU,1);flush(m.T,VP,fog);
     gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(-2,-60);flush(m.Rd,VP,fog);gl.disable(gl.POLYGON_OFFSET_FILL);
     ctx.drawImage(cv,0,0,w,h);
     return true;
   }catch(e){failed=e.message||String(e);note('falló: '+failed);return false;}
 }
-return {draw, ok:()=>!failed&&!lost, diag:()=>'Vista 3D de la costa (WebGL): '+(failed?'DESACTIVADA — '+failed:(lost?'contexto perdido':(gl?'activa':'sin usar todavía')))+(msB?' · armar el mundo: '+msB.toFixed(1)+' ms/cuadro · '+Math.round(nTri)+' triángulos':'')+(msgs.length?' · '+msgs.join(' | '):''), reset:()=>{failed='';}};
+return {draw, ok:()=>!failed&&!lost, diag:()=>'Vista 3D del recorrido (WebGL): '+(failed?'DESACTIVADA — '+failed:(lost?'contexto perdido':(gl?'activa':'sin usar todavía')))+(msB?' · armar el mundo: '+msB.toFixed(1)+' ms/cuadro · '+Math.round(nTri)+' triángulos ('+Math.round(nM)+' de cerros)':'')+(msgs.length?' · '+msgs.join(' | '):''), reset:()=>{failed='';}};
 })();
 /*GLK-FIN*/
 const K_GL = LS_PREFIX + 'gl_costa';
 function glkOn() { try { return localStorage.getItem(K_GL) !== '0'; } catch (e) { return true; } }
-// v143: la vista WebGL de la costa. Arma las muestras con una proyección barata (solo la distancia hacia delante) y le pasa todo a GLK.
-function dibujarOrillasGL(ctx, w, h, horizonY, R, d, az, f, cam, k0, OFF) {
-  const F = [Math.sin(az), Math.cos(az)];
+// v143/v144: la vista WebGL del recorrido: agua con reflejo y camino de luz, cerros reales, costa, casas y calles. Arma las muestras de orilla con una proyección barata
+// (solo la distancia hacia delante) y le pasa todo a GLK. Devuelve true si dibujó.
+function dibujarMundoGL(ctx, w, h, horizonY, R, d, az, f, t) {
+  if (!R.orF) filtrarOrillas(R);
+  const cam = puntoEnRuta(R, d), F = [Math.sin(az), Math.cos(az)], k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 3), OFF = R.off || ORILLA_OFF_DEF;
   const proy = (x, y, z) => ({ fw: (x - cam[0]) * F[0] + (y - cam[1]) * F[1] });
   const grupos = orillasGrupos(R, d, proy, cam, k0, OFF);
-  return GLK.draw(ctx, w, h, { horizonY, f, az, cam, H: RUTA_CAM_H, grupos, OFF, edif: edificiosPara(R), calles: callesPara(R), luz: LUZ, fog: [201, 211, 200],
-    calleCfg: { ancho: CALLE_ANCHO, color: CALLE_COLOR, vis: CALLE_VIS } });
+  const latSur = !(R.ll && R.ll[0] && R.ll[0][0] > 0), azS = latSur ? 0.52 : Math.PI - 0.52, el = 0.05;   // mismo sol que solDeRumbo
+  const hz = R.hz ? { f: A => hzSample(R.hz, d, A), ang: hzAng, snow: R.hz.snow } : null;
+  return GLK.draw(ctx, w, h, { horizonY, f, az, cam, H: RUTA_CAM_H, grupos, OFF, edif: edificiosPara(R), calles: callesPara(R), luz: LUZ, fog: [201, 211, 200], t, hz,
+    calleCfg: { ancho: CALLE_ANCHO, color: CALLE_COLOR, vis: CALLE_VIS },
+    agua: { sun: [Math.sin(azS) * Math.cos(el), Math.sin(el), Math.cos(azS) * Math.cos(el)], sunK: SOL.k, h: [0.78, 0.80, 0.74], z: [0.49, 0.64, 0.77], deep: [0.13, 0.25, 0.31], mid: [0.27, 0.41, 0.48], rip: 0.12 } });
 }
 // v143: la parte que arma las muestras de orilla (puntos 3D de cada costado y de las tapas) sale de dibujarOrillas para que la use también la vista WebGL
 function orillasGrupos(R, d, proy, cam, k0, OFF) {
@@ -6337,7 +6389,6 @@ function dibujarOrillas(ctx, w, h, horizonY, R, d, az, f) {
   const k0 = Math.max(0, Math.floor(indiceEnRuta(R, d)) - 3), H = RUTA_CAM_H, t = performance.now() / 1000, cielo = [201, 211, 200];
   const OFF = R.off || ORILLA_OFF_DEF, NR = OFF.length;
   const proy = (x, y, z) => { const qx = x - cam[0], qy = y - cam[1], fw = qx * F[0] + qy * F[1]; return { x: w / 2 + f * (qx * Rt[0] + qy * Rt[1]) / fw, y: horizonY + f * (H - z) / fw, fw }; };
-  if (glkOn()) { try { if (dibujarOrillasGL(ctx, w, h, horizonY, R, d, az, f, cam, k0, OFF)) return; } catch (e) { errorGL(e); } }   // v143
   const quads = [], grupos = orillasGrupos(R, d, proy, cam, k0, OFF);
   for (const muestras of grupos) {
     for (let i = 0; i + 1 < muestras.length; i++) {
@@ -6605,13 +6656,20 @@ function dibujarEscenaRuta(ctx, w, h, horizonY, dTotal) {
 function dibujarEscenaRutaCon(ctx, w, h, horizonY, R, t, d, f, az) {
   dibujarCieloLago(ctx, w, h, horizonY, t);
   const Wc = wxPara(R); if (Wc) wxCielo(ctx, w, horizonY, Wc, az, t, f); // v111
-  if (R.hz) { try { dibujarHorizonteReal(ctx, w, horizonY, az, f, R, d); } catch (e) { dibujarMontanasLago(ctx, w, h, horizonY); } }
-  else dibujarMontanasLago(ctx, w, h, horizonY);
-  dibujarAguaLago(ctx, w, h, horizonY);
-  dibujarOndasLago(ctx, w, h, horizonY, t);
+  // v144: con WebGL, el agua, los cerros reales, la costa, las casas y las calles salen de una sola pasada 3D (con profundidad); si falla, el dibujo 2D de siempre
+  let en3D = false;
+  if (R.sh && glkOn()) {
+    try { if (!R.hz) dibujarMontanasLago(ctx, w, h, horizonY); en3D = dibujarMundoGL(ctx, w, h, horizonY, R, d, az, f, t); } catch (e) { errorGL(e); }
+    if (en3D && R.hz) { try { dibujarCerrosNombre(ctx, w, horizonY, az, f, R, d); } catch (e) { errorGL(e); } }
+  }
+  if (!en3D) {
+    if (R.hz) { try { dibujarHorizonteReal(ctx, w, horizonY, az, f, R, d); } catch (e) { dibujarMontanasLago(ctx, w, h, horizonY); } }
+    else dibujarMontanasLago(ctx, w, h, horizonY);
+    dibujarAguaLago(ctx, w, h, horizonY);
+    dibujarOndasLago(ctx, w, h, horizonY, t);
+  }
   if (Wc) wxEspuma(ctx, 0, w, horizonY + 2, h, Wc, t); // v111: ovejitas con viento
-  if (R.sh) { try { dibujarOrillas(ctx, w, h, horizonY, R, d, az, f); } catch (e) {} }
-  else dibujarPinosLago(ctx, w, h, horizonY);
+  if (!en3D) { if (R.sh) { try { dibujarOrillas(ctx, w, h, horizonY, R, d, az, f); } catch (e) {} } else dibujarPinosLago(ctx, w, h, horizonY); }
   try { dibujarElementosRuta(ctx, w, h, horizonY, R, d, az, f); } catch (e) { elemErrorDibujo(e); } // v112: muelles, veleros, lanchas y boyas
 }
 /* ============================================================
