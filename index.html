@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v149</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v150</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2658,6 +2658,10 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v150: ↔️ CADA KAYAK EN SU CARRIL (Hugo, 17-nov: "cuando van el fantasma y el kayakista sin diferencia ocupan el mismo lugar en el espacio,
+         eso no debería suceder, tampoco en la carrera virtual"). En la sesión el fantasma va 3,5 m al costado (palas de ~2,2 m: a 2,5 m casi se tocaban);
+         en la carrera cada corredor tiene un carril fijo a 3,5 m del otro (−3,5 / 0 / +3,5 con tres), también el que sigue la cámara (K3D acepta lat
+         para el propio), así cambiar de cámara no los cambia de lugar.
    v149: 🏁 CARRERA VIRTUAL EN KAYAK 3D (Hugo, 17-nov: "¿dónde quedó la opción de carrera virtual en Kayak Indoor con WebGL?"). Con un recorrido
          de Rumbo elegido en la carrera y el 3D prendido, dibujarCarreraK3D pone a todos los corredores en Kayak 3D: la cámara sigue al elegido y
          los demás reman a 3 m de su costado (alternando lados), cada uno con su color, su distancia y su cadencia del historial (su propia fase).
@@ -5605,11 +5609,11 @@ function dibujarCarreraK3D(ctx, w, h, posiciones, idxCam) {
   const cam = posiciones[idxCam], pts = cam.corredor.sesion.puntos;
   const vel = Math.max(0, distanciaFantasmaEnT(pts, carreraT) - distanciaFantasmaEnT(pts, Math.max(0, carreraT - 1)));
   const fin = c => carreraT > (c.sesion.duracionSeg || 0);
-  const otros = []; let n = 0;
+  const otros = [], carril = i => (i - (posiciones.length - 1) / 2) * 3.5;   // v150: cada uno en su carril fijo, nunca en el mismo lugar
   posiciones.forEach((p, i) => { if (i === idxCam) return;
     otros.push({ d: distanciaEnRuta(R, p.distancia), T: p.corredor.fase, cad: fin(p.corredor) ? 0 : cadenciaCorredorEnT(p.corredor.sesion.puntos, carreraT),
-      lat: 3 * calcularLadoOtroCorredor(n++), tint: hexTinte(p.corredor.color) }); });
-  const ok = K3D.draw(ctx, w, h, { key: R.nombre + '|' + (R.sentido || '') + '|' + Math.round(R.L), o: k3dPaquete(R), dRuta: distanciaEnRuta(R, cam.distancia), Lapp: R.L,
+      lat: carril(i), tint: hexTinte(p.corredor.color) }); });
+  const ok = K3D.draw(ctx, w, h, { key: R.nombre + '|' + (R.sentido || '') + '|' + Math.round(R.L), o: k3dPaquete(R), dRuta: distanciaEnRuta(R, cam.distancia), Lapp: R.L, lat: carril(idxCam),
     velMs: carreraPlaying ? vel : 0, cad: fin(cam.corredor) ? 0 : cadenciaCorredorEnT(pts, carreraT), T: cam.corredor.fase, otros,
     clima: k3dClima(R), cam: k3dCam, kf: typeof editorDatos !== 'undefined' ? editorDatos : null });
   k3dActivaCarrera = ok;
@@ -7078,7 +7082,7 @@ function update(dt,st){
   const cPrev=S.c;
   if(Tprev===null)S.c=(st.T-5)/4;else{const dT=((st.T-Tprev)%8+8)%8;if(dT<4)S.c+=dT/4;}
   Tprev=st.T;
-  const pos=W3.ruta.at(S.distanciaM);
+  const p0=W3.ruta.at(S.distanciaM),lt=st.lat||0,pos={x:p0.x+Math.cos(p0.h)*lt,z:p0.z-Math.sin(p0.h)*lt,h:p0.h};   // v150: carril (m al costado de la ruta)
   if(Math.hypot(pos.x-KP.x,pos.z-KP.z)>30){KP.eyeSm=null;KP.camYaw=pos.h;trail.length=0;}   // saltó (deslizador, otra ruta): la cámara no vuela hasta allá
   KP.x=pos.x;KP.z=pos.z;KP.h=pos.h;
   if(Math.floor(S.c)>Math.floor(cPrev)&&remando){
@@ -7304,7 +7308,7 @@ function draw(ctx,w,h,st){
     if(st.clima)E.setClima(st.clima);E.setCam(st.cam|0);E.setKF(st.kf||null);
     const L=E.L(),k=st.Lapp>0?L/st.Lapp:1,dd=st.dRuta*k;
     const t0=performance.now();
-    E.update(dt,{d:dd,dHz:st.dRuta,velMs:st.velMs||0,cad:st.cad||0,T:st.T||0,otros:(st.otros||(st.ghost!=null?[{d:st.ghost,T:st.ghostT||0,cad:st.ghostCad||0,lat:2.5}]:[])).map(o=>Object.assign({},o,{d:o.d*k}))});
+    E.update(dt,{d:dd,dHz:st.dRuta,lat:st.lat||0,velMs:st.velMs||0,cad:st.cad||0,T:st.T||0,otros:(st.otros||(st.ghost!=null?[{d:st.ghost,T:st.ghostT||0,cad:st.ghostCad||0,lat:3.5}]:[])).map(o=>Object.assign({},o,{d:o.d*k}))});
     E.resize(w,h);E.render();
     ctx.drawImage(E.cv,0,0,w,h);
     ms=ms*0.9+(performance.now()-t0)*0.1;
