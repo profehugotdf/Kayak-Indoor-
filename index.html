@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v154</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v155</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2661,6 +2661,12 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v155: 🏝️ MENORCA (Hugo, 18-nov, captura con la cámara alta en el km 2,78 y la escena copiada: "aparecen unos paneles raros en la animación" y
+         "tampoco copia el relieve de Menorca"). (1) Los paneles eran la tierra lejana de K3D (franjas a 1,4 y 3 km tierra adentro, inventadas): en una
+         península angosta cruzaban el agua y pasaban por encima del recorrido. Ahora se cortan donde caen sobre agua conocida (más cerca de un punto de
+         la ruta que la tierra más cercana a ese punto) y su altura sale del horizonte real de Rumbo (`hzReal`: el cerro más alto a 0,8–9 km en esa
+         dirección) en vez de lomadas de hasta 170 m (Menorca es casi plana). (2) "📦 Copiar toda la escena" no llevaba el horizonte (montañas reales) ni
+         la tierra de frente: ahora copia el paquete entero tal como lo mandó Rumbo (`R.raw`).
    v154: 📷 VISTAS EN LA CARRERA VIRTUAL (Hugo, 17-nov: "también me gustaría poder cambiar de vista en el modo carrera virtual"): fila "Vista:" con
          Trasera, Frontal, Alta y Primera persona (la misma elección que en la sesión, kayak_k3d_cam); la fila de corredores pasa a llamarse "Seguir a:".
          Tocar la vista también cambia la cámara, como antes.
@@ -6918,7 +6924,7 @@ function filtrarOrillas(R){
     }
     F.ok=ok;
   }
-  R.orF=out;return out;
+  R.orF=out;R.mind=mind;return out;
 }
 // altura del terreno (m sobre el agua) en un punto este/norte, con el mismo perfil que dibuja el terreno
 function sueloZ(R,x,y){
@@ -6951,6 +6957,16 @@ const BARCO_MODELO={velero:'velero',lancha:'lancha',crucero:'crucero',carguero:'
 const EDIF_PARED=['#d9d2c3','#c9b99a','#b8c4cf','#c7d3c2','#d9b7a6','#cfc7d6','#e0d7a8','#e8e4da'].map(hex3),EDIF_TECHO=['#7a4b3a','#5b6670','#8a8f94','#6e5a4a','#7b3f3a','#4f5d52'].map(hex3);
 const CALLE_ANCHO={1:9,2:6,3:3.5,4:2.2},CALLE_COLOR={1:[.22,.23,.25],2:[.30,.31,.33],3:[.40,.40,.40],4:[.74,.71,.65]};
 
+// Kayak v155: el cerro real más alto hacia un rumbo (desde el norte, radianes), a la distancia d del recorrido, del horizonte que mandó Rumbo
+// (franja media: altura ÷25 m y distancia ÷100 m). null si no hay horizonte o no hay nada entre 0,8 y 9 km.
+function hzReal(o,d,az){
+  const H=o&&o.hz;if(!H||!H.n||!H.na)return null;const U=H.u||(H.d?(H.u=b64u8(H.d)):null);if(!U||U.length<H.n*H.na*7)return null;
+  if(H.inv)d=H.inv-d;else if(H.fold)d=d<=H.fold?d:2*H.fold-d;
+  const i=Math.max(0,Math.min(H.n-1,Math.round(d/(H.sp||100))));let a=az*180/Math.PI%360;if(a<0)a+=360;
+  let best=null;for(const da of [-1,0,1]){const j=((Math.round(a/(360/H.na))+da)%H.na+H.na)%H.na,q=(i*H.na+j)*7,h=U[q+2]*25,dist=U[q+3]*100;
+    if(dist>=800&&dist<=9000&&(!best||h>best.h))best={h,d:dist};}
+  return best;
+}
 async function mundoRumbo(o){
   const ll=o.ll,lat0=ll[0][0],lon0=ll[0][1],kx=Math.cos(lat0*Math.PI/180)*111320,ky=111320;
   const ENU=p=>[(p[1]-lon0)*kx,(p[0]-lat0)*ky],WD=(e,n)=>[-e,n];
@@ -6963,7 +6979,7 @@ async function mundoRumbo(o){
   // ---- terreno por franjas (misma lógica que dibujarOrillas de Kayak Indoor) ----
   const costa=[]; // puntos de costa para el minimapa [e,n]
   if(conTerreno){
-    const F=filtrarOrillas(R),NR=R.off.length;
+    const F=filtrarOrillas(R),NR=R.off.length,cum=[0];for(let i=1;i<n;i++)cum.push(cum[i-1]+Math.hypot(R.xy[i][0]-R.xy[i-1][0],R.xy[i][1]-R.xy[i-1][1]));
     const T=new Baker(),TR=new Baker();let ntree=0;
     for(const lado of [1,-1]){
       const FO=F[lado>0?0:1],S=[];
@@ -6974,10 +6990,23 @@ async function mundoRumbo(o){
         const W=[];
         for(let j=0;j<NR;j++){const dd=FO.d[k]+R.off[j];let z=FO.prof[k*NR+j];if(verde&&j>0&&z>0.5)z+=6;W.push([B[0]+nx*dd,B[1]+ny*dd,j===0?0:z]);}
         let lim=NR;for(let j=2;j<NR;j++)if(FO.prof[k*NR+j]<=0.5){lim=j;break;}
-        if(lim===NR){const zl=W[NR-1][2];
+        // Kayak v155 (Hugo, 18-nov, Menorca: "paneles raros" oscuros sobre el agua): tierra adentro desde la orilla, el perfil (hasta 700 m) y la tierra
+        // lejana (1,4 y 3 km, inventada) seguían derecho aunque cruzaran agua: en la boca de una caleta o en una península angosta tapaban el
+        // recorrido. Se corta donde la semirrecta entra al círculo sin tierra de algún punto de la ruta (radio = 0,85 × su tierra más cercana).
+        let corte=1e9;{const x0=B[0]+nx*FO.d[k],y0=B[1]+ny*FO.d[k];
+          for(let i=0;i<n;i++){const m=R.mind[i];if(m>5e8||i===k)continue;const px=R.xy[i][0]-x0,py=R.xy[i][1]-y0,t=px*nx+py*ny;if(t<0||t>3200)continue;
+            const q=Math.hypot(px-nx*t,py-ny*t),r=0.85*m;if(q<r){const te=t-Math.sqrt(r*r-q*q);if(te>2)corte=Math.min(corte,te);}}}
+        {let lc=0;while(lc<NR&&R.off[lc]<corte)lc++;lim=Math.min(lim,lc);}
+        const far=corte<1400?0:corte<3000?1:2;
+        if(lim===NR&&far){let zl=W[NR-1][2];
+          // y la altura sale del relieve real que mandó Rumbo (hz: cerro más alto a 1,5–8 km en esa dirección), no de una lomada inventada (Menorca es casi plana)
+          const hr=hzReal(o,cum[k],Math.atan2(nx,ny));
           // v2.6: el terreno lejano sube como lomadas con altura que varía a lo largo de la costa (antes era casi un plano: una franja pálida con borde recto contra las montañas)
           const nzv=Math.max(0.35,0.9+0.28*Math.sin(k*0.13+lado*1.7)*Math.cos(k*0.071+0.9)+0.2*Math.sin(k*0.83+lado*3.1)+0.12*Math.sin(k*2.3+1.1));
-          W.push([B[0]+nx*(FO.d[k]+1400),B[1]+ny*(FO.d[k]+1400),(zl*1.15+40)*nzv]);W.push([B[0]+nx*(FO.d[k]+3000),B[1]+ny*(FO.d[k]+3000),(zl*1.4+170)*nzv]);lim=NR+2;}
+          let z1=(zl*1.15+40)*nzv,z2=(zl*1.4+170)*nzv;
+          if(hr){const r=t=>Math.min(1,(FO.d[k]+t)/Math.max(800,hr.d));z1=Math.max(zl,hr.h*r(1400))*(0.85+0.15*nzv);z2=Math.max(zl,hr.h*r(3000))*(0.85+0.15*nzv);}
+          W.push([B[0]+nx*(FO.d[k]+1400),B[1]+ny*(FO.d[k]+1400),z1]);lim=NR+1;
+          if(far>1){W.push([B[0]+nx*(FO.d[k]+3000),B[1]+ny*(FO.d[k]+3000),z2]);lim=NR+2;}}
         costa.push(W[0]);
         S.push({W,dist:FO.d[k],col,verde,ang:Math.atan2(dy,dx),lim});
       }
@@ -7781,6 +7810,10 @@ function escenaDiagnostico() {
 // Mismo formato que el paquete de Rumbo sin horizonte ni cerros: se puede abrir con #rumbo=z… en Kayak.
 async function escenaExportar() {
   const R = rutaActiva && (rutaActiva.R0 || rutaActiva); if (!R) return '';   // v133: la ruta original, sin el sentido
+  if (R.raw && R.raw.ll) {   // v155: el paquete entero como lo mandó Rumbo (con horizonte, tapas, edificios y calles); antes faltaban las montañas
+    const json = new TextEncoder().encode(JSON.stringify(R.raw)), u8b = u => { let b = ''; for (let i = 0; i < u.length; i += 8192) b += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+    if (!window.CompressionStream) return 'j' + u8b(json);
+    return 'z' + u8b(new Uint8Array(await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer())); }
   const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i += 8192) b += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   const aLL = (x, y) => [+(R.lat0 + y / R.ky).toFixed(6), +(R.lon0 + x / R.kx).toFixed(6)];
   const o = { name: R.nombre, loop: !!R.loop, mar: R.mar ? 1 : 0, marWhy: R.marWhy || undefined, his: R.his || undefined, marOwn: R.marOwn || undefined, edifWhy: R.edifWhy || undefined, callesWhy: R.callesWhy || undefined, edif: R.edifRaw && R.edifRaw.length ? R.edifRaw : undefined, calles: R.callesRaw && R.callesRaw.length ? R.callesRaw : undefined, ll: R.xy.map(p => aLL(p[0], p[1])),
