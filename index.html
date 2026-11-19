@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v155</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v156</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2661,6 +2661,15 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v156: 🐢 EL FANTASMA YA NO DA SALTOS HACIA ATRÁS EN LA SESIÓN (Hugo, 19-nov: "cuando hago la sesión con el
+         fantasma, éste da saltos (retrocesos) hacia atrás cada palada aproximadamente; en las repeticiones se ve
+         fluido"). Causa: tick() suma la distancia propia una vez por segundo, pero el fantasma se lee con el reloj
+         en cada cuadro. La diferencia (gap) crecía suave entre ticks y, en cada tick, la distancia propia daba un
+         escalón hacia adelante → el fantasma se achicaba de golpe (parecía retroceder). En las repeticiones los dos
+         avanzan con el mismo reloj, por eso eran fluidos. Ahora distanciaVivaSuave() estira la distancia propia
+         entre ticks con la velocidad vigente (como ya hacía la vista 3D con k3dDLast) y se usa para el gap del
+         fantasma, las boyas y la cámara del recorrido (que también iba a saltos de 1 s). Lo que se guarda
+         (distanciaM, puntos del TCX, meta) sigue siendo el valor entero por segundo, sin cambios.
    v155: 🏝️ MENORCA (Hugo, 18-nov, captura con la cámara alta en el km 2,78 y la escena copiada: "aparecen unos paneles raros en la animación" y
          "tampoco copia el relieve de Menorca"). (1) Los paneles eran la tierra lejana de K3D (franjas a 1,4 y 3 km tierra adentro, inventadas): en una
          península angosta cruzaban el agua y pasaban por encima del recorrido. Ahora se cortan donde caen sobre agua conocida (más cerca de un punto de
@@ -5887,7 +5896,7 @@ function renderSesionVivo() {
   if (rutaActiva && glkOn()) { try { if (dibujarK3D(ctx, w, h, horizonY)) return; } catch (e) { errorGL(e); } }   // v145: Kayak 3D (si no, lo de siempre)
   if (rutaActiva) dibujarEscenaRuta(ctx, w, h, horizonY, distanciaParaRuta()); // v106: recorrido de Rumbo con su paisaje
   else dibujarEscenaLago(ctx, w, h, horizonY);
-  dibujarBoyas(ctx, w, h, horizonY, sesionActiva ? sesionActiva.distanciaM : (rutaActiva ? rutaPreviewD : 0));
+  dibujarBoyas(ctx, w, h, horizonY, sesionActiva ? distanciaVivaSuave() : (rutaActiva ? rutaPreviewD : 0));
   const dDer = interpolarLadoEnSecuenciaK(tGlobalVivo, 'der');
   const dIzq = interpolarLadoEnSecuenciaK(tGlobalVivo, 'izq');
   const rotacion = interpolarRotacionEnSecuenciaK(tGlobalVivo);
@@ -5895,7 +5904,7 @@ function renderSesionVivo() {
   let gap = null;
   if (sesionActiva) {
     const tSeg = (Date.now() - sesionActiva.inicio) / 1000;
-    gap = calcularGapFantasma(sesionActiva.distanciaM, tSeg);
+    gap = calcularGapFantasma(distanciaVivaSuave(), tSeg);   // v156: sin el escalón de cada tick
   }
   // el fantasma se dibuja ANTES que el kayakista principal (detrás), semitransparente, para que
   // el modelo del usuario quede siempre como el foco principal aunque se solapen un poco.
@@ -8577,7 +8586,15 @@ function dibujarMapitaRuta(ctx, w, h, dTotal) {
   const txt = (d / 1000).toFixed(2).replace('.', ',') + ' / ' + (R.L / 1000).toFixed(1).replace('.', ',') + ' km' + (vuelta > 1 ? ' · vuelta ' + vuelta : '');
   ctx.strokeText(txt, x0, y0 + S + 13); ctx.fillText(txt, x0, y0 + S + 13);
 }
-function distanciaParaRuta() { return sesionActiva ? sesionActiva.distanciaM : rutaPreviewD; }
+// v156: distancia propia SOLO para dibujar: entre dos ticks (1 s) sigue avanzando con la velocidad vigente, así el gap con el
+// fantasma y la cámara no dan un escalón por segundo. Pura (sa = sesionActiva, ahoraMs = performance.now()).
+function distanciaVivaDe(sa, ahoraMs) {
+  if (!sa) return 0;
+  const dt = sa.tTick != null ? Math.max(0, Math.min(1.2, (ahoraMs - sa.tTick) / 1000)) : 0;
+  return sa.distanciaM + (sa.velAnterior > 0 ? sa.velAnterior : 0) * dt;
+}
+function distanciaVivaSuave() { return distanciaVivaDe(sesionActiva, performance.now()); }
+function distanciaParaRuta() { return sesionActiva ? distanciaVivaSuave() : rutaPreviewD; }
 // ---- elegir, borrar, vista previa ----
 async function cargarRutaActiva() {
   const nombre = lsGet(K_RUTA_ACTIVA, null);
@@ -8775,6 +8792,7 @@ function tick() {
   sesionActiva.velAnterior = vel;
   if (rpmAhora === 0) { const elR = document.getElementById('hudRPMSesion'); if (elR) elR.textContent = '0'; }
   sesionActiva.distanciaM += vel; // 1 tick = 1 segundo
+  sesionActiva.tTick = performance.now(); // v156: para estirar la distancia entre ticks al dibujar
   // cuenta cuántos segundos de la sesión quedaron "clampeados" (RPM fuera del rango calibrado,
   // así que la velocidad de ese segundo no es una interpolación real) — ver estaClampeadoRPM()
   if (fuente === 'rpm' && rpmAhora > 0 && estaClampeadoRPM(rpmAhora, puntosCalibRPM)) {
