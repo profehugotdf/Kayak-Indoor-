@@ -141,11 +141,36 @@
   #k3dCams{align-items:center;color:#cbd5e1}
   #k3dCams .btn-chico{padding:8px 12px;border-radius:10px;border:1px solid #475569;background:#1e293b;color:#e2e8f0;font-size:14px;min-height:40px}
   #k3dCams .btn-chico.activo{background:#0d9488;border-color:#2dd4bf;color:#fff}
+  /*NAVB-INI*/
+  /* Barra de navegación de abajo — MISMO bloque en Correr, Bici y Kayak: si se cambia acá, copiarlo idéntico a las otras dos. */
+  :root{--navbH:62px;}
+  #navB{position:fixed;left:0;right:0;bottom:0;z-index:9000;display:flex;background:var(--navbBg,#141922);border-top:1px solid rgba(255,255,255,.12);padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -4px 14px rgba(0,0,0,.35);}
+  #navB button{all:unset;box-sizing:border-box;flex:1 1 0;min-width:0;min-height:var(--navbH);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#9aa4b2;font:600 11px/1.1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;cursor:pointer;border-top:3px solid transparent;-webkit-tap-highlight-color:transparent;text-align:center;}
+  #navB button .i{font-size:22px;line-height:1;filter:grayscale(.55);opacity:.85;}
+  #navB button .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;padding:0 2px;}
+  #navB button.sel{color:#fff;border-top-color:var(--navbAcc,#4cc2ff);background:rgba(255,255,255,.04);}
+  #navB button.sel .i{filter:none;opacity:1;}
+  #navB button:active{background:rgba(255,255,255,.08);}
+  body.navb-on{padding-bottom:calc(var(--navbH) + env(safe-area-inset-bottom) + 10px) !important;}
+  body.navb-on.navb-oculta{padding-bottom:0 !important;}
+  body.navb-oculta #navB,body.navb-oculta #navbMas,body.navb-oculta #navbFondo{display:none !important;}
+  #navbFondo{position:fixed;inset:0;z-index:8998;background:rgba(0,0,0,.45);display:none;}
+  #navbMas{position:fixed;left:0;right:0;bottom:calc(var(--navbH) + env(safe-area-inset-bottom));z-index:8999;background:var(--navbBg,#141922);border-top:1px solid rgba(255,255,255,.14);border-radius:16px 16px 0 0;padding:10px 12px 12px;display:none;max-height:70vh;overflow-y:auto;}
+  #navbMas.abierto,#navbFondo.abierto{display:block;}
+  #navbMas .navb-tit{color:#9aa4b2;font:600 12px system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;margin:2px 4px 8px;}
+  #navbMas button{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:10px 12px;margin:0 0 6px;border-radius:12px;background:rgba(255,255,255,.05);color:#e6edf3;font:600 16px system-ui,sans-serif;cursor:pointer;}
+  #navbMas button .i{font-size:22px;width:28px;text-align:center;}
+  #navbMas button:active{background:rgba(255,255,255,.12);}
+  #navbAviso{position:fixed;left:12px;right:12px;bottom:calc(var(--navbH) + env(safe-area-inset-bottom) + 10px);z-index:9001;background:#5a1d1d;color:#fff;border-radius:10px;padding:10px 12px;font:14px system-ui,sans-serif;display:none;}
+  /*NAVB-FIN*/
+  /* v157: con la barra de abajo, las pestañas de arriba quedan escondidas (cambiarTabSinEvento las sigue usando) */
+  body.navb-on nav.tabs{display:none;}
+  body.navb-on:not(.navb-oculta) .toast{bottom:calc(20px + var(--navbH) + env(safe-area-inset-bottom));}
 </style>
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v156</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v157</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2661,6 +2686,10 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v157: 🧭 MISMA NAVEGACIÓN EN CORRER, BICI Y KAYAK (Hugo, 19-nov: "quiero unificar la forma de navegar por menúes y accesos en las apps de correr, bici y kayak"; eligió barra fija abajo que se esconde con la sesión en marcha). Barra fija abajo
+         (bloque NAVB, idéntico en las tres): Sesión · Entrenos · Historial · Carrera · Más (Calibración, Editor). Se
+         esconde mientras hay una sesión en marcha (con la mano transpirada no se cambia de pantalla sin querer) y
+         vuelve al finalizar. Las pestañas de arriba quedan escondidas: la barra llama a las mismas pantallas.
    v156: 🐢 EL FANTASMA YA NO DA SALTOS HACIA ATRÁS EN LA SESIÓN (Hugo, 19-nov: "cuando hago la sesión con el
          fantasma, éste da saltos (retrocesos) hacia atrás cada palada aproximadamente; en las repeticiones se ve
          fluido"). Causa: tick() suma la distancia propia una vez por segundo, pero el fantasma se lee con el reloj
@@ -10585,6 +10614,93 @@ renderSesionVivo();
 actualizarUIMeta();
 cargarRutaActiva().then(rumboImport); // v106
 document.querySelector('.editor-momento-btn[data-momento="traccionD"]').classList.add('sel');
+/*NAVB-INI*/
+/* ============================================================
+   Barra de navegación de abajo — MISMO bloque en Correr, Bici y Kayak (pedido de Hugo, 19-nov:
+   "unificar la forma de navegar por menúes y accesos"). Si se cambia acá, copiarlo idéntico a las
+   otras dos apps. Cada app solo llama a navbArmar() con SUS pantallas:
+     navbArmar({
+       acento: '#color',
+       items: [{id, ico, txt, ir}],      // los 4 de siempre: sesion, entrenos, historial, carrera
+       mas:   [{id, ico, txt, ir}],      // lo propio de cada app, en la hoja "Más"
+       actual: () => id | null,          // qué pantalla está a la vista (para marcar el botón)
+       enSesion: () => bool              // true = esconder la barra (sesión en marcha)
+     })
+   La barra no reemplaza las pantallas de cada app: llama a las funciones que ya abrían cada una.
+   ============================================================ */
+const NAVB = { cfg: null, sel: null, oculta: false, timer: null };
+function navbAviso(msg) {
+  let a = document.getElementById('navbAviso');
+  if (!a) { a = document.createElement('div'); a.id = 'navbAviso'; document.body.appendChild(a); }
+  a.textContent = msg; a.style.display = 'block';
+  clearTimeout(a._t); a._t = setTimeout(() => { a.style.display = 'none'; }, 5000);
+}
+function navbIr(it) {
+  try { it.ir(); } catch (e) { console.error(e); navbAviso('No pude abrir ' + it.txt + ': ' + (e && e.message || e)); return; }
+  try { window.scrollTo(0, 0); } catch (e) { /* sin scroll no pasa nada */ }
+}
+function navbMarcar(id) {
+  NAVB.sel = id;
+  document.querySelectorAll('#navB button').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
+}
+function navbMasAbrir() {
+  const m = document.getElementById('navbMas'), f = document.getElementById('navbFondo');
+  const abrir = !m.classList.contains('abierto');
+  m.classList.toggle('abierto', abrir); f.classList.toggle('abierto', abrir);
+}
+function navbMasCerrar() {
+  const m = document.getElementById('navbMas'), f = document.getElementById('navbFondo');
+  if (m) m.classList.remove('abierto'); if (f) f.classList.remove('abierto');
+}
+function navbChequear() {
+  const c = NAVB.cfg; if (!c) return;
+  let en = false; try { en = !!(c.enSesion && c.enSesion()); } catch (e) { console.error(e); }
+  if (en !== NAVB.oculta) { NAVB.oculta = en; document.body.classList.toggle('navb-oculta', en); if (en) navbMasCerrar(); }
+  let id = null; try { id = c.actual ? c.actual() : null; } catch (e) { console.error(e); }
+  if (id && id !== NAVB.sel) navbMarcar(id);
+}
+function navbArmar(cfg) {
+  NAVB.cfg = cfg;
+  let nav = document.getElementById('navB');
+  if (!nav) { nav = document.createElement('nav'); nav.id = 'navB'; nav.setAttribute('aria-label', 'Menú'); document.body.appendChild(nav); }
+  if (cfg.acento) document.documentElement.style.setProperty('--navbAcc', cfg.acento);
+  nav.innerHTML = '';
+  const boton = (it, padre) => {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.id = it.id;
+    b.innerHTML = '<span class="i">' + it.ico + '</span><span class="t">' + it.txt + '</span>';
+    padre.appendChild(b); return b;
+  };
+  cfg.items.forEach(it => { boton(it, nav).onclick = () => { navbMasCerrar(); navbIr(it); navbMarcar(it.id); }; });
+  boton({ id: 'mas', ico: '☰', txt: 'Más' }, nav).onclick = navbMasAbrir;
+  let fondo = document.getElementById('navbFondo');
+  if (!fondo) { fondo = document.createElement('div'); fondo.id = 'navbFondo'; document.body.appendChild(fondo); fondo.onclick = navbMasCerrar; }
+  let mas = document.getElementById('navbMas');
+  if (!mas) { mas = document.createElement('div'); mas.id = 'navbMas'; document.body.appendChild(mas); }
+  mas.innerHTML = '<div class="navb-tit">Más</div>';
+  (cfg.mas || []).forEach(it => { boton(it, mas).onclick = () => { navbMasCerrar(); navbIr(it); navbMarcar('mas'); }; });
+  document.body.classList.add('navb-on');
+  clearInterval(NAVB.timer); NAVB.timer = setInterval(navbChequear, 500);
+  navbChequear();
+}
+/*NAVB-FIN*/
+
+// v157: la barra común, conectada a las pestañas de siempre
+navbArmar({
+  acento: (getComputedStyle(document.documentElement).getPropertyValue('--ritmo') || '').trim() || '#4cc2ff',
+  items: [
+    { id: 'sesion', ico: '🛶', txt: 'Sesión', ir: () => cambiarTabSinEvento('sesion') },
+    { id: 'entrenos', ico: '📋', txt: 'Entrenos', ir: () => cambiarTabSinEvento('entrenos') },
+    { id: 'historial', ico: '📈', txt: 'Historial', ir: () => cambiarTabSinEvento('historial') },
+    { id: 'carrera', ico: '🏁', txt: 'Carrera', ir: () => cambiarTabSinEvento('carrera') },
+  ],
+  mas: [
+    { id: 'calibracion', ico: '📏', txt: 'Calibración', ir: () => cambiarTabSinEvento('calibracion') },
+    { id: 'editor', ico: '🛠️', txt: 'Editor de animación', ir: () => cambiarTabSinEvento('editor') },
+  ],
+  actual: () => { const v = document.querySelector('.view.activa'); const n = v ? v.id.replace('view-', '') : null;
+    return !n ? null : ['sesion', 'entrenos', 'historial', 'carrera'].includes(n) ? n : 'mas'; },
+  enSesion: () => !!sesionActiva,   // Kayak no tiene pausa: la barra vuelve al finalizar
+});
 </script>
 </body>
 </html>
