@@ -170,7 +170,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v157</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v158</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -263,7 +263,7 @@
           <option value="">Normal (como lo mandó Rumbo)</option><option value="inv">↔ Invertido (al revés)</option><option value="iyv">⇄ Ida y vuelta</option></select>
         <label class="fila" style="align-items:center; gap:8px; margin-bottom:4px;"><input type="checkbox" id="glOn" onchange="glCambio()" style="width:22px;height:22px;"> 🧊 Vista 3D (WebGL, como Kayak 3D)</label>
         <div id="k3dCams" style="display:flex; flex-wrap:wrap; gap:6px; margin:0 0 6px;">📷
-          <button type="button" class="btn-chico" onclick="k3dPonerCam(0)">Trasera</button><button type="button" class="btn-chico" onclick="k3dPonerCam(1)">Frontal</button><button type="button" class="btn-chico" onclick="k3dPonerCam(2)">Alta</button><button type="button" class="btn-chico" onclick="k3dPonerCam(3)">Primera persona</button>
+          <button type="button" class="btn-chico" onclick="k3dPonerCam(0)">Trasera</button><button type="button" class="btn-chico" onclick="k3dPonerCam(1)">Frontal</button><button type="button" class="btn-chico" onclick="k3dPonerCam(2)">Alta</button><button type="button" class="btn-chico" onclick="k3dPonerCam(3)">Primera persona</button><button type="button" class="btn-chico" onclick="k3dPonerCam(4)">🚁 Dron</button>
         </div>
         <p class="nota" style="margin:0 0 4px;">Tocando la vista también cambia la cámara.</p>
         <p class="nota" id="glInfo" style="margin:0 0 8px;"></p>
@@ -761,7 +761,7 @@
         <select id="selRutaCarrera" onchange="elegirRutaCarrera(this.value)" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--borde); background:var(--panel2,#1c2630); color:inherit;"></select></div>
       <div id="selectorCamaraCarrera" class="fila" style="flex-wrap:wrap;"></div>
       <div id="k3dCamsCarrera" class="fila" style="flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px;"><span class="nota" style="flex:none;">Vista:</span>
-        <button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(0)">Trasera</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(1)">Frontal</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(2)">Alta</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(3)">Primera persona</button>
+        <button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(0)">Trasera</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(1)">Frontal</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(2)">Alta</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(3)">Primera persona</button><button type="button" class="btn chico" style="width:auto;" onclick="k3dPonerCam(4)">🚁 Dron</button>
       </div>
       <div class="carrera-anim"><canvas id="canvasCarrera" height="260"></canvas></div>
       <div id="listaPosicionesCarrera" style="margin-top:10px;"></div>
@@ -2686,6 +2686,14 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v158: 🚁 FANTASMA SIEMPRE A LA VISTA Y CÁMARA DRON (Hugo, 22-nov: "que se vea siempre al fantasma en la sesión
+         en vivo, y un modo de vista dron haciendo transición suave entre las vistas mientras dura la sesión, o veo una
+         carrera virtual"). (1) El fantasma iba a la vista 3D solo cuando iba adelante; atrás desaparecía. Ahora va
+         siempre (dGhost), marcado como foco. (2) Trasera, Alta y Frontal se alejan y suben lo justo para que el
+         fantasma entre en cuadro cuando queda del lado que no ven (queda ~12 m más allá del fantasma, hasta 55–70 m, mirando al medio entre los dos); Primera persona queda igual.
+         (3) Cámara 5 "🚁 Dron": encadena tomas (atrás, costado bajo, grúa alta, de frente, giro amplio) cada 11 s con
+         3,5 s de transición suave y paneo lento; apunta al medio entre el kayak y el fantasma (en la carrera, al más
+         alejado del grupo a menos de 80 m) y se aleja según la separación. El punto al que mira también se suaviza.
    v157: 🧭 MISMA NAVEGACIÓN EN CORRER, BICI Y KAYAK (Hugo, 19-nov: "quiero unificar la forma de navegar por menúes y accesos en las apps de correr, bici y kayak"; eligió barra fija abajo que se esconde con la sesión en marcha). Barra fija abajo
          (bloque NAVB, idéntico en las tres): Sesión · Entrenos · Historial · Carrera · Más (Calibración, Editor). Se
          esconde mientras hay una sesión en marcha (con la mano transpirada no se cambia de pantalla sin querer) y
@@ -7191,7 +7199,7 @@ function update(dt,st){
   if(Tprev===null)S.c=(st.T-5)/4;else{const dT=((st.T-Tprev)%8+8)%8;if(dT<4)S.c+=dT/4;}
   Tprev=st.T;
   const p0=W3.ruta.at(S.distanciaM),lt=st.lat||0,pos={x:p0.x+Math.cos(p0.h)*lt,z:p0.z-Math.sin(p0.h)*lt,h:p0.h};   // v150: carril (m al costado de la ruta)
-  if(Math.hypot(pos.x-KP.x,pos.z-KP.z)>30){KP.eyeSm=null;KP.camYaw=pos.h;trail.length=0;}   // saltó (deslizador, otra ruta): la cámara no vuela hasta allá
+  if(Math.hypot(pos.x-KP.x,pos.z-KP.z)>30){KP.eyeSm=null;KP.tgtSm=null;KP.camYaw=pos.h;trail.length=0;}   // saltó (deslizador, otra ruta): la cámara no vuela hasta allá
   KP.x=pos.x;KP.z=pos.z;KP.h=pos.h;
   if(Math.floor(S.c)>Math.floor(cPrev)&&remando){
     const side=(Math.floor(S.c)%2===0)?1:-1;
@@ -7202,15 +7210,19 @@ function update(dt,st){
   if(last&&Math.hypot(KP.x-last.x,KP.z-last.z)>30)trail.length=0;      // saltó (deslizador, vuelta del circuito)
   if(!trail.length||Math.hypot(KP.x-trail[trail.length-1].x,KP.z-trail[trail.length-1].z)>0.8){trail.push({x:KP.x,z:KP.z,t:tWave,s:clamp(S.velMs/1.8,0,1.2)});if(trail.length>15)trail.shift();}
   buildPose(dt);
-  KP.otros=[];
+  KP.otros=[];KP.foco=null;let focoAuto=null;
   (st.otros||[]).forEach((o,n)=>{const GH=GHS[n]||(GHS[n]={c:0,act:0,Tp:null});
     const g=W3.ruta.at(o.d),lat=o.lat||0,gx=g.x+Math.cos(g.h)*lat,gz=g.z-Math.sin(g.h)*lat,hg=waveH(gx,gz)*0.85,gc=o.cad||0;
     GH.act+=((gc>2?1:0)-GH.act)*(1-Math.exp(-dt/0.5));
     if(GH.Tp===null)GH.c=(o.T-5)/4;else{const dT=((o.T-GH.Tp)%8+8)%8;if(dT<4)GH.c+=dT/4;}
     GH.Tp=o.T;
     const M=M4.mul(M4.mul(M4.T(gx,hg,gz),M4.RY(g.h)),M4.RZ(-0.05*Math.cos(Math.PI*GH.c)*GH.act));
-    KP.otros.push({draws:piezas(GH.c,GH.act,M,false),tint:o.tint||[.62,.68,.78]});});
+    KP.otros.push({draws:piezas(GH.c,GH.act,M,false),tint:o.tint||[.62,.68,.78]});
+    // v158: a quién encuadrar: el fantasma de la sesión (foco), o en el dron el más alejado del grupo a menos de 80 m (carrera)
+    const rel=o.d-S.distanciaM,fp={x:gx,z:gz,rel};
+    if(o.foco)KP.foco=fp;else if(Math.abs(rel)<=80&&(!focoAuto||Math.abs(rel)>Math.abs(focoAuto.rel)))focoAuto=fp;});
   GHS.length=(st.otros||[]).length;
+  if(!KP.foco&&cfg.camara===4)KP.foco=focoAuto;
 }
 
 let KF_APP=null;
@@ -7292,10 +7304,31 @@ function buildPose(dt){
   const kp=[x,hgt,z];
   let eye,tgt;
   const m=cfg.camara;
-  if(m===0){eye=V.add(V.sub(kp,V.mul(cf,7.2)),[0,2.3,0]);tgt=V.add(V.add(kp,V.mul(cf,4)),[0,.7,0]);}
-  else if(m===1){eye=V.add(V.add(kp,V.mul(fw,6.5)),[0,1.7,0]);tgt=V.add(kp,[0,.75,0]);}
-  else if(m===2){eye=V.add(V.sub(kp,V.mul(cf,14)),[0,9,0]);tgt=V.add(kp,V.mul(cf,8));}
+  // v158: el fantasma siempre en cuadro: si queda del lado que la vista no ve (atrás en Trasera/Alta, adelante en Frontal),
+  // la cámara se aleja y sube lo justo para que entre (hasta 45–60 m); la Primera persona queda igual.
+  const F=KP.foco&&Math.abs(KP.foco.rel)<200?KP.foco:null,relF=F?F.rel:0;
+  // con el foco del lado que no se ve: la cámara queda ~12 m más allá del fantasma y mira entre los dos
+  const medio=F?[x*0.4+F.x*0.6,hgt+.7,z*0.4+F.z*0.6]:null;   // un poco más cerca del fantasma: si no, queda pegado al borde de abajo
+  if(m===0){const b=relF<-2?clamp(-relF+12,7.2,55):7.2;eye=V.add(V.sub(kp,V.mul(cf,b)),[0,2.3+(b-7.2)*0.28,0]);tgt=b>7.2?medio:V.add(V.add(kp,V.mul(cf,4)),[0,.7,0]);}
+  else if(m===1){const b=relF>2?clamp(relF+12,6.5,55):6.5;eye=V.add(V.add(kp,V.mul(fw,b)),[0,1.7+(b-6.5)*0.28,0]);tgt=b>6.5?medio:V.add(kp,[0,.75,0]);}
+  else if(m===2){const b=relF<-6?clamp(-relF+14,14,70):14;eye=V.add(V.sub(kp,V.mul(cf,b)),[0,9+(b-14)*0.4,0]);tgt=b>14?medio:V.add(kp,V.mul(cf,8));}
+  else if(m===4){
+    // v158: 🚁 DRON — tomas que se encadenan solas (cada 11 s, con 3,5 s de transición suave), con un paneo lento dentro de cada toma.
+    // Cada toma = [ángulo alrededor del kayak (π = atrás, 0 = adelante), distancia, altura]. Siempre apunta al medio entre el kayak y el foco.
+    const TOMAS=[[Math.PI,9,3.2],[Math.PI*0.6,11,2.2],[Math.PI*0.85,24,15],[0.2,9,1.8],[-Math.PI*0.55,15,5.5]];
+    const DUR=11,TR=3.5,tt=tWave/DUR,i=Math.floor(tt)%TOMAS.length,j=(i+1)%TOMAS.length,u=tt-Math.floor(tt);
+    const x0=1-TR/DUR,su=u<x0?0:(u-x0)/(TR/DUR),sm=su*su*(3-2*su);
+    const A=TOMAS[i],B=TOMAS[j],pan=0.35;
+    const ang=lerp(A[0]+pan*(u-0.5),B[0]-pan*0.5,sm);
+    let dist=lerp(A[1],B[1],sm),alt=lerp(A[2],B[2],sm);
+    let c=V.add(kp,[0,.6,0]);
+    if(F){const sep=Math.hypot(F.x-x,F.z-z);c=[(x+F.x)/2,hgt+.6,(z+F.z)/2];dist=Math.max(dist,sep*0.8+6);alt+=sep*0.18;}
+    const a=KP.camYaw+ang;
+    eye=V.add(c,[Math.sin(a)*dist,alt,Math.cos(a)*dist]);tgt=c;
+  }
   else{eye=M4.pt(Mk,[0,1.0,-0.02]);tgt=M4.pt(Mk,[0,.55,8]);}
+  // el punto al que mira también se suaviza (si no, al aparecer o irse el foco la vista daría un salto)
+  if(m!==3){if(!KP.tgtSm)KP.tgtSm=tgt.slice();const kt=1-Math.exp(-dt/0.35);KP.tgtSm=[lerp(KP.tgtSm[0],tgt[0],kt),lerp(KP.tgtSm[1],tgt[1],kt),lerp(KP.tgtSm[2],tgt[2],kt)];tgt=KP.tgtSm.slice();}else KP.tgtSm=null;
   if(m!==3){
     if(!KP.eyeSm)KP.eyeSm=eye.slice();
     const k=1-Math.exp(-dt/0.22);
@@ -7416,7 +7449,7 @@ function draw(ctx,w,h,st){
     if(st.clima)E.setClima(st.clima);E.setCam(st.cam|0);E.setKF(st.kf||null);
     const L=E.L(),k=st.Lapp>0?L/st.Lapp:1,dd=st.dRuta*k;
     const t0=performance.now();
-    E.update(dt,{d:dd,dHz:st.dRuta,lat:st.lat||0,wind:st.wind?(()=>{const a=(st.wind.dir+180)*Math.PI/180,V=st.wind.v||0;return [-Math.sin(a),Math.cos(a),Math.max(0,Math.min(1,(V-1.5)/8)),V>1.5?0.4+V*0.12:0];})():null,velMs:st.velMs||0,cad:st.cad||0,T:st.T||0,otros:(st.otros||(st.ghost!=null?[{d:st.ghost,T:st.ghostT||0,cad:st.ghostCad||0,lat:2}]:[])).map(o=>Object.assign({},o,{d:o.d*k}))});
+    E.update(dt,{d:dd,dHz:st.dRuta,lat:st.lat||0,wind:st.wind?(()=>{const a=(st.wind.dir+180)*Math.PI/180,V=st.wind.v||0;return [-Math.sin(a),Math.cos(a),Math.max(0,Math.min(1,(V-1.5)/8)),V>1.5?0.4+V*0.12:0];})():null,velMs:st.velMs||0,cad:st.cad||0,T:st.T||0,otros:(st.otros||(st.ghost!=null?[{d:st.ghost,T:st.ghostT||0,cad:st.ghostCad||0,lat:2,foco:true}]:[])).map(o=>Object.assign({},o,{d:o.d*k}))});
     E.resize(w,h);E.render();
     ctx.drawImage(E.cv,0,0,w,h);
     ms=ms*0.9+(performance.now()-t0)*0.1;
@@ -8417,10 +8450,10 @@ function errorGL(e) { console.warn(e); if (!glErrAvisado) { glErrAvisado = true;
 /* v145: Kayak 3D en la sesión y la vista previa. El paquete sale de la ruta ya con su sentido (bytes de orillas y perfil, horizonte con inv/fold),
    más los edificios, calles y elems de Rumbo. La distancia de la sesión sube de a un segundo: acá se interpola con la velocidad para que el kayak avance parejo. */
 // v146: cámara (como en Kayak 3D): 0 trasera, 1 frontal, 2 alta, 3 primera persona. Se cambia tocando la vista o con los botones de la tarjeta Recorrido.
-const K_K3D_CAM = LS_PREFIX + 'k3d_cam', K3D_CAMS = ['Trasera', 'Frontal', 'Alta', 'Primera persona'];
-let k3dCam = (() => { try { const v = parseInt(localStorage.getItem(K_K3D_CAM), 10); return v >= 0 && v < 4 ? v : 0; } catch (e) { return 0; } })(), k3dCamCartel = 0, k3dActiva = false;
+const K_K3D_CAM = LS_PREFIX + 'k3d_cam', K3D_CAMS = ['Trasera', 'Frontal', 'Alta', 'Primera persona', 'Dron'];
+let k3dCam = (() => { try { const v = parseInt(localStorage.getItem(K_K3D_CAM), 10); return v >= 0 && v < K3D_CAMS.length ? v : 0; } catch (e) { return 0; } })(), k3dCamCartel = 0, k3dActiva = false;
 function k3dPonerCam(i) {
-  k3dCam = ((i % 4) + 4) % 4; k3dCamCartel = performance.now();
+  const n = K3D_CAMS.length; k3dCam = ((i % n) + n) % n; k3dCamCartel = performance.now();
   try { localStorage.setItem(K_K3D_CAM, String(k3dCam)); } catch (e) { toast('No pude guardar la cámara: ' + e.message); }
   document.querySelectorAll('#k3dCams button').forEach((b, j) => b.classList.toggle('activo', j === k3dCam));
   document.querySelectorAll('#k3dCamsCarrera button').forEach((b, j) => b.classList.toggle('sel', j === k3dCam));   // v154
@@ -8458,11 +8491,13 @@ function dibujarK3D(ctx, w, h, horizonY) {
   } else if (rutaPlayRAF) vel = 3;
   const d = distanciaEnRuta(R, dT);
   let gCad = 0;
-  if (gap != null && gap < 0) { gCad = k3dCadFantasma((Date.now() - sesionActiva.inicio) / 1000, cad, vel);
+  // v158: el fantasma va a la vista 3D adelante Y atrás (antes solo si iba adelante: atrás desaparecía)
+  const dGhost = gap != null && dT - gap >= 0 ? dT - gap : null;
+  if (dGhost != null) { gCad = k3dCadFantasma((Date.now() - sesionActiva.inicio) / 1000, cad, vel);
     const dtG = k3dGLast ? Math.min(0.1, (now - k3dGLast) / 1000) : 0; k3dGT = (k3dGT + (gCad / 15) * dtG) % 8; }
   k3dGLast = now;
   const ok = K3D.draw(ctx, w, h, { key: R.nombre + '|' + (R.sentido || '') + '|' + Math.round(R.L), o: k3dPaquete(R), dRuta: d, Lapp: R.L, velMs: vel, cad, T: tGlobalVivo,
-    ghost: gap != null && gap < 0 ? distanciaEnRuta(R, dT - gap) : null, ghostT: k3dGT, ghostCad: gCad, clima: k3dClima(R), cam: k3dCam, wind: wxPara(R), kf: typeof editorDatos !== 'undefined' ? editorDatos : null });
+    ghost: dGhost != null ? distanciaEnRuta(R, dGhost) : null, ghostT: k3dGT, ghostCad: gCad, clima: k3dClima(R), cam: k3dCam, wind: wxPara(R), kf: typeof editorDatos !== 'undefined' ? editorDatos : null });
   k3dActiva = ok;
   if (!ok) return false;
   if (now - k3dCamCartel < 1600) {   // v146: cartel de la cámara elegida
