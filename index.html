@@ -170,7 +170,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v158</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v159</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -2686,6 +2686,13 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v159: 👻 EL FANTASMA DEL 3D YA NO SALTA PARA ATRÁS (Hugo, 23-nov: "el fantasma sigue dando saltos de retroceso cada
+         un segundo aproximadamente; quiero que se vea tan fluido como el kayakista en vivo"). En dibujarK3D la posición del
+         fantasma salía de dT − gap, con dT suavizado pero el gap calculado con la distancia ENTERA de cada segundo: el
+         fantasma heredaba el serrucho (avanzaba con vos entre ticks y volvía en cada tick). Ahora dT = distanciaVivaSuave()
+         y el gap se calcula contra esa misma distancia. Además el fantasma va por una curva suave entre sus puntos de 1 s
+         (distanciaFantasmaSuaveEnT, Catmull-Rom acotada: pasa por los mismos puntos y nunca retrocede), así su velocidad
+         no cambia de golpe cada segundo. Lo usan el 3D y el 2D; lo que se guarda y el resultado final no cambian.
    v158: 🚁 FANTASMA SIEMPRE A LA VISTA Y CÁMARA DRON (Hugo, 22-nov: "que se vea siempre al fantasma en la sesión
          en vivo, y un modo de vista dron haciendo transición suave entre las vistas mientras dura la sesión, o veo una
          carrera virtual"). (1) El fantasma iba a la vista 3D solo cuando iba adelante; atrás desaparecía. Ahora va
@@ -5470,6 +5477,30 @@ function distanciaFantasmaEnT(puntos, tSeg) {
   }
   return ultimo.distAcum;
 }
+// v159: posición del fantasma SOLO para dibujar: curva suave (Catmull-Rom) entre los puntos de 1 s de la sesión guardada, en vez de
+// rectas. Con rectas la velocidad cambiaba de golpe cada segundo (el fantasma "tironeaba"); la curva pasa por los mismos puntos,
+// así que la distancia de cada segundo no cambia. Nunca retrocede: se acota entre los dos puntos del tramo. Pura.
+function distanciaFantasmaSuaveEnT(puntos, tSeg) {
+  if (!puntos || puntos.length < 2) return distanciaFantasmaEnT(puntos, tSeg);
+  const n = puntos.length;
+  if (tSeg <= puntos[0].t || tSeg >= puntos[n - 1].t) return distanciaFantasmaEnT(puntos, tSeg);
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (puntos[m].t <= tSeg) lo = m; else hi = m; }
+  const a = puntos[lo], b = puntos[hi], dt = b.t - a.t;
+  if (!(dt > 0)) return a.distAcum;
+  const u = (tSeg - a.t) / dt;
+  const p0 = lo > 0 ? puntos[lo - 1] : a, p3 = hi < n - 1 ? puntos[hi + 1] : b;
+  // pendientes (m/s) en a y b, como velocidades promedio de los tramos vecinos
+  const ma = (b.distAcum - p0.distAcum) / Math.max(1e-6, b.t - p0.t), mb = (p3.distAcum - a.distAcum) / Math.max(1e-6, p3.t - a.t);
+  const u2 = u * u, u3 = u2 * u;
+  const d = (2 * u3 - 3 * u2 + 1) * a.distAcum + (u3 - 2 * u2 + u) * dt * ma + (-2 * u3 + 3 * u2) * b.distAcum + (u3 - u2) * dt * mb;
+  return Math.max(a.distAcum, Math.min(b.distAcum, d));
+}
+function gapFantasmaVivo(distanciaPropiaM, tSeg) {
+  const f = obtenerFantasma();
+  if (!f || !f.puntos || !f.puntos.length) return null;
+  return distanciaPropiaM - distanciaFantasmaSuaveEnT(f.puntos, tSeg);
+}
 function obtenerFantasma() {
   const id = lsGet(K_FANTASMA_ID, null);
   if (!id) return null;
@@ -5941,7 +5972,7 @@ function renderSesionVivo() {
   let gap = null;
   if (sesionActiva) {
     const tSeg = (Date.now() - sesionActiva.inicio) / 1000;
-    gap = calcularGapFantasma(distanciaVivaSuave(), tSeg);   // v156: sin el escalón de cada tick
+    gap = gapFantasmaVivo(distanciaVivaSuave(), tSeg);   // v156: sin el escalón de cada tick; v159: fantasma en curva suave
   }
   // el fantasma se dibuja ANTES que el kayakista principal (detrás), semitransparente, para que
   // el modelo del usuario quede siempre como el foco principal aunque se solapen un poco.
@@ -8485,9 +8516,10 @@ function dibujarK3D(ctx, w, h, horizonY) {
   const now = performance.now(); let dT = distanciaParaRuta(), vel = 0, cad = 0, gap = null;
   if (sesionActiva) {
     vel = sesionActiva.velAnterior || 0; cad = k3dCad || 0;
-    if (k3dDLast !== sesionActiva.distanciaM) { k3dDLast = sesionActiva.distanciaM; k3dTLast = now; }
-    dT = sesionActiva.distanciaM + vel * Math.min(1.2, (now - k3dTLast) / 1000);
-    gap = calcularGapFantasma(sesionActiva.distanciaM, (Date.now() - sesionActiva.inicio) / 1000);
+    // v159: la misma distancia suave que el 2D, y el gap contra ESA distancia (antes se restaba la distancia entera de cada segundo
+    // y el fantasma del 3D saltaba para atrás en cada tick: Hugo, 23-nov)
+    dT = distanciaVivaSuave();
+    gap = gapFantasmaVivo(dT, (Date.now() - sesionActiva.inicio) / 1000);
   } else if (rutaPlayRAF) vel = 3;
   const d = distanciaEnRuta(R, dT);
   let gCad = 0;
