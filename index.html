@@ -170,7 +170,7 @@
 </head>
 <body>
 <header>
-  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v159</span></div>
+  <div class="titulowrap"><h1>Kayak Indoor</h1><span class="ver">v160</span></div>
 </header>
 <nav class="tabs">
   <button class="sel" onclick="cambiarTab('sesion')">🛶 Sesión</button>
@@ -753,8 +753,15 @@
   <!-- ============ CARRERA VIRTUAL (replay de sesiones del Historial) ============ -->
   <section class="view" id="view-carrera">
     <div class="card" id="cardCarreraVacia">
-      <p class="nota">Elegí hasta 3 sesiones con el botón 🏁 en Historial, y tocá "Ver carrera" —
-        acá se ven corriendo juntas, cada una a partir de su propio track guardado.</p>
+      <h2>🏁 Carrera virtual</h2>
+      <p class="nota">Elegí hasta 3 sesiones y miralas correr juntas, cada una con su track guardado.</p>
+      <div class="fila" style="gap:6px; flex-wrap:wrap; margin:8px 0;">
+        <button type="button" class="btn chico" style="width:auto;" onclick="carreraElegirRapido('ultimas')">🕐 Últimas 3</button>
+        <button type="button" class="btn chico" style="width:auto;" onclick="carreraElegirRapido('rapidas')">⚡ Las 3 más rápidas</button>
+        <button type="button" class="btn chico" style="width:auto;" onclick="carreraElegirRapido('limpiar')">Limpiar</button>
+      </div>
+      <div id="listaCarreraElegir"></div>
+      <button type="button" class="btn" id="btnVerCarreraAqui" style="margin-top:10px;" onclick="verCarreraVirtual()">🏁 Ver carrera</button>
     </div>
     <div class="card" id="cardCarreraActiva" style="display:none;">
       <div class="fila" style="margin-bottom:6px; align-items:center;"><span class="nota" style="flex:none;">Escenario:</span>
@@ -777,7 +784,7 @@
         <button class="btn chico" onclick="cambiarVelocidadCarrera(5)">5x</button>
         <button class="btn chico" onclick="cambiarVelocidadCarrera(10)">10x</button>
       </div>
-      <button class="btn" style="margin-top:8px;" onclick="volverDeCarrera()">Volver</button>
+      <button class="btn" style="margin-top:8px;" onclick="volverDeCarrera()">🔁 Elegir otras sesiones</button>
     </div>
   </section>
 
@@ -2686,6 +2693,12 @@
          De Rumbo (misma entrega): la costa de OpenStreetMap se pide a los tres
          servidores a la vez, con hasta 60 s y un reintento (antes uno por vez y se
          cortaba a los 25 s: de ahí el mar:0).
+   v160: 🏁 LA PESTAÑA CARRERA TIENE SU PROPIO SELECTOR (Hugo, 27-nov, con captura: "esta solapa es inútil en la
+         app, no tiene ningún botón"; solo decía que había que ir a Historial). Ahora lista las sesiones con track
+         (renderCarreraElegir: fecha, distancia, tiempo y km/h; tocar marca 1, 2, 3 con el color del corredor), con
+         atajos "Últimas 3", "Las 3 más rápidas" (de 5 min o más) y "Limpiar", y el botón "Ver carrera (N)". Usa la
+         misma selección que el 🏁 de Historial (carreraSeleccion). Desde una carrera, "Elegir otras sesiones" vuelve a
+         este selector en vez de mandar a Historial.
    v159: 👻 EL FANTASMA DEL 3D YA NO SALTA PARA ATRÁS (Hugo, 23-nov: "el fantasma sigue dando saltos de retroceso cada
          un segundo aproximadamente; quiero que se vea tan fluido como el kayakista en vivo"). En dibujarK3D la posición del
          fantasma salía de dT − gap, con dT suavizado pero el gap calculado con la distancia ENTERA de cada segundo: el
@@ -5545,6 +5558,45 @@ function toggleCarreraSeleccion(id) {
   }
   renderHistorial();
 }
+// v160: la pestaña Carrera tiene su propio selector (Hugo, 27-nov: "esta solapa es inútil, no tiene ningún botón").
+// Lista las sesiones con track (las que se pueden correr), con atajos; usa la misma selección que el 🏁 de Historial.
+function carreraSesionesConTrack() {
+  return [...lsGet(K_SESIONES, [])].filter(s => s.puntos && s.puntos.length > 1).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+}
+function carreraElegirRapido(modo) {
+  const ses = carreraSesionesConTrack();
+  if (modo === 'limpiar') carreraSeleccion = [];
+  else if (modo === 'ultimas') carreraSeleccion = ses.slice(0, 3).map(s => s.id);
+  else if (modo === 'rapidas') carreraSeleccion = ses.filter(s => s.duracionSeg >= 300 && s.distanciaM > 0)
+    .sort((a, b) => b.distanciaM / b.duracionSeg - a.distanciaM / a.duracionSeg).slice(0, 3).map(s => s.id);
+  renderCarreraElegir();
+}
+function carreraToggleAqui(id) {
+  const i = carreraSeleccion.indexOf(id);
+  if (i >= 0) carreraSeleccion.splice(i, 1);
+  else { if (carreraSeleccion.length >= 3) { toast('Máximo 3 sesiones por carrera'); return; } carreraSeleccion.push(id); }
+  renderCarreraElegir();
+}
+function renderCarreraElegir() {
+  const el = document.getElementById('listaCarreraElegir'), btn = document.getElementById('btnVerCarreraAqui');
+  if (!el) return;
+  const ses = carreraSesionesConTrack();
+  carreraSeleccion = carreraSeleccion.filter(id => ses.some(s => s.id === id));
+  if (!ses.length) { el.innerHTML = '<p class="nota">Todavía no hay sesiones con track guardado. Hacé una sesión y va a aparecer acá.</p>'; btn.style.display = 'none'; return; }
+  el.innerHTML = ses.slice(0, 40).map(s => {
+    const k = carreraSeleccion.indexOf(s.id), on = k >= 0;
+    const kmh = s.duracionSeg > 0 ? (s.distanciaM / s.duracionSeg * 3.6) : 0;
+    return '<button type="button" onclick="carreraToggleAqui(\'' + s.id + '\')" style="display:flex; align-items:center; gap:10px; width:100%; text-align:left; margin:0 0 6px; padding:10px 12px; border-radius:10px; cursor:pointer; font:inherit; color:inherit;' +
+      'background:var(--panel2,#1b2230); border:1px solid ' + (on ? CARRERA_COLORES[k] : 'var(--borde,#2a3340)') + ';">' +
+      '<span style="flex:none; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; ' +
+        (on ? 'background:' + CARRERA_COLORES[k] + '; color:#0b0f14;' : 'border:2px solid var(--borde,#2a3340);') + '">' + (on ? (k + 1) : '') + '</span>' +
+      '<span style="flex:1; min-width:0;"><b>' + (s.esCalibracion ? '📏 ' : '') + formatearFecha(s.fecha) + '</b><br><span class="nota">' + s.distanciaM + ' m · ' + segAHMS(s.duracionSeg) + ' · ' + kmh.toFixed(1).replace('.', ',') + ' km/h</span></span></button>';
+  }).join('') + (ses.length > 40 ? '<p class="nota">Se muestran las 40 más recientes; las anteriores se eligen con 🏁 en Historial.</p>' : '');
+  btn.style.display = '';
+  btn.disabled = !carreraSeleccion.length;
+  btn.style.opacity = carreraSeleccion.length ? '1' : '0.5';
+  btn.textContent = carreraSeleccion.length ? '🏁 Ver carrera (' + carreraSeleccion.length + ')' : '🏁 Elegí al menos una sesión';
+}
 function actualizarCardCarreraSeleccion() {
   const card = document.getElementById('cardCarreraSeleccion');
   const lista = document.getElementById('listaCarreraSeleccion');
@@ -5681,7 +5733,9 @@ function scrubCarrera(valor) {
 function volverDeCarrera() {
   carreraPlaying = false;
   if (carreraRAF) cancelAnimationFrame(carreraRAF);
-  cambiarTab('historial');
+  // v160: vuelve al selector de la propia pestaña (antes mandaba a Historial); la selección queda para retocarla
+  carreraCorredores = [];
+  cambiarTabSinEvento('carrera');
 }
 function loopCarrera(ts) {
   if (!carreraPlaying) { carreraRAF = null; return; }
@@ -10657,6 +10711,7 @@ function cambiarTab(nombre) {
   else pararEditorPreviewLoop(); // no seguir animando de fondo si salís del Editor
   if (nombre === 'carrera') {
     document.getElementById('cardCarreraVacia').style.display = carreraCorredores.length ? 'none' : 'block';
+    if (!carreraCorredores.length) renderCarreraElegir();   // v160
     document.getElementById('cardCarreraActiva').style.display = carreraCorredores.length ? 'block' : 'none';
     if (carreraCorredores.length) renderCarrera();
   } else if (carreraRAF) { cancelAnimationFrame(carreraRAF); carreraRAF = null; carreraPlaying = false; }
